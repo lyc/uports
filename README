@@ -1,0 +1,9 @@
+What's uPorts
+
+- Plan to have a simple package manager to help software development
+- Use this simple package manager to manage 3rdparty OSS packages
+  which was needed during software development
+- These 3rdparty OSS packages may include libraries, toolchain and utilities ...
+- Target to clone this simple package manager from FreeBSD Ports system
+- We call this simple package manager as "uPorts" (mirco Ports) because
+  it will be kept as simple as possible
