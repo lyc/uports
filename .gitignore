@@ -1,0 +1,13 @@
+.DS_Store
+.deps
+.libs
+*.la
+*.lo
+*.o
+work*
+distfiles
+packages
+scm
+rel
+.git
+.txz
