@@ -55,7 +55,7 @@ DO_NADA			?= true
 
 ifeq ($(filter $(override_targets),pre-everything),)
 pre-everything::
-	@echo "  pre-everything..."
+	@$(kecho) "  $@..."
 	@$(DO_NADA)
 endif
 
@@ -65,21 +65,23 @@ endif
 
 ifeq ($(filter $(override_targets),do-fetch),)
 do-fetch:
-	@echo "  do-fetch..."
+	@$(kecho) "  $@..."
 endif
 
 #
 # Extract...
 #
 
+quiet_cmd_wrkdir	?=
+      cmd_wrkdir	?= set -e; [ -d $(WRKDIR) ] || mkdir -p $(WRKDIR)
+
 .PHONY: wrkdir
 wrkdir:
-	@echo "  wrkdir..."
-	@[ -d $(WRKDIR) ] || mkdir -p $(WRKDIR)
+	$(call cmd,wrkdir)
 
 ifeq ($(filter $(override_targets),do-extract),)
 do-extract: wrkdir $(EXTRACT_ONLY)
-	@echo "  do-extract..."
+	@$(kecho) "  $@..."
 endif
 
 #
@@ -88,7 +90,7 @@ endif
 
 ifeq ($(filter $(override_targets),do-patch),)
 do-patch:
-	@echo "  do-patch..."
+	@$(kecho) "  $@..."
 endif
 
 #
@@ -101,7 +103,7 @@ endif
 
 ifeq ($(filter $(override_targets),do-configure),)
 do-configure:
-	@echo "  do-configure..."
+	@$(kecho) "  $@..."
 endif
 
 #
@@ -110,7 +112,7 @@ endif
 
 ifeq ($(filter $(override_targets),do-build),)
 do-build:
-	@echo "  do-build..."
+	@$(kecho) "  $@..."
 endif
 
 #- check-conflicts:
@@ -121,7 +123,7 @@ endif
 
 ifeq ($(filter $(override_targets),do-install),)
 do-install:
-	@echo "  do-install..."
+	@$(kecho) "  $@..."
 endif
 
 #
@@ -130,7 +132,7 @@ endif
 
 ifeq ($(filter $(override_targets),do-package),)
 do-package:
-	@echo "  do-package..."
+	@$(kecho) "  $@..."
 endif
 
 #- package-links: delete-package-links
@@ -228,17 +230,17 @@ $(foreach t,$(cookie_targets),						\
     $(call generate-cookie-targets,$t,$(call uppercase-target,$t))))
 
 extract-message:
-	@echo "  EXTRACT $(PKGNAME)"
+	@$(kecho) "  EXTRACT $(PKGNAME)"
 patch-message:
-	@echo "  PATCH   $(PKGNAME)"
+	@$(kecho) "  PATCH   $(PKGNAME)"
 configure-message:
-	@echo "  CONFIGURE $(PKGNAME)"
+	@$(kecho) "  CONFIGURE $(PKGNAME)"
 build-message:
-	@echo "  BUILD   $(PKGNAME)"
+	@$(kecho) "  BUILD   $(PKGNAME)"
 install-message:
-	@echo "  INSTALL $(PKGNAME)"
+	@$(kecho) "  INSTALL $(PKGNAME)"
 package-message:
-	@echo "  PACKAGE $(PKGNAME)"
+	@$(kecho) "  PACKAGE $(PKGNAME)"
 
 ################################################################
 # Some more target supplied for users' convenience
@@ -253,7 +255,7 @@ package-message:
 
 ifeq ($(filter $(override_targets),do-clean),)
 do-clean:
-	@echo "  CLEAN     $(PKGNAME)";					\
+	@$(kecho) "  CLEAN     $(PKGNAME)";				\
 	if [ -d $(WRKSRC) ]; then					\
 	    (cd $(WRKSRC) && make clean);				\
 	    rm -fr $(BUILD_COOKIE);					\
@@ -275,12 +277,12 @@ endif
 
 ifeq ($(filter $(override_target),do-distclean),)
 do-distclean:
-	@echo "  DISTCLEAN $(PKGNAME)";					\
+	@$(kecho) "  DISTCLEAN $(PKGNAME)";				\
 	if [ -d $(WRKDIR) ]; then					\
 		if [ -w $(WRKDIR) ]; then				\
 			rm -fr $(WRKDIR);				\
 		else							\
-			echo "  ERR     $(WRKDIR) not writable, skipping"; \
+			$(kecho) "  ERR     $(WRKDIR) not writable, skipping"; \
 		fi;							\
 	fi
 endif

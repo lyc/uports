@@ -2,6 +2,10 @@
 # linux.port.pre.mk
 #
 
+ifneq ($(PORTS_PARTIAL_SPECIALIZATION),yes)
+include $(PORTSDIR)/linux.debug.mk
+endif
+
 $(if $(_PREMKINCLUDED),							\
   $(error $(PKGNAME): You cannot inlcude linux.port[.pre].mk twice))
 _PREMKINCLUDED		:= yes
