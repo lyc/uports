@@ -42,7 +42,6 @@ maintainer:
 endif
 
 check-categories:
-	@$(kecho) "  $@..."
 
 ################################################################
 # The following are used to create easy dummy target for
@@ -68,11 +67,9 @@ check-categories:
 #
 
 check-license:
-	@$(kecho) "  $@..."
 
 ifeq ($(filter $(override_targets),pre-everything),)
 pre-everything::
-	@$(kecho) "  $@..."
 	@$(DO_NADA)
 endif
 
@@ -82,7 +79,6 @@ endif
 
 ifeq ($(filter $(override_targets),do-fetch),)
 do-fetch:
-	@$(kecho) "  $@..."
 endif
 
 #
@@ -98,7 +94,6 @@ wrkdir:
 
 ifeq ($(filter $(override_targets),do-extract),)
 do-extract: wrkdir $(EXTRACT_ONLY)
-	@$(kecho) "  $@..."
 endif
 
 #
@@ -106,11 +101,9 @@ endif
 #
 
 ask-license:
-	@$(kecho) "  $@..."
 
 ifeq ($(filter $(override_targets),do-patch),)
 do-patch:
-	@$(kecho) "  $@..."
 endif
 
 #
@@ -118,15 +111,11 @@ endif
 #
 
 run-autotools-fixup:
-	@$(kecho) "  $@..."
 configure-autotools:
-	@$(kecho) "  $@..."
 run-autotools:
-	@$(kecho) "  $@..."
 
 ifeq ($(filter $(override_targets),do-configure),)
 do-configure:
-	@$(kecho) "  $@..."
 endif
 
 #
@@ -135,7 +124,6 @@ endif
 
 ifeq ($(filter $(override_targets),do-build),)
 do-build:
-	@$(kecho) "  $@..."
 endif
 
 #- check-conflicts:
@@ -145,11 +133,9 @@ endif
 #
 
 install-license:
-	@$(kecho) "  $@..."
 
 ifeq ($(filter $(override_targets),do-install),)
 do-install:
-	@$(kecho) "  $@..."
 endif
 
 #
@@ -158,7 +144,6 @@ endif
 
 ifeq ($(filter $(override_targets),do-package),)
 do-package:
-	@$(kecho) "  $@..."
 endif
 
 #- package-links: delete-package-links
@@ -169,16 +154,10 @@ endif
 
 # Utility targets follow
 
-check-already-installed:
-	@$(kecho) "  $@..."
-
 #- install-mtree
-
+check-already-installed:
 install-ldconfig-file:
-	@$(kecho) "  $@..."
-
 security-check:
-	@$(kecho) "  $@..."
 
 ################################################################
 # Skeleton targets start here
@@ -312,40 +291,40 @@ $(foreach t,$(cookie_targets),						\
 
 # Enforce order for -jN builds
 
-#pre-fetch-script: pre-fetch
-#do-fetch: pre-fetch-script
-#post-fetch: do-fetch
-#post-fetch-script: post-fetch
-
-#pre-extract-script: pre-extract
-#do-extract: pre-extract-script
-#post-extract: do-extract
-#post-extract-script: post-extract
-
-#pre-patch-script: pre-patch
-#do-patch: pre-patch-script
-#post-patch: do-patch
-#post-patch-script: post-patch
-
-#pre-configure-script: pre-configure
-#do-configure: pre-configure-script
-#post-configure: do-configure
-#post-configure-script: post-configure
-
-#pre-build-script: pre-build
-#do-build: pre-build-script
-#post-build: do-build
-#post-build-script: post-build
-
-#pre-install-script: pre-install
-#do-install: pre-install-script
-#post-install: do-install
-#post-install-script: post-install
-
-#pre-package-script: pre-package
-#do-package: pre-package-script
-#post-package: do-package
-#post-package-script: post-package
+check-categories : pre-everything
+check-license : check-categories
+pkg-depends: check-license
+fetch-depends: pkg-depends
+pre-fetch: fetch-depends
+extract-message: post-fetch-script
+checksum: extract-message
+extract-depends: checksum
+pre-extract: extract-depends
+ask-license: post-extract-script
+patch-message: ask-license
+patch-depends: patch-message
+pre-patch: patch-depends
+build-depends: post-patch-script
+lib-depends: build-depends
+configure-message: lib-depends
+run-autotools-fixup: configure-message
+configure-autotools: run-autotools-fixup
+pre-configure: configure-autotools
+run-autotools: pre-configure-script
+do-configure: run-autotools
+build-message: post-configure-script
+pre-build: build-message
+install-message: post-build-script
+run-depends: install-message
+pre-install: run-depends
+check-already-installed: pre-install-script
+do-install: check-already-installed
+install-license: do-install
+post-install: install-license
+install-ldconfig-file: post-install-script
+security-check: install-ldconfig-file
+package-message: security-check
+pre-package: package-message
 
 # $(call generate-cookie-targets-depends, target)
 define generate-cookie-targets-depends
@@ -358,66 +337,6 @@ endef
 $(foreach t, fetch $(cookie_targets),					\
   $(eval 								\
     $(call generate-cookie-targets-depends,$t)))
-
-check-categories : pre-everything
-check-license : check-categories
-pkg-depends: check-license
-fetch-depends: pkg-depends
-pre-fetch: fetch-depends
-#pre-fetch-script: pre-fetch
-#do-fetch: pre-fetch-script
-#post-fetch: do-fetch
-#post-fetch-script: post-fetch
-extract-message: post-fetch-script
-checksum: extract-message
-extract-depends: checksum
-pre-extract: extract-depends
-#pre-extract-script: pre-extract
-#do-extract: pre-extract-script
-#post-extract: do-extract
-#post-extract-script: post-extract
-ask-license: post-extract-script
-patch-message: ask-license
-patch-depends: patch-message
-pre-patch: patch-depends
-#pre-patch-script: pre-patch
-#do-patch: pre-patch-script
-#post-patch: do-patch
-#post-patch-script: post-patch
-build-depends: post-patch-script
-lib-depends: build-depends
-configure-message: lib-depends
-run-autotools-fixup: configure-message
-configure-autotools: run-autotools-fixup
-pre-configure: configure-autotools
-#pre-configure-script: pre-configure
-run-autotools: pre-configure-script
-do-configure: run-autotools
-#post-configure: do-configure
-#post-configure-script: post-configure
-build-message: post-configure-script
-pre-build: build-message
-#pre-build-script: pre-build
-#do-build: pre-build-script
-#post-build: do-build
-#post-build-script: post-build
-install-message: post-build-script
-run-depends: install-message
-pre-install: run-depends
-#pre-install-script: pre-install
-check-already-installed: pre-install-script
-do-install: check-already-installed
-install-license: do-install
-post-install: install-license
-#post-install-script: post-install
-install-ldconfig-file: post-install-script
-security-check: install-ldconfig-file
-package-message: security-check
-pre-package: package-message
-#pre-package-script: pre-package
-#do-package: pre-package-script
-#post-package: do-package
-#post-package-script: post-package
 
 
 extract-message:
@@ -439,7 +358,6 @@ package-message:
 define generate-embellish-targets
 ifeq ($(filter $(override_targets),$1),)
 $1:
-	@$(kecho) "  $1..."
 	@$(DO_NADA)
 endif
 endef
@@ -452,7 +370,6 @@ $(foreach t,$(embellish_targets),					\
 define generate-embellish-script-targets
 ifeq ($(filter $(override_targets),$1),)
 $1:
-	@$(kecho) "  $1..."
 	@if [ -f $(SCRIPTDIR)/$2 ]; then				\
 	    cd $(SCRIPTDIR) && $(SETENV) $(SCRIPTS_ENV) $(SH) $(SCRIPTDIR)/$2; \
 	fi
@@ -524,7 +441,6 @@ endif
 #- makesum:
 
 checksum:
-	@$(kecho) "  $@..."
 
 ################################################################
 # The special package-building targets:
@@ -541,19 +457,12 @@ checksum:
 ################################################################
 
 pkg-depends:
-	@$(kecho) "  $@..."
 extract-depends:
-	@$(kecho) "  $@..."
 patch-depends:
-	@$(kecho) "  $@..."
 fetch-depends:
-	@$(kecho) "  $@..."
 build-depends:
-	@$(kecho) "  $@..."
 run-depends:
-	@$(kecho) "  $@..."
 lib-depends:
-	@$(kecho) "  $@..."
 # -misc-depends:
 
 # Dependency lists: both build and runtime, recursive.
