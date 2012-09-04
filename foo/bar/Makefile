@@ -7,8 +7,8 @@ PORTREVISION		= 2
 #
 
 MASTERDIR 		= $(CURDIR)
-PORTSDIR 		= $(MASTERDIR)
-include $(PORTSDIR)/linux.port.pre.mk
+PORTSDIR 		= $(MASTERDIR)/../..
+include $(PORTSDIR)/Mk/linux.port.pre.mk
 
 override_targets	+= pre-extract
 
@@ -20,4 +20,4 @@ quiet_cmd_pre-extract	?= PRE-EXTRACT $(PKGNAME)
 pre-extract:
 	$(call cmd,pre-extract)
 
-include $(PORTSDIR)/linux.port.post.mk
+include $(PORTSDIR)/Mk/linux.port.post.mk

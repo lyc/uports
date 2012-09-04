@@ -3,7 +3,7 @@
 #
 
 ifneq ($(PORTS_PARTIAL_SPECIALIZATION),yes)
-include $(PORTSDIR)/linux.debug.mk
+include $(PORTSDIR)/Mk/linux.debug.mk
 endif
 
 $(if $(_PREMKINCLUDED),							\
