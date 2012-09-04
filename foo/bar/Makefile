@@ -1,6 +1,11 @@
 PORTNAME		= bar
 PORTVERSION		= 1.0
+CATEGORIES		= unknown
 PORTREVISION		= 2
+LICENSE			= unknown
+
+MAINTAINER 		= yowching.lee@gmail.com
+COMMENT 		= Test package
 
 #
 #

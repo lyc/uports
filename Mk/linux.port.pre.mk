@@ -14,6 +14,8 @@ SETENV			?= env
 SH			?= /bin/sh
 UNAME			?= uname
 SED			?= sed
+WHICH			?= which
+GREP			?= grep
 
 # Get the architecture
 ifeq ($(ARCH),)
@@ -47,9 +49,27 @@ PORTSDIR		?= /usr/ports
 endif
 endif
 
-PKGNAME			=						\
-	$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PORTVERSION)$(_SUF1)$(_SUF2)
-DISTNAME		?= $(PORTNAME)-$(PORTVERSION)
+LOCALBASE		?= /usr/local
+DISTDIR			?= $(PORTSDIR)/distfiles
+_DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
+
+ifeq ($(USE_BZIP2),yes)
+EXTRACT_SUFX 		?= .tar.bz2
+else
+ifeq ($(USE_ZIP),yes)
+EXTRACT_SUFX 		?= .zip
+else
+EXTRACT_SUFX 		?= .tar.gz
+endif
+endif
+
+DISTVERSION		?= $(PORTVERSION)
+
+PKGVERSION		?= $(PORTVERSION)$(_SUF1)$(_SUF2)
+PKGNAME			?=						\
+	$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION)
+DISTNAME		?=						\
+	$(PORTNAME)-$(DISTVERSIONPREFIX)$(DISTVERSION)$(DISTVERSIONSUFFIX)
 
 PACKAGES		?= $(PORTSDIR)/packages
 TEMPLATES		?= $(PORTSDIR)/Templates

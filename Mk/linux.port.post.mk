@@ -39,6 +39,212 @@ endif
 # do something.
 DO_NADA			?= true
 
+
+# stuff for fetch ...
+
+# Popular master sites
+include $(PORTSDIR)/Mk/linux.sites.mk
+
+# The primary backup site.
+
+#ifeq ($(USE_MYFTP),yes)
+#$(if $(FTP_URL),,							\
+#  $(error You did not set \"FTP_URL\" but already set \"USE_MYFTP\" to yes))
+#MASTER_SITE_BACKUP	?= $(FTP_URL)/$(DIST_SUBDIR)/
+#endif
+
+MASTER_SITE_BACKUP	:=						\
+	$(shell echo $(MASTER_SITE_BACKUP) | sed -e 's|\$(DIST_SUBDIR)/$$||')
+
+# Set MASTER_SITE_OVERRIDE properly if the user want to fetch source
+# from his/her own repository firstly, but don't search it twice
+# by appending it to the end,
+#ifeq ($(USE_MYFTP),yes)
+#__master_site_override	:= $(MASTER_SITE_BACKUP)
+#__master_site_backup	:=
+#else
+__master_site_override	:= $(MASTER_SITE_OVERRIDE)
+__master_site_backup	:= $(MASTER_SITE_BACKUP)
+#endif
+
+# Organize DISTFILES, PATCHFILES, _MASTER_SITES_ALL, _PATCH_SITES_ALL
+# according to grouping rules (:something)
+DISTFILES		?= $(DISTNAME)$(EXTRACT_SUFX)
+
+SLASH			:= /
+COMMON			:= ,
+SUBDIR			:= %SUBDIR%
+
+remove-common		= $(subst $(COMMON), ,$1)
+remove-terminator	= $(patsubst %/,%,$1)
+add-terminator-DEFAULT	= $(call remove-terminator,$1)/:DEFAULT
+
+# NOTE: Beware get-site-name will erase tail slash
+get-file-name		= $(word 1,$(subst :, ,$1))
+get-file-group		= $(word 2,$(subst :, ,$1))
+get-site-name		= $(word 1,$(subst /:, ,$1))
+get-site-group		= $(word 2,$(subst /:, ,$1))
+
+# $(call get-all-files, lists)
+define get-all-files
+$(sort									\
+  $(foreach x,$1,							\
+    $(call get-file-name,$x)))
+endef
+
+_DISTFILES		= $(call get-all-files,$(DISTFILES))
+_PATCHFILES		= $(call get-all-files,$(PATCHFILES))
+ALLFILES		?= $(_DISTFILES) $(_PATCHFILES)
+
+# $(call patch-sites-DEFAULT, lists)
+define patch-sites-DEFAULT
+$(foreach x,$1,								\
+  $(if $(call get-site-group,$x),					\
+    $x,$(call add-terminator-DEFAULT,$x)))
+endef
+
+master_sites		= $(call patch-sites-DEFAULT,$(MASTER_SITES))
+master_site_subdir	= $(call patch-sites-DEFAULT,$(MASTER_SITE_SUBDIR))
+patch_sites		= $(call patch-sites-DEFAULT,$(PATCH_SITES))
+patch_site_subdir	= $(call patch-sites-DEFAULT,$(PATCH_SITE_SUBDIR))
+
+# $(call patch-files-DEFAULT, lists)
+define patch-files-DEFAULT
+$(foreach x,$1,								\
+  $(if $(call get-file-group,$x),					\
+    $x,$x:DEFAULT))
+endef
+
+distfiles		= $(call patch-files-DEFAULT,$(DISTFILES))
+patchfiles		= $(call patch-files-DEFAULT,$(PATCHFILES))
+
+#
+# NOTE:
+# "all" "ALL" and "default" are not allow to be used as group name, check it!
+#
+
+# $(call get-all-site-groups, lists)
+define get-all-site-groups
+$(sort									\
+  $(call remove-common,							\
+    $(foreach x,$1,							\
+      $(call get-site-group,$x))))
+endef
+
+$(if									\
+  $(filter all ALL default,						\
+    $(call get-all-site-groups,$(master_sites))),			\
+      $(error The words all, ALL and default are reserved and cannot be used in group definition. Please fix your MASTER_SITES))
+
+$(if									\
+  $(filter all ALL default,						\
+    $(call get-all-site-groups,$(patch_sites))),			\
+      $(error The words all, ALL and default are reserved and cannot be used in group definition. Please fix your PATCH_SITES))
+
+# $(call find-groups-by-file, lists, file)
+define find-groups-by-file
+$(strip									\
+  $(call remove-common,							\
+    $(foreach x,$1,							\
+      $(if								\
+        $(filter $2,							\
+          $(call get-file-name,$x)),					\
+            $(call get-file-group,$x)))))
+endef
+
+# $(call find-groups-by-site, lists, site)
+define find-groups-by-site
+$(strip									\
+  $(call remove-common,							\
+    $(foreach x,$1,							\
+      $(if								\
+        $(filter $2,							\
+          $(call get-site-name,$x)/),					\
+            $(call get-site-group,$x)))))
+endef
+
+# $(call filter-x-by-group, lists, group, tailer)
+define filter-x-by-group
+$(foreach x,$1,								\
+  $(if									\
+    $(filter $2,							\
+      $(call remove-common,						\
+        $(call get-site-group,$x))),					\
+          $(call get-site-name,$x)$3))
+endef
+
+# $(call filter-sites-by-group, lists, group)
+filter-sites-by-group	= $(strip $(call filter-x-by-group,$1,$2,$(SLASH)))
+
+# $(call filter-subdirs-by-group, lists, group)
+filter-subdirs-by-group	= $(strip $(call filter-x-by-group,$1,$2))
+
+# $(call transform-subdirs, pattern, group, subdir)
+define transform-subdirs
+$(if									\
+  $(filter $1,$(subst $(SUBDIR),,$1)),					\
+      $1,								\
+      $(foreach x,							\
+        $(call filter-subdirs-by-group,$3,$2),				\
+          $(subst $(SUBDIR),$x,$1)))
+endef
+
+# $(call generate-sites-by-group, group, sites, subdir)
+define generate-sites-by-group
+$(strip									\
+$(__master_site_override)						\
+  $(sort								\
+    $(foreach s,							\
+      $(call filter-sites-by-group,$2,$1),				\
+        $(foreach g,							\
+          $(call find-groups-by-site,$2,$s),				\
+            $(call transform-subdirs,$s,$g,$3))))			\
+$(__master_site_backup))
+endef
+
+# $(call generate-master-sites-by-group, group)
+generate-master-sites-by-group =					\
+	$(call generate-sites-by-group,$1,$(master_sites),$(master_site_subdir))
+
+# $(call generate-patch-sites-by-group, group)
+generate-patch-sites-by-group =						\
+	$(call generate-sites-by-group,$1,$(patch_sites),$(patch_site_subdir))
+
+# $(call export-variable, group, sites, subdir)
+define export-variable
+$(eval export $1_$2 = $(call generate-sites-by-group,$2,$3,$4))
+endef
+
+# generate "__group_$f" and __patch_$f shell env for late rule use
+$(if $(master_sites),							\
+  $(foreach g,								\
+    $(call get-all-site-groups,$(master_sites)),			\
+      $(call export-variable,__group,$g,$(master_sites),$(master_site_subdir))), \
+        $(call export-variable,__group,DEFAULT,$(master_sites),$(master_site_subdir)))
+
+$(if $(patch_sites),							\
+  $(foreach g,								\
+    $(call get-all-site-groups,$(patch_sites)),				\
+      $(call export-variable,__patch,$g,$(patch_sites),$(patch_site_subdir))), \
+        $(call export-variable,__patch,DEFAULT,$(patch_sites),$(patch_site_subdir)))
+
+FETCH_CMD		?= $(shell $(WHICH) wget 2>/dev/null)
+$(if $(FETCH_CMD),,							\
+  $(error Ports need \"wget\" utility to get distfiles))
+
+# TODO: get the wget arguments to show progress without any verbose...
+       fetch_opts	=
+ quiet_fetch_opts	= -q --progress=bar:force
+silent_fetch_opts	= -q
+
+FETCH_REGET		?= 1
+FETCH_CMD		+=						\
+	-nd -N --connect-timeout=3 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
+
+#
+#
+#
+
 # Documentation
 MAINTAINER		?= yowching.lee@gmail.com
 
@@ -47,7 +253,25 @@ maintainer:
 	@$(kecho) $(MAINTAINER)
 endif
 
+ifeq ($(origin CATEGORIES), undefined)
 check-categories:
+	@$(kecho) " ERR     $(PKGNAME): CATEGORIES is mandatory."
+	@false
+else
+VALID_CATEGORIES	+=						\
+	archivers converters devel graphics lang net net-mgmt bsp	\
+	print security textproc www x11 x11-fonts x11-toolkits linux
+
+check-categories:
+	@for cat in $(CATEGORIES); do					\
+	    if echo $(VALID_CATEGORIES) | $(GREP) -wq $$cat; then	\
+	        true;							\
+	    else							\
+	        $(kecho) "  ERR     $(PKGNAME): category $$cat not in list of valid categories."; \
+	        false;							\
+	    fi;								\
+	done
+endif
 
 ################################################################
 # The following are used to create easy dummy target for
@@ -83,8 +307,101 @@ endif
 # Fetch...
 #
 
+quiet_cmd_fetch-sanity-check	?=
+      cmd_fetch-sanity-check	?= set -e;				\
+	if [ ! -d $(_DISTDIR) ] && [ ! -h $(_DISTDIR) ]; then		\
+	    mkdir -p $(_DISTDIR);					\
+	fi
+
+.PHONY: do-fetch-sanity-check
+do-fetch-sanity-check:
+	@$(call cmd,fetch-sanity-check)
+
+fetch_msg1 = "  ERR     $(DISTDIR) is not writable by you; cannot fetch."
+fetch_msg2 = "  ERR     Couldn't fetch it - please try to retrieve this port manually into $(_DISTDIR) and try again"
+
 ifeq ($(filter $(override_targets),do-fetch),)
-do-fetch:
+do-fetch: do-fetch-sanity-check
+	@(cd $(_DISTDIR);						\
+	for f in $(distfiles); do					\
+	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
+	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
+	    force_fetch=false;						\
+	    filebasename=`basename $$file`;				\
+	    for afile in $(FORCE_FETCH); do				\
+	        afile=`basename $$afile`;				\
+	        if [ x$$afile = x$$filebasename ]; then			\
+	            force_fetch=true;					\
+	        fi;							\
+	    done;							\
+	    $(kecho) "  CHK     $$file";				\
+	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
+	        if [ ! -w $(DISTDIR) ]; then				\
+	            $(kecho) $(fetch_msg1);				\
+	            exit 1;						\
+	        fi;							\
+	        __master_sites_tmp= ;					\
+	        for g in $$groups; do					\
+	            eval __TMP=\$${__group_$${g}};			\
+	            __master_sites_tmp="$${__master_sites_tmp} $${__TMP}"; \
+	        done;							\
+	        __TMP= ;						\
+	        for s in $$__master_sites_tmp; do			\
+	            $(kecho) "  WGET    $$file from $$s";		\
+	            case $$file in					\
+	            */*) $(MKDIR) $${file%/*};				\
+	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
+	            *)  args=$$s$$file;;				\
+	            esac;						\
+	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
+	               continue 2;					\
+	            fi;							\
+	        done;							\
+	        $(kecho) $(fetch_msg2);					\
+	        exit 1; \
+	    fi; \
+	done)
+ifneq ($(PATCHFILES),)
+	@(cd $(_DISTDIR);						\
+	for f in $(patchfiles); do					\
+	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
+	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
+	    force_fetch=false;						\
+	    filebasename=`basename $$file`;				\
+	    for afile in $(FORCE_FETCH); do				\
+	        afile=`basename $$afile`;				\
+	        if [ x$$afile = x$$filebasename ]; then			\
+	            force_fetch=true;					\
+	        fi;							\
+	    done;							\
+	    $(kecho) "  CHK     $$file";				\
+	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
+	        if [ ! -w $(DISTDIR) ]; then				\
+	            $(kecho) $(fetch_msg1);				\
+	            exit 1;						\
+	        fi;							\
+	        __patch_sites_tmp= ;					\
+	        for g in $$groups; do					\
+	            eval __TMP=\$${__patch_$${g}};			\
+	            __patch_sites_tmp="$${__patch_sites_tmp} $${__TMP}"; \
+	        done;							\
+	        __TMP= ;						\
+	        for s in $$__patch_sites_tmp; do			\
+	            $(kecho) "  WGET    $$file from $$s";		\
+	            case $$file in					\
+	            */*) $(MKDIR) $${file%/*};				\
+	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
+	            *)  args=$$s$$file;;				\
+	            esac;						\
+	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
+	               continue 2;					\
+	            fi;							\
+	        done;							\
+	        $(kecho) $(fetch_msg2);					\
+	        exit 1;							\
+	    fi;								\
+	done)
+endif
 endif
 
 #
