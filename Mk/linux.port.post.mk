@@ -536,6 +536,22 @@ endif
 # Fetch...
 #
 
+ifeq ($(USE_GLOBALBASE),yes)
+$(if $(DISTDIR_SITE),,							\
+  $(error You did not set "DISTDIR_SITE" but already set "USE_GLOBALBASE" to yes))
+
+quiet_cmd_set-global-link	?=
+      cmd_set-global-link	?= set -e;				\
+	if [ ! -z $(DISTDIR_SITE) ]; then				\
+	    if [ ! -d $(DISTDIR_SITE) ] && [ ! -h $(DISTDIR_SITE) ]; then \
+	        mkdir -p $(DISTDIR_SITE);				\
+	    fi;								\
+	    if [ ! -d $(DISTDIR) ] && [ ! -h $(DISTDIR) ]; then		\
+	        ln -s $(DISTDIR_SITE) $(DISTDIR);			\
+	    fi;								\
+	fi;
+endif
+
 quiet_cmd_fetch-sanity-check	?=
       cmd_fetch-sanity-check	?= set -e;				\
 	if [ ! -d $(_DISTDIR) ] && [ ! -h $(_DISTDIR) ]; then		\
@@ -544,6 +560,9 @@ quiet_cmd_fetch-sanity-check	?=
 
 .PHONY: do-fetch-sanity-check
 do-fetch-sanity-check:
+ifeq ($(USE_GLOBALBASE),yes)
+	@$(call cmd,set-global-link)
+endif
 	@$(call cmd,fetch-sanity-check)
 
 fetch_msg1 = "  ERR     $(DISTDIR) is not writable by you; cannot fetch."
