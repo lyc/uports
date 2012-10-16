@@ -241,6 +241,27 @@ FETCH_REGET		?= 1
 FETCH_CMD		+=						\
 	-nd -N --connect-timeout=3 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
 
+# stuff for extract ...
+
+ifeq ($(USE_ZIP),yes)
+EXTRACT_CMD		?= unzip
+EXTRACT_BEFORE_ARGS	?= -g
+EXTRACT_AFTER_ARGS	?= -d $(WRKDIR)
+else
+EXTRACT_BEFORE_ARGS	?= -dc
+EXTRACT_AFTER_ARGS	?= | $(TAR) -xf -
+ifeq ($(USE_BZIP2),yes)
+EXTRACT_CMD		?= $(BZIP2_CMD)
+else
+EXTRACT_CMD		?= $(GZIP_CMD)
+endif
+endif
+
+# This is what is actually going to be extracted, and is overridable
+#  by user.
+EXTRACT_ONLY		?= $(_DISTFILES)
+EXTRACT_LISTS		+= $(EXTRACT_ONLY)
+
 #
 #
 #
@@ -414,6 +435,13 @@ quiet_cmd_wrkdir	?=
 .PHONY: wrkdir
 wrkdir:
 	$(call cmd,wrkdir)
+
+quiet_cmd_extract-only	?=
+      cmd_extract-only	?= set -e;					\
+	(cd $(WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi)
+
+$(EXTRACT_ONLY): wrkdir
+	$(call cmd,extract-only)
 
 ifeq ($(filter $(override_targets),do-extract),)
 do-extract: wrkdir $(EXTRACT_ONLY)
