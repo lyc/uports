@@ -14,6 +14,14 @@ else
 WRKSRC			?= $(WRKDIR)
 endif
 
+source			:= $(word $(words $(subst /, ,$(WRKSRC))),$(subst /, ,$(WRKSRC)))
+ifeq ($(WRKDIR)/$(source),$(WRKSRC))
+ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(source)
+else
+ALTERNATIVE_PREFIX	= $(patsubst $(WRKDIR)/%/$(source),%,$(WRKSRC))
+ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX)/$(source)
+endif
+
 PATCH_WRKSRC		?= $(WRKSRC)
 CONFIGURE_WRKSRC	?= $(WRKSRC)
 BUILD_WRKSRC		?= $(WRKSRC)
@@ -660,22 +668,68 @@ endif
 # Extract...
 #
 
+do-extract: wrkdir
+
 quiet_cmd_wrkdir	?=
       cmd_wrkdir	?= set -e; [ -d $(WRKDIR) ] || mkdir -p $(WRKDIR)
+
+ifeq ($(USE_ALTERNATIVE),yes)
+# FIXME: add required handle for multiple $(DISTFILES)
+quiet_cmd_wrkdir-alt	?=
+      cmd_wrkdir-alt	?= set -e;					\
+	[ -d $(ALTERNATIVE_WRKDIR) ] || mkdir -p $(ALTERNATIVE_WRKDIR)
+endif
 
 .PHONY: wrkdir
 wrkdir:
 	$(call cmd,wrkdir)
+ifeq ($(USE_ALTERNATIVE),yes)
+	$(call cmd,wrkdir-alt)
+endif
 
 quiet_cmd_extract-only	?=
       cmd_extract-only	?= set -e;					\
 	(cd $(WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi)
 
+ifeq ($(USE_ALTERNATIVE),yes)
+# FIXME: add extra handle if $(ALTERNATIVE_WRKSRC) is a symbolic link...
+#        for example: sbl-elf-2.7.6
+quiet_cmd_extract-only-alt	?=
+      cmd_extract-only-alt	?= set -e;				\
+	rm -fr $(ALTERNATIVE_WRKSRC);					\
+	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi);	\
+	if [ ! -d $(WRKDIR)/$(ALTERNATIVE_PREFIX) ]; then		\
+	    mkdir -p $(WRKDIR)/$(ALTERNATIVE_PREFIX);			\
+	fi
+endif
+
 $(EXTRACT_ONLY): wrkdir
+ifeq ($(USE_ALTERNATIVE),yes)
+	$(call cmd,extract-only-alt)
+else
 	$(call cmd,extract-only)
+endif
 
 ifeq ($(filter $(override_targets),do-extract),)
-do-extract: wrkdir $(EXTRACT_ONLY)
+do-extract: $(EXTRACT_ONLY)
+endif
+
+ifeq ($(USE_ALTERNATIVE),yes)
+quiet_cmd_post-extract-alt	?=
+      cmd_post-extract-alt	?= set -e;				\
+	if [ -d $(ALTERNATIVE_WRKDIR) ]; then				\
+	    if [ -d $(WRKSRC) ]; then					\
+	        rm -fr $(ALTERNATIVE_WRKSRC);				\
+	        mkdir -p $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX);	\
+	        mv $(WRKSRC) $(ALTERNATIVE_WRKSRC);			\
+	    fi;								\
+	    ln -s $(ALTERNATIVE_WRKSRC) $(WRKSRC);			\
+	fi
+
+post-extract-alternative:
+	$(call cmd,post-extract-alt)
+
+post-extract: post-extract-alternative
 endif
 
 #
@@ -1185,9 +1239,9 @@ endif
 
 ifeq ($(filter $(override_targets),do-clean),)
 do-clean:
-	@$(kecho) "  CLEAN     $(PKGNAME)";				\
-	if [ -d $(WRKSRC) ]; then					\
-	    (cd $(WRKSRC) && make clean);				\
+	@if [ -d $(WRKSRC) ]; then					\
+	    $(kecho) "  CLEAN     $(PKGNAME)";				\
+	    (cd $(WRKSRC) && make clean$(trash));			\
 	    rm -fr $(BUILD_COOKIE);					\
 	    rm -fr $(INSTALL_COOKIE);					\
 	fi
@@ -1207,8 +1261,17 @@ endif
 
 ifeq ($(filter $(override_target),do-distclean),)
 do-distclean:
-	@$(kecho) "  DISTCLEAN $(PKGNAME)";				\
-	if [ -d $(WRKDIR) ]; then					\
+ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(FORCE_ALTERNATIVE_REMOVE),yes)
+	@if [ -h $(ALTERNATIVE_WRKSRC) ]; then				\
+	    rm $(ALTERNATIVE_WRKSRC);					\
+	elif [ -d $(ALTERNATIVE_WRKSRC) ]; then				\
+	    rm -fr $(ALTERNATIVE_WRKSRC);				\
+	fi
+endif
+endif
+	@if [ -d $(WRKDIR) ]; then					\
+	        $(kecho) "  DISTCLEAN $(PKGNAME)";			\
 		if [ -w $(WRKDIR) ]; then				\
 			rm -fr $(WRKDIR);				\
 		else							\
