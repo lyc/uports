@@ -14,12 +14,20 @@ else
 WRKSRC			?= $(WRKDIR)
 endif
 
+ifeq ($(USE_STICKY),yes)
+override USE_ALTERNATIVE	:= yes
+endif
+
 source			:= $(word $(words $(subst /, ,$(WRKSRC))),$(subst /, ,$(WRKSRC)))
 ifeq ($(WRKDIR)/$(source),$(WRKSRC))
 ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(source)
 else
 ALTERNATIVE_PREFIX	= $(patsubst $(WRKDIR)/%/$(source),%,$(WRKSRC))
 ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX)/$(source)
+endif
+
+ifeq ($(FORCE_ALTERNATIVE),yes)
+USE_STICKY		:=
 endif
 
 PATCH_WRKSRC		?= $(WRKSRC)
@@ -697,15 +705,27 @@ ifeq ($(USE_ALTERNATIVE),yes)
 quiet_cmd_extract-only-alt	?=
       cmd_extract-only-alt	?= set -e;				\
 	rm -fr $(ALTERNATIVE_WRKSRC);					\
-	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi);	\
-	if [ ! -d $(WRKDIR)/$(ALTERNATIVE_PREFIX) ]; then		\
-	    mkdir -p $(WRKDIR)/$(ALTERNATIVE_PREFIX);			\
-	fi
+	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi);
+endif
+
+ifeq ($(USE_STICKY),yes)
+quiet_cmd_extract-only-sticky	?=
+      cmd_extract-only-sticky	?= set -e;				\
+	if [ ! -e $(ALTERNATIVE_WRKSRC) ]; then				\
+	    (cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi); \
+	fi;
 endif
 
 $(EXTRACT_ONLY): wrkdir
 ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(USE_STICKY),yes)
+	$(call cmd,extract-only-sticky)
+else
 	$(call cmd,extract-only-alt)
+endif
+	@if [ ! -d $(WRKDIR)/$(ALTERNATIVE_PREFIX) ]; then		\
+	    mkdir -p $(WRKDIR)/$(ALTERNATIVE_PREFIX);			\
+	fi
 else
 	$(call cmd,extract-only)
 endif
@@ -1148,8 +1168,21 @@ $(foreach t, fetch $(cookie_targets),					\
     $(call generate-cookie-targets-depends,$t)))
 
 
+ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(USE_STICKY),yes)
+extract_suffix		= $(shell 					\
+	if [ ! -e $(ALTERNATIVE_WRKSRC) ]; then 			\
+	    echo "(NO STICKY)"; 					\
+	else 								\
+	    echo "(STICKY)"; 						\
+	fi)
+else
+extract_suffix		= (ALTERNATIVE)
+endif
+endif
+
 extract-message:
-	@$(kecho) "  EXTRACT $(PKGNAME)"
+	@$(kecho) "  EXTRACT $(PKGNAME)$(extract_suffix)"
 patch-message:
 	@$(kecho) "  PATCH   $(PKGNAME)"
 configure-message:
@@ -1262,12 +1295,14 @@ endif
 ifeq ($(filter $(override_target),do-distclean),)
 do-distclean:
 ifeq ($(USE_ALTERNATIVE),yes)
+ifneq ($(USE_STICKY),yes)
 ifeq ($(FORCE_ALTERNATIVE_REMOVE),yes)
 	@if [ -h $(ALTERNATIVE_WRKSRC) ]; then				\
 	    rm $(ALTERNATIVE_WRKSRC);					\
 	elif [ -d $(ALTERNATIVE_WRKSRC) ]; then				\
 	    rm -fr $(ALTERNATIVE_WRKSRC);				\
 	fi
+endif
 endif
 endif
 	@if [ -d $(WRKDIR) ]; then					\
