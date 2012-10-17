@@ -68,10 +68,7 @@ extract-port		= $(patsubst %$(suffix $1),%,$1)
 extract-suffix		= $(patsubst .%,%,$(suffix $1))
 
 # $(call get-category, port.suffix)
-get-category		= $(word 1,					\
-			    $(call rm-slash,				\
-			      $(filter					\
-			        %$(call extract-port,$1),$(ports_all_raw))))
+get-category		= $($(call extract-port,$1)_categories)
 
 # $(call transform-port-string, port.suffix)
 transform-port-string	= $(subst ., ,$(call get-category,$1)/$1)
@@ -100,6 +97,38 @@ endif
 
 ports_all		= $(filter-out $(categories_all_lists),		\
 			    $(call rm-slash,$(ports_all_raw)))
+
+#
+# category ...
+#
+#   categories_all:
+#   categories_xxx:
+#   xxx_categories:
+#
+
+categories_all		= $(sort					\
+			    $(filter-out $(ports_all),			\
+			      $(call rm-slash,$(ports_all_raw))))
+
+# $(call generate-categories-list, category)
+define generate-categories-lists
+  categories_$1		= $(filter-out $(categories_all_lists),		\
+			    $(call rm-slash,				\
+			      $(filter $1/%,$(ports_all_raw))))
+endef
+
+$(foreach c,$(categories_all),						\
+  $(eval								\
+    $(call generate-categories-lists,$c)))
+
+# $(call generate-port-categories-list, category)
+define generate-port-categories-lists
+  $1_categories		= $(patsubst %/$1,%,$(filter %/$1,$(ports_all_raw)))
+endef
+
+$(foreach c,$(ports_all),						\
+  $(eval								\
+    $(call generate-port-categories-lists,$c)))
 
 #
 # generate port_xxx_env variable...
@@ -152,6 +181,22 @@ quiet_cmd_generate-port-target	?= PORT    $(call transform-port-string,$@)
 depends_exclude_targets	+= $(ports_target_all)
 $(ports_target_all):
 	$(call cmd,generate-port-target)
+
+#
+# generate ports catagory.suffix targets...
+#
+
+# $(call generate-all-category-target, category, suffix)
+define generate-all-categories-target
+.PHONY: $1.$2
+depends_exclude_targets	+= $1.$2
+$1.$2: $(addsuffix .$2,$(categories_$1))
+endef
+
+$(foreach c,$(categories_all),						\
+  $(foreach s,$(suffix_all_lists),					\
+    $(eval								\
+      $(call generate-all-categories-target,$c,$s))))
 
 #
 # generate ports.suffix targets...
@@ -226,11 +271,35 @@ info.debug.port:
 	@$(echo) "ports_all_raw = $(ports_all_raw)"
 	@$(echo) "ports_all = $(ports_all)"
 
+info.debug.category:
+	@$(echo) "categories_all = $(categories_all)"
+
+define show-categories-all
+show-categories-$1:
+	@echo "categories_$1 = $(categories_$1)"
+info.debug.category-all: show-categories-$1
+endef
+$(foreach c,$(categories_all),$(eval $(call show-categories-all,$c)))
+
+define show-port-categories
+show-$1-categories:
+	@echo "$1_categories = $($1_categories)"
+info.debug.port-categories: show-$1-categories
+endef
+$(foreach p,$(ports_all),$(eval $(call show-port-categories,$p)))
+
 debug_targets		= sep1 port					\
+			  sep2 category sep3 category-all sep4 port-categories \
 			  sep-end
+double_line		= sep1 sep2 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
-	@$(echo) "------------------------------------------------------"
+	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\
+	if [ ! -z "$$sep" ]; then					\
+	    $(echo) "=================================================";\
+	else								\
+	    $(echo) "-------------------------------------------------";\
+	fi
 
 depends_exclude_targets	+= info.debug
 info.debug: $(addprefix info.debug.,$(debug_targets))

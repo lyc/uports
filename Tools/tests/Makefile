@@ -12,6 +12,7 @@
 
 PORTS_LISTS		= devel/pkg-config				\
 			  textproc/expat2				\
+			  graphics/jpeg					\
 			  graphics/webp
 
 # STEP 2: Setup Environment Variables
