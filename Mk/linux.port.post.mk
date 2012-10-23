@@ -266,6 +266,39 @@ endif
 EXTRACT_ONLY		?= $(_DISTFILES)
 EXTRACT_LISTS		+= $(EXTRACT_ONLY)
 
+# stuff for patch ...
+
+DISTORIG		?= .bak.orig
+PATCH			?= /usr/bin/patch
+PATCH_STRIP		?= -p0
+PATCH_DIST_STRIP	?= -p0
+ifeq ($(PATCH_DEBUG),yes)
+PATCH_DEBUG_TMP		= yes
+PATCH_ARGS		?= -d $(PATCH_WRKSRC) -E $(PATCH_STRIP)
+PATCH_DIST_ARGS		?=					\
+	-b $(DISTORIG) -d $(PATCH_WRKSRC) -E $(PATCH_DIST_STRIP)
+else
+PATCH_DEBUG_TMP		= no
+PATCH_ARGS		?=					\
+	-d $(PATCH_WRKSRC) --forward --quiet -E $(PATCH_STRIP)
+PATCH_DIST_ARGS		?=					\
+	-d $(PATCH_WRKSRC) --forward --quiet -E $(PATCH_DIST_STRIP)
+endif
+ifeq ($(BATCH),yes)
+PATCH_ARGS		+= --batch
+PATCH_DIST_ARGS		+= --batch
+endif
+
+ifeq ($(PATCH_CHECK_ONLY),yes)
+PATCH_ARGS		+= -C
+PATCH_DIST_ARGS		+= -C
+endif
+
+#ifeq ($(PATCH),/usr/bin/patch)
+#PATCH_ARGS		+= -b .orig
+#PATCH_DIST_ARGS	+= -b .orig
+#endif
+
 #
 #
 #
@@ -457,8 +490,74 @@ endif
 
 ask-license:
 
+patch_msg1=Applying distribution patches for $(PKGNAME)
+patch_msg2=Applying $(OPSYS) patches for $(PKGNAME)
+
+quiet_cmd_apply-dist-patch	?= PATCH   $(patch_msg1)
+      cmd_apply-dist-patch	?= set -e;				\
+	(cd $(_DISTDIR);						\
+	for i in $(_PATCHFILES); do					\
+	    case $$i in							\
+	        *.Z|*.gz)						\
+	            $(GZCAT) $$i | $(PATCH) $(PATCH_DIST_ARGS);		\
+	            ;;							\
+	        *.bz2)							\
+	            $(BZCAT) $$i | $(PATCH) $(PATCH_DIST_ARGS);		\
+	            ;;							\
+	        *.zip)							\
+	            $(ZCAT) $$i | $(PATCH) $(PATCH_DIST_ARGS);		\
+	            ;;							\
+	        *)							\
+	            $(PATCH) $(PATCH_DIST_ARGS) < $$i;			\
+	            ;;							\
+	    esac;							\
+	done)
+
+quiet_cmd_apply-extra-patch	?=
+      cmd_apply-extra-patch	?= set -e;				\
+	for i in $(EXTRA_PATCHES); do					\
+	    $(kecho) "  PATCH   applying extra patch $$i";		\
+	    $(PATCH) $(PATCH_ARGS) < $$i;				\
+	done
+
+quiet_cmd_apply-patches	?=
+      cmd_apply-patches	?= set -e;					\
+	if [ -d $(PATCHDIR) ]; then					\
+	    if [ "`echo $(PATCHDIR)/patch-*`" != "$(PATCHDIR)/patch-*" ]; then \
+	        $(kecho) "  PATCH   $(patch_msg2)";			\
+	        patches_applied="";					\
+	        for i in $(PATCHDIR)/patch-*; do			\
+	            case $$i in						\
+	            *.orig|*.rej|*~|*,v)				\
+	                $(kecho) "  WRN     Ignoring patchfile $$i" ;	\
+	                ;;						\
+	            *)							\
+	                if $(PATCH) $(PATCH_ARGS) < $$i; then		\
+	                    patches_applied="$(patches_applied) $$i";	\
+	                else						\
+	                    _pf=`echo $$i | $(SED) 's|$(PATCHDIR)/||'`; \
+	                    $(kecho) "  ERR     Patch $$_pf failed to apply cleanly."; \
+	                    if [ x"$$patches_applied" != x"" ]; then	\
+	                        _pfs=`echo $$patches_applied | $(SED) 's|$(PATCHDIR)/||'`; \
+	                        $(kecho) "  ERR     Patch(es) $$_pfs applied cleanly."; \
+	                    fi;						\
+	                    false;					\
+	                fi;						\
+	                ;;						\
+	            esac;						\
+	        done;							\
+	    fi;								\
+	fi
+
 ifeq ($(filter $(override_targets),do-patch),)
 do-patch:
+ifneq ($(PATCHFILES),)
+	$(call cmd,apply-dist-patch)
+endif
+ifneq ($(EXTRA_PATCHES),)
+	$(call cmd,apply-extra-patch)
+endif
+	$(call cmd,apply-patches)
 endif
 
 #
