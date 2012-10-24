@@ -19,8 +19,6 @@ CONFIGURE_WRKSRC	?= $(WRKSRC)
 BUILD_WRKSRC		?= $(WRKSRC)
 INSTALL_WRKSRC		?= $(WRKSRC)
 
-SCRIPTS_ENV		+=
-
 # Name of cookies used to skip already completed stages
 EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
 PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(PKGNAME)
@@ -299,6 +297,117 @@ endif
 #PATCH_DIST_ARGS	+= -b .orig
 #endif
 
+# stuff for configure ...
+
+CONFIGURE_SHELL		?= $(SH)
+CONFIGURE_ENV		+= SHELL=$(SH) CONFIG_SHELL=$(SH)
+CONFIGURE_SCRIPT	?= configure
+CONFIGURE_LOG		?= configure.log
+
+# NOTE:
+#   Ports may use under following special situation:
+#   1. Ports will be used for embedded system develop if CROSS_COMPILE defined
+#   2. If CONFIGURE_TARGET defined, ports will be used for toolchain build
+
+triplet			:=
+ifneq ($(CROSS_COMPILE),)
+CONFIGURE_BUILD		?= $(shell $(PORTSDIR)/Tools/config.guess)
+CONFIGURE_HOST		?= $(CROSS_COMPILE)
+ifneq ($(DONT_USE_HOST_TRIPLET),yes)
+triplet			+= --build=$(CONFIGURE_BUILD) --host=$(CONFIGURE_HOST)
+endif
+TOOLS_PREFIX		:= $(CROSS_COMPILE)-
+ifneq ($(CONFIGURE_BUILD),$(CONFIGURE_HOST))
+CC			= $(TOOLS_PREFIX)gcc
+C++			= $(TOOLS_PREFIX)g++
+CXX			= $(TOOLS_PREFIX)g++
+LD			= $(TOOLS_PREFIX)ld
+AS			= $(TOOLS_PREFIX)as
+AR			= $(TOOLS_PREFIX)ar
+NM			= $(TOOLS_PREFIX)nm
+OBJDUMP			= $(TOOLS_PREFIX)objdump
+RANLIB			= $(TOOLS_PREFIX)ranlib
+STRIP			= $(TOOLS_PREFIX)strip
+endif
+endif
+ifneq ($(CONFIGURE_TARGET),)
+ifneq ($(CROSS_COMPILE),)
+$(error Oops, CROSS_COMPILE __WAS NOT__ necessary if CONFIGURE_TARGET defined)
+endif
+triplet			+= --target=$(CONFIGURE_TARGET)
+endif
+
+# $(warning triplet=$(triplet))
+
+ifeq ($(GNU_CONFIGURE),yes)
+GUN_CONFIGURE_PREFIX	?= $(PREFIX)
+CONFIGURE_ARGS		+=						\
+	--prefix=$(GUN_CONFIGURE_PREFIX) $$_late_configure_args
+CONFIGURE_ENV		+=
+HAS_CONFIGURE		= yes
+
+# FIXME...
+ifneq ($(CC),)
+CONFIGURE_ENV		+= CC="$(CC)"
+endif
+ifneq ($(CPP),)
+CONFIGURE_ENV		+= CPP="$(CPP)"
+endif
+ifneq ($(CXX),)
+CONFIGURE_ENV		+= CXX="$(CXX)"
+endif
+ifneq ($(LD),)
+CONFIGURE_ENV		+= LD="$(LD)"
+endif
+ifneq ($(AR),)
+CONFIGURE_ENV		+= AR="$(AR)"
+endif
+ifneq ($(AS),)
+CONFIGURE_ENV		+= AS="$(AS)"
+endif
+ifneq ($(NM),)
+CONFIGURE_ENV		+= NM="$(NM)"
+endif
+ifneq ($(OBJDUMP),)
+CONFIGURE_ENV		+= OBJDUMP="$(OBJDUMP)"
+endif
+ifneq ($(RANLIB),)
+CONFIGURE_ENV		+= RANLIB="$(RANLIB)"
+endif
+ifneq ($(STRIP),)
+CONFIGURE_ENV		+= STRIP="$(STRIP)"
+endif
+
+ifneq ($(CFLAGS),)
+CONFIGURE_ENV		+= CFLAGS="$(CFLAGS)"
+endif
+ifneq ($(CPPFLAGS),)
+CONFIGURE_ENV		+= CPPFLAGS="$(CPPFLAGS)"
+endif
+ifneq ($(CXXFLAGS),)
+CONFIGURE_ENV		+= CXXFLAGS="$(CXXFLAGS)"
+endif
+ifneq ($(LDFLAGS),)
+CONFIGURE_ENV		+= LDFLAGS="$(LDFLAGS)"
+endif
+
+# FIXME: want to use "--build=$(CONFIGURE_TARGET)" in script
+SET_LATE_CONFIGURE_ARGS	=						\
+	_late_configure_args="";					\
+	if [ -z "`./$(CONFIGURE_SCRIPT) --version 2>&1 | $(EGREP) -i '(autoconf.*\.13|unrecognized option)'`" ]; then \
+	    _late_configure_args="$$_late_configure_args $(triplet)";	\
+	else								\
+	    _late_configure_args="$$_late_configure_args $(triplet)";	\
+	fi;
+endif
+
+# Passed to most of script invocations
+SCRIPTS_ENV		+=						\
+	CURDIR=$(MASTERDIR) DISTDIR=$(DISTDIR)				\
+	WRKDIR=$(WRKDIR) WRKSRC=$(WRKSRC) PATCHDIR=$(PATCHDIR)		\
+	SCRIPTDIR=$(SCRIPTDIR) FILESDIR=$(FILESDIR)			\
+	PORTSDIR=$(PORTSDIR) PREFIX=$(PREFIX) LOCALBASE=$(LOCALBASE)
+
 #
 #
 #
@@ -568,8 +677,30 @@ run-autotools-fixup:
 configure-autotools:
 run-autotools:
 
+configure_msg1=Script \"${CONFIGURE_SCRIPT}\" failed unexpectedly.
+
+quiet_cmd_run-config	?=
+      cmd_run-config	?= set -e;					\
+	(cd $(CONFIGURE_WRKSRC) && $(SET_LATE_CONFIGURE_ARGS)		\
+	if ! $(SETENV) CC="$(CC)" CPP="$(CPP)" CXX="$(CXX)"		\
+	    CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)"			\
+	    CXXFLAGS="$(CXXFLAGS)" LDFLAGS="$(LDFLAGS)"			\
+	    $(CONFIGURE_ENV) ./$(CONFIGURE_SCRIPT) $(CONFIGURE_ARGS); then \
+	    $(kecho) "  ERR     $(configure_msg1)";			\
+	    false;							\
+	fi)
+
 ifeq ($(filter $(override_targets),do-configure),)
 do-configure:
+	@if [ -f $(SCRIPTDIR)/configure ]; then				\
+	    cd $(MASTERDIR) && $(SETENV) $(SCRIPTS_ENV) $(SH) $(SCRIPTDIR)/configure; \
+	fi
+ifeq ($(GNU_CONFIGURE),yes)
+# copy config.guess and config.sub form Templates...
+endif
+ifeq ($(HAS_CONFIGURE),yes)
+	$(call cmd,run-config)
+endif
 endif
 
 #

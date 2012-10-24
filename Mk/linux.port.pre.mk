@@ -38,6 +38,7 @@ UNAME			?= uname
 SED			?= sed
 WHICH			?= which
 GREP			?= grep
+EGREP			?= egrep
 
 # cpu-vendor-os
 # cpu-vendor-kernel-system
@@ -156,6 +157,8 @@ PATCHDIR		?= $(MASTERDIR)/files
 FILESDIR		?= $(MASTERDIR)/files
 SCRIPTDIR		?= $(MASTERDIR)/scripts
 PKGDIR			?= $(MASTERDIR)
+
+PREFIX			?= $(LOCALBASE)
 
 #
 # default target
