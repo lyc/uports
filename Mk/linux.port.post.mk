@@ -408,6 +408,23 @@ SCRIPTS_ENV		+=						\
 	SCRIPTDIR=$(SCRIPTDIR) FILESDIR=$(FILESDIR)			\
 	PORTSDIR=$(PORTSDIR) PREFIX=$(PREFIX) LOCALBASE=$(LOCALBASE)
 
+# stuff for build ...
+
+ALL_TARGET		?= all
+INSTALL_TARGET		?= install
+
+MAKE_SHELL		?= $(SH)
+MAKE_ENV		+= SHELL=$(SH) NO_LINT=YES
+
+MAKE_FLAGS		?= -f
+MAKEFILE		?= Makefile
+MAKE_ENV		+= 						\
+	PREFIX=$(PREFIX) LOCALBASE=$(LOCALBASE) LIBDIR="$(LIBDIR)"	\
+	CC="$(CC)" CFLAGS="$(CFLAGS)"					\
+	CPP="$(CPP)" CPPFLAGS="$(CPPFLAGS)"				\
+	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"				\
+	LDFLAGS="$(LDFLAGS)"
+
 #
 #
 #
@@ -707,8 +724,20 @@ endif
 # Build...
 #
 
+build_msg1=Compilation failed unexpectedly.
+
+quiet_cmd_run-make-build	?=
+      cmd_run-make-build	?= set -e;				\
+	(cd $(BUILD_WRKSRC);						\
+	if ! $(SETENV) $(MAKE_ENV) $(MAKE) $(MAKE_FLAGS) $(MAKEFILE)	\
+	    $(MAKE_ARGS) $(ALL_TARGET); then				\
+	    $(kecho) "  ERR     $(build_msg1)";				\
+	    false;							\
+	fi)
+
 ifeq ($(filter $(override_targets),do-build),)
 do-build:
+	$(call cmd,run-make-build)
 endif
 
 #- check-conflicts:
