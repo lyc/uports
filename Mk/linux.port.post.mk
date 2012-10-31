@@ -425,6 +425,19 @@ MAKE_ENV		+= 						\
 	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"				\
 	LDFLAGS="$(LDFLAGS)"
 
+# stuff for install/deinstall/uninstall ...
+
+COMMENTFILE		?= $(PKGDIR)/pkg-comment
+DESCR			?= $(PKGDIR)/pkg-descr
+PKGINSTALL		?= $(PKGDIR)/pkg-install
+PKGDEINSTALL		?= $(PKGDIR)/pkg-deinstall
+PKGREQ			?= $(PKGDIR)/pkg-req
+PKGMESSAGE		?= $(PKGDIR)/pkg-message
+PLIST			?= $(PKGDIR)/pkg-plist
+
+
+TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
+
 #
 #
 #
@@ -748,8 +761,15 @@ endif
 
 install-license:
 
+quiet_cmd_run-install	?=
+      cmd_run-install	?= set -e;					\
+	(cd $(INSTALL_WRKSRC) &&					\
+	    $(SETENV) $(MAKE_ENV) $(MAKE) $(MAKE_FLAGS) $(MAKEFILE)	\
+	    $(MAKE_ARGS) $(INSTALL_TARGET))
+
 ifeq ($(filter $(override_targets),do-install),)
 do-install:
+	$(call cmd,run-install)
 endif
 
 #
@@ -1009,9 +1029,46 @@ $(foreach t,$(embellish_script_targets),				\
 ################################################################
 
 #- checkpatch:
-#- reinstall:
-#- uninstall:
 
+# reinstall:
+
+ifeq ($(filter $(override_targets),reinstall),)
+reinstall:
+	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@cd $(CURDIR) && make install
+endif
+
+# deinstall/uninstall
+
+ifeq ($(filter $(override_targets),pre-deinstall),)
+pre-deinstall:
+	@$(DO_NADA)
+endif
+
+ifeq ($(filter $(override_targets),deinstall uninstall),)
+deinstall uninstall: pre-deinstall
+	@if [ -f $(PLIST) ]; then					\
+	    $(kecho) "  UNINSTALL $(PKGNAME)";				\
+	    for f in `cat $(PLIST)`; do					\
+	        case $$f in						\
+		.*)							\
+		    prefix=$(DESTDIR)$(PREFIX);				\
+		    realname=$$f;;					\
+	        @rmdir*)						\
+	            ;;							\
+		esac;							\
+	        if [ -f $$prefix/$$realname ]; then			\
+	            rm -fr $$prefix/$$realname;				\
+		elif [ -h $$prefix/$$realname ]; then			\
+	            rm -fr $$prefix/$$realname;				\
+		elif [ -c $$prefix/$$realname ]; then			\
+	            rm -fr $$prefix/$$realname;				\
+	        fi;							\
+	    done;							\
+	fi
+	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+#	@cd $(MASTERDIR) && $(MAKE) $(__softMAKEFLAGS) run-ldconfig
+endif
 
 # clean
 
@@ -1132,8 +1189,23 @@ endif
 #- $(CURDIR)/README.html:
 #- pretty-print-depends-list:
 #- pretty-print-run-depends-list:
-#- generate-plist:
-#- $(TMPPLIST):
+
+quiet_cmd_generate-plist?= GEN     $(TMPPLIST)
+      cmd_generate-plist?= set -e;					\
+	if [ -f $(BUILD_COOKIE) ]; then					\
+	    tmpdir=/tmp/$(PKGNAME);					\
+	    if [ -d $$tmpdir ]; then rm -fr $$tmpdir; fi; 		\
+	    cd $(CURDIR) &&						\
+                $(MAKE) DESTDIR=$$tmpdir PREFIX=$(PREFIX) post-install >/dev/null; \
+	    cd $$tmpdir$(PREFIX) &&					\
+                find . | sort -r | $(SED) -e '/^\.$$/d' > $(TMPPLIST);	\
+	fi
+
+generate-plist:
+	$(call cmd,generate-plist)
+
+$(TMPPLIST): generate-plist
+
 #- compress-man:
 #- fake-pkg:
 #- depend:
