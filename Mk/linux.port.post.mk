@@ -190,6 +190,8 @@ _EXTRACT_SEQ		= extract-message				\
 			  pre-extract pre-extract-script		\
 			  do-extract					\
 			  post-extract post-extract-script
+_EXTRACT_LINK		= post-extract-script
+_EXTRACT_NEXT		= ask-license
 
 _PATCH_DEP		= extract
 _PATCH_SEQ		= ask-license					\
@@ -198,6 +200,8 @@ _PATCH_SEQ		= ask-license					\
 			  pre-patch pre-patch-script			\
 			  do-patch					\
 			  post-patch post-patch-script
+_PATCH_LINK		= post-patch-script
+_PATCH_NEXT		= build-depends
 
 _CONFIGURE_DEP 		= patch
 _CONFIGURE_SEQ		= build-depends lib-depends			\
@@ -207,12 +211,16 @@ _CONFIGURE_SEQ		= build-depends lib-depends			\
 			  run-autotools					\
 			  do-configure					\
 			  post-configure post-configure-script
+_CONFIGURE_LINK		= post-configure-script
+_CONFIGURE_NEXT		= build-message
 
 _BUILD_DEP		= configure
 _BUILD_SEQ		= build-message					\
 			  pre-build pre-build-script			\
 			  do-build					\
 			  post-build post-build-script
+_BUILD_LINK		= post-build-script
+_BUILD_NEXT		= install-message
 
 _INSTALL_DEP		= build
 _INSTALL_SEQ		= install-message				\
@@ -224,12 +232,16 @@ _INSTALL_SEQ		= install-message				\
 			  post-install post-install-script		\
 			  install-ldconfig-file				\
 			  security-check
+_INSTALL_LINK		= security-check
+_INSTALL_NEXT		= package-message
 
 _PACKAGE_DEP		= install
 _PACKAGE_SEQ		= package-message				\
 			  pre-package pre-package-script		\
 			  do-package					\
 			  post-package post-package-script
+_PACKAGE_LINK		= post-package-script
+_PACKAGE_NEXT		=
 
 cookie_targets		:=						\
 	extract patch configure build install package
@@ -273,13 +285,16 @@ ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
 ifeq ($(wildcard $($2_COOKIE)),)
+ifneq ($($(patsubst %,_%_NEXT,$2)),)
+$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
+endif
 $($2_COOKIE): $($(patsubst %,_%_DEP,$2)) $($(patsubst %,_%_SEQ,$2))
 	@touch $($2_COOKIE)
 ifneq ($($2_LISTS),)
 	@echo $($2_LISTS) >> $($2_COOKIE)
 endif
 else
-($2_COOKIE):
+$($2_COOKIE):
 	@$(DO_NADA)
 endif
 endef
@@ -300,11 +315,9 @@ extract-message: post-fetch-script
 checksum: extract-message
 extract-depends: checksum
 pre-extract: extract-depends
-ask-license: post-extract-script
 patch-message: ask-license
 patch-depends: patch-message
 pre-patch: patch-depends
-build-depends: post-patch-script
 lib-depends: build-depends
 configure-message: lib-depends
 run-autotools-fixup: configure-message
@@ -312,9 +325,7 @@ configure-autotools: run-autotools-fixup
 pre-configure: configure-autotools
 run-autotools: pre-configure-script
 do-configure: run-autotools
-build-message: post-configure-script
 pre-build: build-message
-install-message: post-build-script
 run-depends: install-message
 pre-install: run-depends
 check-already-installed: pre-install-script
@@ -323,7 +334,6 @@ install-license: do-install
 post-install: install-license
 install-ldconfig-file: post-install-script
 security-check: install-ldconfig-file
-package-message: security-check
 pre-package: package-message
 
 # $(call generate-cookie-targets-depends, target)
