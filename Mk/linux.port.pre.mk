@@ -13,6 +13,7 @@ _PREMKINCLUDED		:= yes
 SETENV			?= env
 SH			?= /bin/sh
 UNAME			?= uname
+SED			?= sed
 
 # Get the architecture
 ifeq ($(ARCH),)

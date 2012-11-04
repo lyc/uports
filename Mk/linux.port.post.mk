@@ -29,6 +29,12 @@ BUILD_COOKIE		?= $(WRKDIR)/build._done.$(PKGNAME)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
+# Special macro for doing in-place file editing using regexps
+ifeq ($(USE_REINPLACE),yes)
+REINPLACE_ARGS		?= -i.bak
+REINPLACE_CMD		?= $(SED) $(REINPLACE_ARGS)
+endif
+
 # How to do nothing.  Override if you, for some strange reason, would rather
 # do something.
 DO_NADA			?= true
