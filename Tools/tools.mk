@@ -70,6 +70,38 @@ extract-suffix		= $(patsubst .%,%,$(suffix $1))
 # $(call get-category, port.suffix)
 get-category		= $($(call extract-port,$1)_categories)
 
+# $(call rm-port, [[group@]group@]category/port)
+rm-port			= $(firstword $(call rm-slash,$1))
+
+# $(call rm-category, [[group@]group@]category)
+rm-category		= $(patsubst %$(lastword $(call rm-at,$1)),%,$1)
+
+# $(call get-groups, [[group@]group@]category/port)
+get-groups		= $(call rm-category,$(call rm-port,$1))
+
+# $(call rm-groups, [[group@]group@]category/port)
+rm-groups		= $(patsubst $(call get-groups,$1)%,%,$1)
+
+# $(call complete-group-default, [group@[group@]]category/port, group)
+complete-group-default	= $(strip					\
+			    $(if $(call get-groups,$1),			\
+			      $(foreach g,$(call rm-at,$(call get-groups,$1)),\
+			        $(addprefix $g$(AT),$(call rm-groups,$1))),\
+			      $(addprefix $2$(AT),$1)))
+
+# $(call get-port, group@category/port)
+get-port		= $(lastword $(call rm-slash,$1))
+
+# $(call get-grroup, group@category/port)
+get-group		= $(firstword $(call rm-at,$1))
+
+# $(call filter-out-group-extra, group@category/port)
+filter-out-group-extra	= $(if						\
+			    $(filter-out $(call get-group,$1),		\
+			    $($(call get-port,$1)_groups)),		\
+			      $(if $(filter-out $(PORTS_GROUP_DEFAULT),	\
+			        $(call get-group,$1)),,$1),$1)
+
 # $(call transform-port-string, port.suffix)
 transform-port-string	= $(subst ., ,$(call get-category,$1)/$1)
 
@@ -129,6 +161,52 @@ endef
 $(foreach c,$(ports_all),						\
   $(eval								\
     $(call generate-port-categories-lists,$c)))
+
+#
+# group ...
+#
+#   PORTS_GROUP_DEFAULT:
+#   ports_all_group:
+#   groups_all:
+#   ports_all_group_extra:
+#   groups_xxx:
+#   xxx_groups:
+#
+
+PORTS_GROUP_DEFAULT	?= host
+
+ports_all_group		= $(foreach p,					\
+			    $(if $(PORTS_LISTS),$(PORTS_LISTS),		\
+			     $(ports_all_raw)),$(call complete-group-default,\
+			       $p,$(PORTS_GROUP_DEFAULT)))
+
+groups_all		= $(sort					\
+			    $(foreach p,$(ports_all_group),		\
+			      $(call rm-at,$(call get-groups,$p))))
+
+ports_all_group_extra	= $(sort					\
+			    $(foreach g,$(ports_all_group),		\
+			      $(call filter-out-group-extra,$g)))
+
+# $(call generate-groups-list, group)
+define generate-groups-lists
+  groups_$1		= $(foreach p,$(filter $1$(AT)%,		\
+			    $(ports_all_group)),$(lastword $(call rm-slash,$p)))
+endef
+
+$(foreach g,$(groups_all),						\
+  $(eval								\
+    $(call generate-groups-lists,$g)))
+
+# $(call generate-port-groups-lists, port)
+define generate-port-groups-lists
+  $1_groups		= $(foreach g,$(filter %/$1,			\
+			    $(ports_all_group)),$(subst $(AT),,$(call get-groups,$g)))
+endef
+
+$(foreach p,$(ports_all),						\
+  $(eval								\
+    $(call generate-port-groups-lists,$p)))
 
 #
 # generate port_xxx_env variable...
@@ -225,7 +303,19 @@ ports: $(addsuffix .install,$(ports_all))
 #
 #
 
+tmpname			= tmp
+tmpdir			= $(portdir)/Tools/$(tmpname)
+
 echo			= $(shell which echo)
+pecho			= $(tmpdir)/pecho.$(shell uname -s)
+
+$(pecho): $(portdir)/Tools/pecho.c
+	@mkdir -p $(@D)
+	@cc -o $@ $^
+
+distclean-tools:
+	@rm -fr $(tmpdir)
+distclean: distclean-tools
 
 #
 # info targets...
@@ -240,27 +330,64 @@ info:
 # info.ports
 #
 
+info.ports.groups-header:
+	@$(echo) -n "available PORTS_GROUP(PG): ";			\
+	for g in $(groups_all); do 					\
+	    if [ $$g = $(PORTS_GROUP_DEFAULT) ]; then			\
+	        $(echo) -n "[*]$$g "; 					\
+	    else							\
+	        $(echo) -n "$$g "; 					\
+	    fi; 							\
+	done; $(echo);							\
+	$(echo) "                   ------  ---------------"
+
+# $(show-group-lists, group)
+define show-group-lists
+show_groups_$1:
+	@flag=`if [ $(PORTS_GROUP_DEFAULT) = $1 ]; then			\
+	  $(echo) '[*]$1: '; else $(echo) '$1: '; fi`;			\
+	$(pecho) -n -o 27 -r "$$$$flag";				\
+	$(echo) $(groups_$1)
+
+info.ports.groups-lists: show_groups_$1
+endef
+
+$(foreach g,$(groups_all), 						\
+  $(eval								\
+    $(call show-group-lists,$g)))
+
 info.ports.sep:
 	@$(echo) "                     ----  ---------------"
 
-info.ports.ports:
-	@for p in $(sort $(ports_all_raw)); do				\
-	    flag=' ';							\
-	    work=$(portdir)/$$p/work;					\
-	    status=`if [ ! -d $$work ]; then $(echo) ' ';		\
-	    elif [ -f $$work/install._done.* ]; then $(echo) I;		\
-	    elif [ -f $$work/package._done.* ]; then $(echo) K;		\
-	    elif [ -f $$work/stage._done.* ]; then $(echo) S;		\
-	    elif [ -f $$work/build._done.* ]; then $(echo) B;		\
-	    elif [ -f $$work/configure._done.* ]; then $(echo) C;	\
-	    elif [ -f $$work/patch._done.* ]; then $(echo) P;		\
-	    elif [ -f $$work/extract._done.* ]; then $(echo) E;		\
-	    fi`;							\
-	    $(echo) "                     [$$flag$$status]: $$p";	\
-	done
+define show-port-lists
+  show-port-list-$(subst @,-,$(subst /,-,$1)):
+	@g=$(call get-group,$1);					\
+	p=$(call rm-groups,$1);						\
+	flag=`if [ "$$$$g" = "$(PORTS_GROUP_DEFAULT)" ]; then		\
+	  $(echo) '*'; else $(echo) ' '; fi`;				\
+	work=$(portdir)/$$$$p/work;					\
+	status=`if [ ! -d $$$$work ]; then $(echo) ' ';			\
+	  elif [ -f $$$$work/install._done.* ]; then $(echo) I;		\
+	  elif [ -f $$$$work/package._done.* ]; then $(echo) K;		\
+	  elif [ -f $$$$work/stage._done.* ]; then $(echo) S;		\
+	  elif [ -f $$$$work/build._done.* ]; then $(echo) B;		\
+	  elif [ -f $$$$work/configure._done.* ]; then $(echo) C;	\
+	  elif [ -f $$$$work/patch._done.* ]; then $(echo) P;		\
+	  elif [ -f $$$$work/extract._done.* ]; then $(echo) E;		\
+	fi`;								\
+	suffix=`if [ ! "$$$$g" = "$(PORTS_GROUP_DEFAULT)" ]; then	\
+	  $(echo) " [$$$$g]"; fi`;					\
+	$(echo) "                     [$$$$flag$$$$status]: $$$$p$$$$suffix"
+
+  info.ports.ports: show-port-list-$(subst @,-,$(subst /,-,$1))
+endef
+
+$(foreach p,$(ports_all_group),						\
+  $(eval								\
+    $(call show-port-lists,$p)))
 
 depends_exclude_targets	+= info.ports
-info.ports: $(addprefix info.ports.,sep ports)
+info.ports: $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
 
 #
 # info.debug
@@ -288,10 +415,31 @@ info.debug.port-categories: show-$1-categories
 endef
 $(foreach p,$(ports_all),$(eval $(call show-port-categories,$p)))
 
+info.debug.group:
+	@$(echo) "PORTS_GROUP_DEFAULT = $(PORTS_GROUP_DEFAULT)"
+	@$(echo) "groups_all = $(groups_all)"
+	@$(echo) "ports_all_group = $(ports_all_group)"
+	@$(echo) "ports_all_group_extra = $(ports_all_group_extra)"
+
+define show-groups-all
+show-groups-$1:
+	@echo "groups_$1 = $(groups_$1)"
+info.debug.group-all: show-groups-$1
+endef
+$(foreach g,$(groups_all),$(eval $(call show-groups-all,$g)))
+
+define show-port-groups
+show-$1-groups:
+	@echo "$1_groups = $($1_groups)"
+info.debug.port-groups: show-$1-groups
+endef
+$(foreach p,$(ports_all),$(eval $(call show-port-groups,$p)))
+
 debug_targets		= sep1 port					\
 			  sep2 category sep3 category-all sep4 port-categories \
+			  sep5 group sep6 group-all sep7 port-groups	\
 			  sep-end
-double_line		= sep1 sep2 sep-end
+double_line		= sep1 sep2 sep5 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\

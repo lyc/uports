@@ -9,10 +9,33 @@
 # Add port packages name (origin format) which you want to manage (bulk build)
 # into "PORTS_LISTS" variable.
 #
+# Port package naming format will be:
+#
+#    [group1@[group2@]]category/name
+#
+# where
+#
+#    group1,group2,...: virtual "port group" name which will be used to group
+#                       different port packages together for different purpose
+#             category: the folder where port package stored
+#                 name: the name of port package
+#
+# NOTE:
+#
+# 1. Every port package must belong to at least one "port group".
+# 2. Port group are assigned to port package by add as its prefix part of name
+#    with '@' separate mark.
+# 3. Mulitple port groups can be assigned to single port simultaneously.
+# 4. "Default group name" will be assigned to port package
+#    if no prefix part found.
+# 5. Default port group name are assigned on "PORTS_GROUP_DEFAULT" variable.
+# 6. If no PORTS_GROUP_DEFAULT assigned, "host" will be used as
+#    default port group name.
 
-PORTS_LISTS		= devel/pkg-config				\
+PORTS_GROUP_DEFAULT	= target
+PORTS_LISTS		= host@devel/pkg-config				\
 			  textproc/expat2				\
-			  graphics/jpeg					\
+			  host@target@security/openssl			\
 			  graphics/webp
 
 # STEP 2: Setup Environment Variables
