@@ -102,8 +102,14 @@ filter-out-group-extra	= $(if						\
 			      $(if $(filter-out $(PORTS_GROUP_DEFAULT),	\
 			        $(call get-group,$1)),,$1),$1)
 
-# $(call transform-port-string, port.suffix)
-transform-port-string	= $(subst ., ,$(call get-category,$1)/$1)
+# $(call rm-group, group@port.suffix)
+rm-group		= $(lastword $(call rm-at,$1))
+
+# $(call transform-port-string, group@port.suffix)
+transform-port-string	= $(subst ., ,					\
+			    $(firstword $(call rm-at,			\
+			      $1))$(AT)$(call get-category,		\
+			        $(call rm-group,$1))$(SLASH)$(call rm-group,$1))
 
 #
 # port ...
@@ -209,50 +215,61 @@ $(foreach p,$(ports_all),						\
     $(call generate-port-groups-lists,$p)))
 
 #
-# generate port_xxx_env variable...
+# generate port_ggg_xxx_env variable...
 #
 
-#  Listing below are extra envs will be append into "port_xxx_env",
+#  Listing below are extra envs will be appended into "port_ggg_xxx_env",
 #  1. $(PORTS_ENVS)
-#    1.1. Remove $(PORTS_xxx_EXCLUDE_ENVS) if existed
-#  2. $(PORTS_xxx_EXTRA_ENVS)
+#     1.1. remove $(PORTS_ggg_xxx_EXCLUDE_ENVS if existed
+#  2. $(PORTS_ggg_ENVS)
+#     2.1. remove $(PORTS_ggg_xxx_EXCLUDE_ENVS if existed
+#  3. $(PORTS_xxx_EXTRA_ENVS)
+#  4. $(PORTS_ggg_xxx_EXTRA_ENVS)
 
-# $(call generate-port-env, port)
+# $(call generate-port-env, group, port)
 define generate-port-env
   ifneq ($(PORTS_ENVS),)
-    port_$1_env	+=							\
-      $(if $(PORTS_$1_EXCLUDE_ENVS),					\
-        $(filter-out $(PORTS_$1_EXCLUDE_ENVS),$(PORTS_ENVS)),		\
+    port_$1_$2_env	+=						\
+      $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
+        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),$(PORTS_ENVS)),	\
         $(PORTS_ENVS))
   endif
-  ifneq ($(PORTS_$1_EXTRA_ENVS),)
-    port_$1_env	+= $(PORTS_$1_EXTRA_ENVS)
+  ifneq ($(PORTS_$1_ENVS),)
+    port_$1_$2_env	+= 						\
+      $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
+        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),$(PORTS_$1_ENVS)),	\
+        $(PORTS_$1_ENVS))
+  endif
+  ifneq ($(PORTS_$2_EXTRA_ENVS),)
+    port_$1_$2_env	+= $(PORTS_$2_EXTRA_ENVS)
+  endif
+  ifneq ($(PORTS_$1_$2_EXTRA_ENVS),)
+    port_$1_$2_env	+= $(PORTS_$1_$2_EXTRA_ENVS)
   endif
 endef
 
-$(foreach p,$(ports_all),						\
-  $(eval								\
-    $(call generate-port-env,$p)))
+$(foreach g,$(groups_all),						\
+  $(foreach p,$(groups_$g),						\
+    $(eval								\
+      $(call generate-port-env,$g,$p))))
 
 #
-# generate port.suffix target...
+# generate group@port.suffix target...
 #
 
-# $(call generate-all-port-target, suffix)
-define generate-all-port-target
-  ports_target_all	+= $(addsuffix .$1,$(ports_all))
-endef
+ports_target_all	= $(foreach g,$(groups_all),			\
+			    $(foreach s,$(suffix_all_lists),		\
+			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
 
-$(foreach s,$(suffix_all_lists),					\
-  $(eval								\
-    $(call generate-all-port-target,$s)))
+get-envs		= $(port_$(firstword $(call rm-at,		\
+			    $1))_$(call extract-port,$(call rm-group,$1))_env)
 
 quiet_cmd_generate-port-target	?= PORT    $(call transform-port-string,$@)
       cmd_generate-port-target	?= set -e;				\
-	category=$(call get-category,$@);				\
-	port=$(call extract-port,$@);					\
-	suffix=$(call extract-suffix,$@);				\
-	envs="$(port_$(call extract-port,$@)_env)";			\
+	category=$(call get-category,$(call rm-group,$@));		\
+	port=$(call extract-port,$(call rm-group,$@));			\
+	suffix=$(call extract-suffix,$(call rm-group,$@));		\
+	envs="$(call get-envs,$@)";					\
 	make -C $(portdir)/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
 .PHONY: $(ports_target_all)
@@ -261,14 +278,33 @@ $(ports_target_all):
 	$(call cmd,generate-port-target)
 
 #
+# generate port.suffix target...
+#
+
+# $(call generate-all-ports-default-target, group@category/port, suffix)
+define generate-all-ports-default-target
+.PHONY: $(call get-port,$1).$2
+depends_exclude_targets	+= $(call get-port,$1).$2
+$(call get-port,$1).$2: $(call get-group,$1)@$(call get-port,$1).$2
+endef
+
+$(foreach p,$(ports_all_group_extra),					\
+  $(foreach s,$(suffix_all_lists),					\
+    $(eval								\
+      $(call generate-all-ports-default-target,$p,$s))))
+
+#
 # generate ports catagory.suffix targets...
 #
+
+transform_category	= $(foreach p,$(categories_$1),			\
+			    $(foreach g,$($p_groups),$g$(AT)$p))
 
 # $(call generate-all-category-target, category, suffix)
 define generate-all-categories-target
 .PHONY: $1.$2
 depends_exclude_targets	+= $1.$2
-$1.$2: $(addsuffix .$2,$(categories_$1))
+$1.$2: $(addsuffix .$2,$(call transform_category,$1))
 endef
 
 $(foreach c,$(categories_all),						\
@@ -277,14 +313,33 @@ $(foreach c,$(categories_all),						\
       $(call generate-all-categories-target,$c,$s))))
 
 #
+# generate ports group.suffix targets...
+#
+
+# $(call generate-all-groups-target, group, suffix)
+define generate-all-groups-target
+.PHONY: $1.$2
+depends_exclude_targets	+= $1.$2
+$1.$2: $(addprefix $1$(AT),$(addsuffix .$2,$(groups_$1)))
+endef
+
+$(foreach g,$(groups_all),						\
+  $(foreach s,$(suffix_all_lists),					\
+    $(eval								\
+      $(call generate-all-groups-target,$g,$s))))
+
+#
 # generate ports.suffix targets...
 #
 
-# $(call generate-all-target, suffix)
+transform_all_group	= $(foreach p,$1,				\
+			    $(call get-group,$p)@$(call get-port,$p))
+
+# $(call generate-all-ports-target, suffix)
 define generate-all-ports-target
 .PHONY: ports.$1
 depends_exclude_targets	+= ports.$1
-ports.$1: $(addsuffix .$1,$(ports_all))
+ports.$1: $(addsuffix .$1,$(call transform_all_group,$(ports_all_group)))
 endef
 
 $(foreach s,$(suffix_all_lists),					\
@@ -375,8 +430,9 @@ define show-port-lists
 	  elif [ -f $$$$work/patch._done.* ]; then $(echo) P;		\
 	  elif [ -f $$$$work/extract._done.* ]; then $(echo) E;		\
 	fi`;								\
-	suffix=`if [ ! "$$$$g" = "$(PORTS_GROUP_DEFAULT)" ]; then	\
-	  $(echo) " [$$$$g]"; fi`;					\
+	extra=$(filter $1,$(ports_all_group_extra));			\
+	suffix=`if [ -z "$$$$extra" ]; then				\
+	  $(echo) " [$$$$g$(AT)]"; fi`;					\
 	$(echo) "                     [$$$$flag$$$$status]: $$$$p$$$$suffix"
 
   info.ports.ports: show-port-list-$(subst @,-,$(subst /,-,$1))
@@ -435,11 +491,15 @@ info.debug.port-groups: show-$1-groups
 endef
 $(foreach p,$(ports_all),$(eval $(call show-port-groups,$p)))
 
+info.debug.targets:
+	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
+
 debug_targets		= sep1 port					\
 			  sep2 category sep3 category-all sep4 port-categories \
 			  sep5 group sep6 group-all sep7 port-groups	\
+			  sep8 targets					\
 			  sep-end
-double_line		= sep1 sep2 sep5 sep-end
+double_line		= sep1 sep2 sep5 sep8 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\

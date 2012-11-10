@@ -35,6 +35,7 @@
 PORTS_GROUP_DEFAULT	= target
 PORTS_LISTS		= host@devel/pkg-config				\
 			  textproc/expat2				\
+			  toolchain@math/gmp				\
 			  host@target@security/openssl			\
 			  graphics/webp
 
@@ -45,10 +46,15 @@ PORTS_LISTS		= host@devel/pkg-config				\
 #  1. PORTS_ENVS
 #
 # Following environment variables will be added or removed while
-# specific port package "xxx" is working
 #
-#  2. PORTS_xxx_EXTRA_ENVS : add
-#  3. PORTS_xxx_EXCLUDE_ENVS : remove
+#     specific port group: "ggg", and
+#     specific port package: "xxx"
+#
+# are assigned:
+#
+#  2. PORTS_ggg_ENVS : add
+#  3. PORTS_ggg_xxx_EXTRA_ENVS : add
+#  4. PORTS_ggg_xxx_EXCLUDE_ENVS : remove
 #
 # Possible candidates of environment variable may include:
 #
@@ -63,12 +69,21 @@ wrkdir			= $(shell cd && pwd)/local
 PORTS_ENVS		= USE_GLOBALBASE=yes				\
 			  DISTDIR_SITE=/opt/distfiles/ports		\
 			  PACKAGES_SITE=/opt/distfiles/ports/packages	\
-			  USE_ALTERNATIVE=yes				\
-			  ALTERNATIVE_WRKDIR=$(wrkdir)/src		\
-			  PREFIX=/usr					\
-			  DESTDIR=$(wrkdir)
+			  USE_ALTERNATIVE=yes
 
-PORTS_webp_EXTRA_ENVS	= WITH_GL=yes
+PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
+			  PREFIX=/usr					\
+			  DESTDIR=$(wrkdir)/host
+
+PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
+			  PREFIX=/usr					\
+			  DESTDIR=$(wrkdir)/target
+
+PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
+			  PREFIX=/opt					\
+			  DESTDIR=$(wrkdir)/host
+
+PORTS_target_webp_EXTRA_ENVS	= WITH_GL=yes
 
 # include ports package at here...
 include ../tools.mk
