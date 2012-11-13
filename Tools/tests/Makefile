@@ -64,14 +64,25 @@ PORTS_LISTS		= host@devel/pkg-config				\
 #  DESTDIR: a varialbe prepended to PREFIX
 #  CROSS_COMPILE: if you are doing corss compile
 #
+# Note:
+#
+# Two special ENVs listed as below
+#
+#    TYPE_SUFFIX=% in PORTS_ENVS, and
+#    ggg_SUFFIX=% in PORTS_ggg_ENVS
+#
+# are using to combine together to form final TYPE_SUFFIX ENVs, and then
+# remove from environment variable list.
 
 wrkdir			= $(shell cd && pwd)/local
 PORTS_ENVS		= USE_GLOBALBASE=yes				\
 			  DISTDIR_SITE=/opt/distfiles/ports		\
 			  PACKAGES_SITE=/opt/distfiles/ports/packages	\
+			  TYPE_SUFFIX=pj				\
 			  USE_ALTERNATIVE=yes
 
 PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
+			  host_SUFFIX=utils				\
 			  PREFIX=/usr					\
 			  DESTDIR=$(wrkdir)/host
 

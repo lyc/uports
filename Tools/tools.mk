@@ -215,6 +215,39 @@ $(foreach p,$(ports_all),						\
     $(call generate-port-groups-lists,$p)))
 
 #
+#   ggg_SUFFIX:
+#
+
+# $(call find-groups-suffix, checker, envs)
+find-group-suffix 	= $(strip					\
+			    $(if $(filter $1_SUFFIX=%,$2),		\
+			      $(patsubst $1_SUFFIX=%,%,$(filter $1_SUFFIX=%,$2)),))
+
+# FIXME!
+#   Can't put $1_SFX1, $1_SFX2 and $1_SUFFIX into single define,
+#   Just separate it now.
+
+# $(call generate-group-suffix, group)
+define generate-suffix
+  $1_SFX1		= $(if $(call find-group-suffix,$1,$(PORTS_$1_ENVS)),\
+			    $(call find-group-suffix,$1,$(PORTS_$1_ENVS)),\
+			    $(if $(filter-out $1,$(groups_all)),$1,))
+  $1_SFX2		= $(call find-group-suffix,TYPE,$(PORTS_ENVS))
+endef
+
+$(foreach g,$(groups_all),						\
+  $(eval								\
+    $(call generate-suffix,$g)))
+
+define generate-groups-suffix
+  $1_SUFFIX		= $(if $($1_SFX2),-$($1_SFX2),)$(if $($1_SFX1),$(if $($1_SFX2),$(if $(filter-out $($1_SFX1),$($1_SFX2)),.$($1_SFX1),),.$($1_SFX1)),)
+endef
+
+$(foreach g,$(groups_all),						\
+  $(eval								\
+    $(call generate-groups-suffix,$g)))
+
+#
 # generate port_ggg_xxx_env variable...
 #
 
@@ -225,20 +258,29 @@ $(foreach p,$(ports_all),						\
 #     2.1. remove $(PORTS_ggg_xxx_EXCLUDE_ENVS if existed
 #  3. $(PORTS_xxx_EXTRA_ENVS)
 #  4. $(PORTS_ggg_xxx_EXTRA_ENVS)
+#
+#  Listing below are extra envs will be removed during envs generate
+#
+#  1. remove TYPE_SUFFIX=% if existed in $(PORTS_ENVS)
+#  2. remove ggg_SUFFIX=% if existed in $(PORTS_ggg_ENVS)
+#
+#  And finally, $(ggg_SUFFIX) will be always added into "port_ggg_xxx_env"
 
 # $(call generate-port-env, group, port)
 define generate-port-env
   ifneq ($(PORTS_ENVS),)
     port_$1_$2_env	+=						\
       $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
-        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),$(PORTS_ENVS)),	\
-        $(PORTS_ENVS))
+        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),			\
+          $(filter-out TYPE_SUFFIX=%,$(PORTS_ENVS))),			\
+        $(filter-out TYPE_SUFFIX=%,$(PORTS_ENVS)))
   endif
   ifneq ($(PORTS_$1_ENVS),)
     port_$1_$2_env	+= 						\
       $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
-        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),$(PORTS_$1_ENVS)),	\
-        $(PORTS_$1_ENVS))
+        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),			\
+          $(filter-out $1_SUFFIX=%,$(PORTS_$1_ENVS))),			\
+        $(filter-out $1_SUFFIX=%,$(PORTS_$1_ENVS)))
   endif
   ifneq ($(PORTS_$2_EXTRA_ENVS),)
     port_$1_$2_env	+= $(PORTS_$2_EXTRA_ENVS)
@@ -246,6 +288,7 @@ define generate-port-env
   ifneq ($(PORTS_$1_$2_EXTRA_ENVS),)
     port_$1_$2_env	+= $(PORTS_$1_$2_EXTRA_ENVS)
   endif
+  port_$1_$2_env	+= TYPE_SUFFIX=$($1_SUFFIX)
 endef
 
 $(foreach g,$(groups_all),						\
@@ -420,7 +463,7 @@ define show-port-lists
 	p=$(call rm-groups,$1);						\
 	flag=`if [ "$$$$g" = "$(PORTS_GROUP_DEFAULT)" ]; then		\
 	  $(echo) '*'; else $(echo) ' '; fi`;				\
-	work=$(portdir)/$$$$p/work;					\
+	work=$(portdir)/$$$$p/work$($(call get-group,$1)_SUFFIX);	\
 	status=`if [ ! -d $$$$work ]; then $(echo) ' ';			\
 	  elif [ -f $$$$work/install._done.* ]; then $(echo) I;		\
 	  elif [ -f $$$$work/package._done.* ]; then $(echo) K;		\
@@ -484,6 +527,13 @@ info.debug.group-all: show-groups-$1
 endef
 $(foreach g,$(groups_all),$(eval $(call show-groups-all,$g)))
 
+define show-groups-suffix
+show-groups-suffix-$1:
+	@echo "$1_SUFFIX = $($1_SUFFIX)"
+info.debug.group-suffix: show-groups-suffix-$1
+endef
+$(foreach g,$(groups_all),$(eval $(call show-groups-suffix,$g)))
+
 define show-port-groups
 show-$1-groups:
 	@echo "$1_groups = $($1_groups)"
@@ -496,10 +546,11 @@ info.debug.targets:
 
 debug_targets		= sep1 port					\
 			  sep2 category sep3 category-all sep4 port-categories \
-			  sep5 group sep6 group-all sep7 port-groups	\
-			  sep8 targets					\
+			  sep5 group sep6 group-all sep7		\
+			       group-suffix sep8 port-groups		\
+			  sep9 targets					\
 			  sep-end
-double_line		= sep1 sep2 sep5 sep8 sep-end
+double_line		= sep1 sep2 sep5 sep9 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\
