@@ -11,6 +11,8 @@ $(if $(_PREMKINCLUDED),							\
 _PREMKINCLUDED		:= yes
 
 TAR			?= tar
+XZCAT			?= $(shell which xzcat)
+XZ_CMD			?= $(shell which xz)
 BZCAT			?= $(shell which bzcat)
 BZIP2_CMD		?= $(shell which bzip2)
 $(if $(BZIP2_CMD),,$(error Sorry, ports need "bzip2" package...))
@@ -73,6 +75,9 @@ LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
 
+ifeq ($(USE_XZ),yes)
+EXTRACT_SUFX 		?= .tar.xz
+else
 ifeq ($(USE_BZIP2),yes)
 EXTRACT_SUFX 		?= .tar.bz2
 else
@@ -80,6 +85,7 @@ ifeq ($(USE_ZIP),yes)
 EXTRACT_SUFX 		?= .zip
 else
 EXTRACT_SUFX 		?= .tar.gz
+endif
 endif
 endif
 

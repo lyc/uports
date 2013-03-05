@@ -250,10 +250,14 @@ EXTRACT_AFTER_ARGS	?= -d $(WRKDIR)
 else
 EXTRACT_BEFORE_ARGS	?= -dc
 EXTRACT_AFTER_ARGS	?= | $(TAR) -xf -
+ifeq ($(USE_XZ),yes)
+EXTRACT_CMD		?= $(XZ_CMD)
+else
 ifeq ($(USE_BZIP2),yes)
 EXTRACT_CMD		?= $(BZIP2_CMD)
 else
 EXTRACT_CMD		?= $(GZIP_CMD)
+endif
 endif
 endif
 
