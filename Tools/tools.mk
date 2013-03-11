@@ -419,7 +419,7 @@ distclean: distclean-tools
 # info targets...
 #
 
-info_lists		+= ports debug
+info_lists		+= ports debug pc
 
 info:
 	@$(echo) "Available info targets: info.($(info_lists))..."
@@ -487,6 +487,47 @@ $(foreach p,$(ports_all_group),						\
 
 depends_exclude_targets	+= info.ports
 info.ports: $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
+
+#
+# info.pc ...
+#
+
+pkgs			= lib lib64
+merge			= $(shell echo					\
+			    $(addprefix $1,$(addsuffix $2,$3))		\
+			      | sed -e 's/ /:/g')
+
+PKGCONFIG_ENVS			+=					\
+	PKG_CONFIG_LIBDIR=$(call merge,$(DESTDIR)$(PREFIX)/,/pkgconfig,$(pkgs))\
+	PKG_CONFIG_SYSROOT_DIR=$(DESTDIR)				\
+	PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=yes				\
+	PKG_CONFIG_ALLOW_SYSTEM_LIBS=yes
+
+PKGCONFIG_ARGS			+= --silence-errors
+
+ifneq ($(PKG_CONFIG),)
+export PKGCONFIG_CMD	= $(PKGCONFIG_ENVS) $(PKG_CONFIG) $(PKGCONFIG_ARGS)
+#export PKGCONFIG_LIST	= $(shell $(PKGCONFIG_CMD) --list-all |		\
+#			    awk '{ print $$1; }')
+endif
+
+PA			?= --list-all | sort
+
+depends_exclude_targets	+= info.pc
+info.pc:
+ifneq ($(PKG_CONFIG),)
+ifneq ($(PKGCONFIG_CMD),)
+ifneq ($(wildcard $(PKG_CONFIG)),)
+	@$(PKGCONFIG_CMD) $(PA)
+else
+	@echo "pkg-config was not built yet..."
+endif
+else
+	@echo "pkg-config was not added in host tools yet..."
+endif
+else
+	@echo "you didn't set USE_HOSTTOOLS yet..."
+endif
 
 #
 # info.debug
