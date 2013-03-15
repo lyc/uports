@@ -26,6 +26,36 @@ COMMENT 		= Secure Sockets Layer and cryptography libraries
 #	0003-engines-e_padlock-implement-sha1-sha224-sha256-accel.patch:padlock \
 #	0004-crypto-engine-autoload-padlock-dynamic-engine.patch:padlock
 
+ifneq ($(CROSS_COMPILE),)
+  CONFIGURE_SCRIPT	:= Configure
+    CONFIGURE_ENV	+= CROSS_COMPILE=
+  CONFIGURE_ARGS	+= shared
+  ifneq ($(filter arm,$(subst -, ,$(CROSS_COMPILE))),)
+    CONFIGURE_ARGS	+= linux-armv4
+  endif
+  ifneq ($(filter mips,$(subst -, ,$(CROSS_COMPILE))),)
+    CONFIGURE_ARGS	+= linux-mipsel
+  endif
+  # ignore CONFIGURE_HOST because Openssl has its own build system...
+  DONT_USE_HOST_TRIPLET	= yes
+else
+  CONFIGURE_SCRIPT	:= config
+  ifeq ($(shell uname -s),Darwin)
+    ifeq ($(shell uname -m),x86_64)
+      CONFIGURE_SCRIPT	:= Configure
+      CONFIGURE_ARGS	+= darwin64-x86_64-cc
+    endif
+  endif
+endif
+USE_REINPLACE		= yes
+GNU_CONFIGURE		= yes
+CONFIGURE_ARGS		+= --openssldir=$(PREFIX)/lib/ssl		\
+			   shared					\
+			   no-kbr5
+
+ifneq ($(DESTDIR),)
+MAKE_ARGS		+= INSTALL_PREFIX="$(DESTDIR)"
+endif
 #
 #
 #

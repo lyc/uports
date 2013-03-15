@@ -18,7 +18,16 @@ MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= IJG's jpeg compression utilities #'
 
 WRKSRC			= $(WRKDIR)/$(PORTNAME)-$(DISTVERSION2)
+
 DISTVERSION2		= 8b
+GNU_CONFIGURE		= yes
+CONFIGURE_ARGS		+= --enable-shared --enable-static
+ADDITIONAL_HEADER	= jinclude.h jpegint.h
+
+# define J_MAXMEM like "make J_MAXMEM=32" to limit max processing memory to 32Mb
+ifneq ($(J_MAXMEM),)
+CONFIGURE_ARGS		+= --enable-maxmem=$(J_MAXMEM)
+endif
 
 #
 #
