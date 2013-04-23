@@ -31,9 +31,9 @@ USE_STICKY		:=
 endif
 
 PATCH_WRKSRC		?= $(WRKSRC)
-CONFIGURE_WRKSRC	?= $(WRKSRC)
-BUILD_WRKSRC		?= $(WRKSRC)
-INSTALL_WRKSRC		?= $(WRKSRC)
+CONFIGURE_WRKSRC	?= $(WRKSRC)/$(WRKSRC_SUBDIR)
+BUILD_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
+INSTALL_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
 
 # Name of cookies used to skip already completed stages
 EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
@@ -750,6 +750,19 @@ post-extract-alternative:
 	$(call cmd,post-extract-alt)
 
 post-extract: post-extract-alternative
+endif
+
+ifeq ($(GNU_CONFIGURE),yes)
+ifneq ($(WRKSRC_SUBDIR),)
+quiet_cmd_post-extract-subdir	?=
+      cmd_post-extract-subdir	?= set -e;				\
+	mkdir -p $(WRKSRC)/$(WRKSRC_SUBDIR)
+
+post-extract-subdir:
+	$(call cmd,post-extract-subdir)
+
+post-extract: post-extract-subdir
+endif
 endif
 
 #
