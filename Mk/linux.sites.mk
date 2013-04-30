@@ -1,6 +1,7 @@
 $(foreach s,heanet nchc kent easynews ufpr umn,				\
   $(eval								\
     MASTER_SITE_SOURCEFORGE	+= http://$s.dl.sourceforge.net/sourceforge/%SUBDIR%/))
+MASTER_SITE_SOURCEFORGE		+= http://downloads.sourceforge.net/%SUBDIR%/
 
 # official sf.net mirrors that don't mirror all projects, check
 # http://prdownloads.sourceforge.net/%SUBDIR%/
@@ -12,6 +13,10 @@ MASTER_SITE_SOURCEFORGE_EXTENDED+= $(MASTER_SITE_SOURCEFORGE)
 MASTER_SITE_SOURCEWARE		+=					\
 	ftp://ftp.funet.fi/pub/mirrors/sources.redhat.com/pub/%SUBDIR%/	\
 	ftp://ftp-stud.fht-esslingen.de/pub/Mirrors/sources.redhat.com/%SUBDIR%/
+
+MASTER_SITE_GITHUB		+=					\
+	https://github.com/%SUBDIR%/archive/
+
 MASTER_SITE_GNU			+=					\
 	http://ftp.gnu.org/gnu/%SUBDIR%/				\
 	ftp://ftp.gnu.org/gnu/%SUBDIR%/					\
