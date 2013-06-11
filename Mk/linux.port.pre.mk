@@ -39,14 +39,66 @@ SED			?= sed
 WHICH			?= which
 GREP			?= grep
 
+# cpu-vendor-os
+# cpu-vendor-kernel-system
+#
+# ex:                                   ARCH    /         / OPSYS  / OPSYS_SUFX
+#                                       -------   -------   ------   ----------
+#   following from config.guess running on Debian and macOS system
+#
+#   - x86_64-unknown-linux-gnu       => x86_64  / unknown / linux  / gnu
+#   - x86_64-apple-darwin17.7.0      => x86_64  / apple   / darwin / Mach-O
+#
+#   and following from toolchains which we met in some projects ever
+#
+#   - x86_64-onie-linux-uclibc       => x86_64  / onie    / linux  / uclibc
+#   - arm7-marvell-linux-gnueabi     => marvell / marvell / linux  / gnueabi
+#   - mips-linux-uclibc              => mips    /         / linux  / uclibc
+#   - arm-none-linux-gnueabe         => arm     / none    / linux  / gnueabi
+#   - i386-elf (from coreboot, none of OS, and will not be processed in Ports)
+
+triplet.cpu		= $(word 1,$(subst -, ,$1))
+triplet.os		= $(strip					\
+			    $(if $(findstring darwin,$1),		\
+			      darwin Mach-O,				\
+			      $(if $(findstring linux,$1),		\
+			        $(subst -, ,				\
+			          $(word 2,$(subst -linux, linux,$1))),	\
+			        $(error Oops, can't identify system)))) #'
+
+triplet.kernel		?= $(word 1,$(call triplet.os,$1))
+triplet.system		?= $(word 2,$(call triplet.os,$1))
+
+# $(warning CROSS_COMPILE=$(CROSS_COMPILE))
+
 # Get the architecture
 ifeq ($(ARCH),)
+ifneq ($(CROSS_COMPILE),)
+ARCH			?= $(call triplet.cpu,$(CROSS_COMPILE))
+else
+ARCH			?= $(shell uname -m)
+endif
 ARCH			?= $(shell $(UNAME) -m)
 endif
 
 # Get the operating system type
 ifeq ($(OPSYS),)
-OPSYS			?= $(shell $(UNAME) -s)
+ifneq ($(CROSS_COMPILE),)
+OPSYS			?= $(call triplet.kernel,$(CROSS_COMPILE))
+OPSYS_SUFX		?= $(call triplet.system,$(CROSS_COMPILE))
+else
+OPSYS			?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+endif
+endif
+
+# $(warning ARCH=$(ARCH))
+# $(warning OPSYS=$(OPSYS))
+# $(warning OPSYS_SUFX=$(OPSYS_SUFX))
+
+# Get the operating system revision
+__OSREL_ARG		= -e 's/[-(].*//'
+ifeq ($(OSREL),)
+OSREL			?= $(shell $(UNAME) -r | $(SED) $(__OSREL_ARG))
 endif
 
 PORTREVISION		?= 0
@@ -61,7 +113,7 @@ endif
 
 MASTERDIR		?= $(CURDIR)
 
-ifneq ($(findstring $(OPSYS),Linux Darwin),)
+ifneq ($(findstring $(OPSYS),linux darwin),)
 PORTSDIR		?= $(MASTERDIR)/../..
 else
 ifeq ($(OPSYS),NetBSD)
