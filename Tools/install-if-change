@@ -1,0 +1,304 @@
+#!/bin/bash -p
+#
+# Either bash or ksh will be ok for this; requires (( )) arithmetic
+#  (-p above just says to not parse $ENV file; makes it faster for
+#   those of us who set $ENV)
+#
+# install files if they have changed by running 'cmp', then 'install'
+#   as necessary.
+#
+#  Optionally, can append a suffix before last existing suffix (if any)
+#
+# NOTE
+#   We avoid using typical install(1M) programs since they have
+#   large variability across systems and we also need to support ou
+#   -V option.
+#   So we just copy and chmod by hand.
+#
+# $Id$
+#
+
+progname=`basename $0`
+#progname=${0##*/}        # fast basename hack for ksh, bash
+
+USAGE=\
+"usage: $progname [ -bsdpramSVv ] file [ file ... ] dest-directory-or-file
+        -b base      -- base directory
+        -s soname    -- shar library name
+        -d folder    -- folder name
+        -p pkg-plist -- port pkg-plist
+        -r rstr      -- prefix string will remove in output message
+        -a pstr      -- prefix string will add in output message
+        -m mode      -- mode for new file(s)
+        -S           -- install with strip
+        -V suffix   -- suffix to append to targets (before any . suffix)
+                        eg: -V _g would change 'foo' to 'foo_g' and
+                                               'libfoo.a' to 'libfoo_g.a'
+	-v	     -- verbose"
+
+fatal() {
+    if [ "$1" ]
+    then
+        echo $* >&2
+    fi
+    echo "$USAGE" 1>&2
+    exit 1
+}
+
+#
+# process the options
+#
+
+base=""
+soname=""
+folder=""
+plist=""
+rstr=""
+pstr=""
+mode=""
+strip=""
+suffix=""
+verbose=""
+
+while getopts b:s:p:d:r:a:m:SV:v OPT
+do
+    case "$OPT" in
+        b)
+            eval base=$OPTARG;;
+        s)
+            eval p=$OPTARG; soname="$soname $p";;
+        p)
+            eval p=$OPTARG; plist="$plist $p";;
+        d)
+            eval p=$OPTARG; folder="$folder $p";;
+        r)
+            eval rstr=$OPTARG;;
+        a)
+            eval pstr=$OPTARG;;
+        m)
+            mode="$OPTARG";;
+	S)
+	    strip="yes";;
+        V)
+            eval suffix=$OPTARG;;
+	v)
+	    verbose="yes";;
+        *)
+            fatal
+    esac
+done
+
+shiftcount=`expr $OPTIND - 1`
+shift $shiftcount
+
+args=$*
+pwd=`pwd`
+
+case `uname -s` in
+    Darwin) symopt="-R";;
+    Linux) symopt="-d";;
+esac
+
+if [ "$verbose" = "yes" ]; then
+    echo "base = $base"
+    echo "soname = $soname"
+    echo "plist = $plist"
+    echo "folder = $folder"
+    echo "mode = $mode"
+    echo "--------------------"
+fi
+
+#
+# Separate source file(s) from dest directory or file
+#
+
+files=""
+dest=""
+for d in $args; do
+    files="$files $dest"
+    dest=$d
+done
+
+if [ "$verbose" = "yes" ]; then
+    echo "files=$files"
+    echo "dest=$dest"
+    echo "--------------------"
+fi
+
+#
+# check destination
+#
+
+if [ -z $dest ]; then
+    fatal "invalid destination..."
+fi
+
+if [ "$verbose" = "yes" ]; then
+    echo "destination: $dest"
+    echo "--------------------"
+fi
+
+#
+# check base directory if it was assigned
+#
+
+if [ ! -z $base ]; then
+    [ ! -d $base/ ] && fatal "invalid $base directory..."
+    base=${base}/
+fi
+
+if [ "$verbose" = "yes" ]; then
+    echo "base = $base"
+    echo "--------------------"
+fi
+
+#
+# finialize $files that may come from:
+#  - include in port's pkg-plist,
+#  - comvert from lib$soname*so*, or
+#  - command line parameters directly
+#
+
+if [ "$soname" ]; then
+    for s in $soname; do
+        if [ "$base" ]; then
+            fs=`(cd $base && ls lib$s*so* 2>/dev/null)`
+        else
+            fs=`ls lib$s*so* 2>/dev/null`
+        fi
+        files="$files $fs"
+    done
+fi
+
+if [ "$folder" ]; then
+    for d in $folder; do
+        if [ "$base" ]; then
+            fs=`(cd $base && find $d 2>/dev/null)`
+        else
+            fs=`find $d 2>/dev/null`
+        fi
+        files="$files $fs"
+    done
+fi
+
+if [ "$plist" ]; then
+    for p in $plist; do
+        for fs in `cat $p`; do
+            files="$files $fs"
+        done
+    done
+fi
+
+if [ ! "$files" ]; then
+    fatal "missing files..."
+fi
+
+#
+# OK, we have files and destination now
+#
+
+targets=""
+for f in $files; do
+    if [ "$verbose" = "yes" ]; then
+        echo "process $f..."
+    fi
+
+    # leaf=`basename $f`
+    leaf=${f##*/}        # fast basename hack for ksh, bash
+
+    if [ "$base" ]; then
+        name=$dest/$f
+        target=${name%%/$leaf}
+        [ ! -d $target ] && $SUDO mkdir -p $target
+    else
+        target=$dest
+    fi
+
+    # if we were given a suffix, then add it as appropriate
+    if [ "$suffix" ]; then
+        case $f in
+            *.*)
+                # leaf=`echo $leaf |
+                #   /bin/sed "s/\([~\.]*\)\.\(.*\)$/\1$suffix.\2/"`
+                # ksh,bash hack for above sed script
+                leaf=${leaf%%.*}$suffix.${leaf#*.}
+
+                [ "$verbose" = "yes" ] &&
+                echo "$progname: $f will be installed as $leaf"
+                ;;
+            *)
+                leaf=$leaf$suffix;;
+        esac
+    fi
+
+    target=$target/$leaf
+
+    if [ "$verbose" = "yes" ]; then
+        echo "       leaf=$leaf"
+        echo "       name=$name"
+        echo "       target=$target"
+        echo "--------------------"
+    fi
+
+    if [ ! -r $base$f ]; then
+        fatal "can not read $base$f"
+    fi
+
+    if [ -d $base$f ]; then
+        [ -d $target ] || mkdir -p $target
+    elif [ -h $base$f ]; then
+        # symbolic...
+        $SUDO cp $symopt $base$f $target
+    else
+        wk=$base$f
+        if [ "$strip" = "yes" ]; then
+            case `uname -s` in
+                Darwin) temp=`mktemp /tmp/tmp.XXXXXX`;;
+                Linux) temp=`mktemp`;;
+            esac
+            rc=`file $base$f | awk '/ELF/ && /not stripped/'`
+            if [ ! -z "$rc" ]; then
+                    cp -fp $base$f $temp
+                    chmod u+w $temp
+                    ${CROSS_COMPILE}strip --strip-debug $temp
+                    wk=$temp
+            fi
+        fi
+        if $SUDO cmp -s $wk $target; then
+            [ "$verbose" = "yes" ] && echo "'$base$f' not newer than '$target'"
+        else
+            [ "$verbose" = "yes" ] && echo "rm -f $target"
+            $SUDO rm -f $target
+#           echo "cp -p $f $target"
+            if [ ! -z "$rstr" ]; then
+                echo "  UPDATE  $pstr${target/$rstr/}"
+            else
+                echo "  UPDATE  $target"
+            fi
+            $SUDO cp -p $wk $target || exit 1
+
+            targets="$targets $target"    # keep list for chmod below
+        fi
+            if [ "$strip" = "yes" ]; then
+            if [ -f $temp ]; then
+                rm -f $temp
+            fi
+        fi
+    fi
+done
+
+#
+#
+#
+
+if [ "$mode" -a "$targets" ]
+then
+     [ "$verbose" = "yes" ] && echo "chmod $mode $targets"
+     $SUDO chmod $mode $targets
+fi
+
+exit 0
+
+# Local Variables: ***
+# mode:ksh ***
+# End: ***

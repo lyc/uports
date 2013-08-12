@@ -438,6 +438,8 @@ PLIST			?= $(PKGDIR)/pkg-plist
 
 TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 
+# stuff for package ...
+
 #
 #
 #
@@ -776,8 +778,26 @@ endif
 # Package...
 #
 
+quiet_cmd_run-package	?=
+      cmd_run-package	?= set -e;					\
+	if [ -d $(PACKAGES) ]; then					\
+	    [ -d $(PKGREPOSITORY) ] || mkdir -p $(PKGREPOSITORY);	\
+	fi;								\
+	os=`uname -s`;							\
+	if [ "$$os" = "Darwin" ]; then					\
+	    temp=`mktemp -d /tmp/tmp-$(PORTNAME).XXXXXX`;		\
+	else								\
+	    temp=`mktemp -d --suffix=$(PORTNAME)`;			\
+	fi;								\
+	$(PORTSDIR)/Tools/install-if-change				\
+	    -b $(DESTDIR)$(PREFIX) -p $(PLIST) $$temp;			\
+	(cd $$temp && tar Jcf $(PKGFILE) *);				\
+	$(kecho) "  PACKAGE $(PKGNAME)";				\
+	rm -fr $$temp
+
 ifeq ($(filter $(override_targets),do-package),)
 do-package:
+	$(call cmd,run-package)
 endif
 
 #- package-links: delete-package-links
