@@ -263,11 +263,21 @@ endif
 
 ifeq ($(USE_ZIP),yes)
 EXTRACT_CMD		?= unzip
-EXTRACT_BEFORE_ARGS	?= -g
-EXTRACT_AFTER_ARGS	?= -d $(WRKDIR)
+EXTRACT_BEFORE_ARGS	?= -q
+EXTRACT_AFTER_ARGS	?= -d $(DISTNAME)
 else
 EXTRACT_BEFORE_ARGS	?= -dc
+ifneq ($(EXTRACT_TRANSFORM),)
+ifeq ($(OPSYS),linux)
+EXTRACT_AFTER_ARGS	= | $(TAR) -x --xform s$(EXTRACT_TRANSFORM) -f -
+else
+ifeq ($(OPSYS),darwin)
+EXTRACT_AFTER_ARGS	= | $(TAR) -x -s $(EXTRACT_TRANSFORM) -f -
+endif
+endif
+else
 EXTRACT_AFTER_ARGS	?= | $(TAR) -xf -
+endif
 ifeq ($(USE_XZ),yes)
 EXTRACT_CMD		?= $(XZ_CMD)
 else
@@ -678,14 +688,31 @@ endif
 
 do-extract: wrkdir
 
+extract_cmd_name	=						\
+	$(shell basename `echo $(EXTRACT_CMD) | sed -e 's/-.*//g'`)
+#$(warning =============> extract_cmd_name=$(extract_cmd_name))
+
 quiet_cmd_wrkdir	?=
-      cmd_wrkdir	?= set -e; [ -d $(WRKDIR) ] || mkdir -p $(WRKDIR)
+      cmd_wrkdir	?= set -e;					\
+	[ -d $(WRKDIR) ] || mkdir -p $(WRKDIR);
+
+quiet_cmd_chk-unzip	?=
+      cmd_chk-unzip	?= set -e;					\
+	case $(extract_cmd_name) in unzip) mkdir -p $(WRKSRC);; esac
 
 ifeq ($(USE_ALTERNATIVE),yes)
-# FIXME: add required handle for multiple $(DISTFILES)
 quiet_cmd_wrkdir-alt	?=
       cmd_wrkdir-alt	?= set -e;					\
 	[ -d $(ALTERNATIVE_WRKDIR) ] || mkdir -p $(ALTERNATIVE_WRKDIR)
+
+quiet_cmd_chk-unzip-alt	?=
+      cmd_chk-unzip-alt	?= set -e;					\
+	case $(extract_cmd_name) in 					\
+	    unzip) 							\
+	        if [ ! -d $(ALTERNATIVE_WRKSRC) ]; then			\
+	            mkdir -p $(ALTERNATIVE_WRKSRC);			\
+	        fi;;							\
+	esac
 endif
 
 .PHONY: wrkdir
@@ -693,6 +720,13 @@ wrkdir:
 	$(call cmd,wrkdir)
 ifeq ($(USE_ALTERNATIVE),yes)
 	$(call cmd,wrkdir-alt)
+ifeq ($(USE_STICKY),yes)
+else
+	@rm -fr $(ALTERNATIVE_WRKSRC)
+	$(call cmd,chk-unzip-alt)
+endif
+else
+	$(call cmd,chk-unzip)
 endif
 
 quiet_cmd_extract-only	?=
@@ -704,16 +738,18 @@ ifeq ($(USE_ALTERNATIVE),yes)
 #        for example: sbl-elf-2.7.6
 quiet_cmd_extract-only-alt	?=
       cmd_extract-only-alt	?= set -e;				\
-	rm -fr $(ALTERNATIVE_WRKSRC);					\
-	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi);
+	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi)
 endif
 
 ifeq ($(USE_STICKY),yes)
 quiet_cmd_extract-only-sticky	?=
       cmd_extract-only-sticky	?= set -e;				\
 	if [ ! -e $(ALTERNATIVE_WRKSRC) ]; then				\
+	    case $(extract_cmd_name) in 				\
+	        unzip) mkdir -p $(ALTERNATIVE_WRKSRC);; 		\
+	    esac; 							\
 	    (cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi); \
-	fi;
+	fi
 endif
 
 $(EXTRACT_ONLY): wrkdir
