@@ -297,6 +297,35 @@ endif
 #PATCH_DIST_ARGS	+= -b .orig
 #endif
 
+# NOTE:
+#
+#   The most pain we use FreeBSD Ports is the patch file management,
+#   to make life more easier, we introduce new patch method to manage
+#   all patches.
+#
+#   Patch method can be selected by add following new make varable
+#
+#   USE_PATCH = [V1|V2]
+#
+#   Two supported patch methods are:
+#
+#   V1: traditional patch method (by 'patch') just as FreeBSD Ports did
+#   V2: new patch method that use 'git' tool to manage all patches (default)
+#
+#   To use new patch method, just put all patches which produced by
+#   "git format-patch" command into $(PATCHDIR) and add one additional "series"
+#   file to specify the patch sequence.
+#
+#   Please be noted that user must declare USE_PATCH=V1 explicitly if they
+#   want to use traditional patch method
+
+GIT_ADD_EXTRA_LISTS	+= .gitignore
+GIT_AM_OPTS		+= --ignore-whitespace
+PATCHLIST		?= $(PATCHDIR)/series
+
+USE_PATCH		?= V2
+PATCH_METHOD		= $(USE_PATCH)
+
 # stuff for configure ...
 
 CONFIGURE_SHELL		?= $(SH)
@@ -690,7 +719,41 @@ quiet_cmd_apply-patches	?=
 	    fi;								\
 	fi
 
+# NOTE:
+#
+#   don't set "set -e" in cmd_init-git-repo because "git add *" command
+#   will return error if some files are listed in .gitignore
+
+quiet_cmd_init-git-repo		?=
+      cmd_init-git-repo		?= 					\
+	(cd $(PATCH_WRKSRC);						\
+	if [ ! -d .git ]; then						\
+	    $(kecho) "  GIT     $(DISTNAME)(init)";			\
+	    $(GIT) init $(trash);					\
+	    $(GIT) add $(GIT_ADD_OPTS) * $(trash) 2>&1;			\
+	    if [ ! -z "$(GIT_ADD_EXTRA_LISTS)" ]; then			\
+	        for f in $(GIT_ADD_EXTRA_LIST); do			\
+	            find . -type f -name \"$$f\" -exec git add -f '{}' \;; \
+	        done;							\
+	    fi;								\
+	    $(GIT) commit -m "init" $(trash);				\
+	fi)
+
+git-init:
+	$(call cmd,init-git-repo)
+
+quiet_cmd_apply-git-patches	?=
+      cmd_apply-git-patches	?= set -e;				\
+	(cd $(PATCH_WRKSRC);						\
+	if [ -f "$(PATCHLIST)" ]; then					\
+	    $(kecho) "  GIT     $(DISTNAME)(am)";			\
+	    for p in `cat $(PATCHLIST)`; do				\
+	        $(GIT) am $(GIT_AM_OPTS) $(PATCHDIR)/$$p;		\
+	    done;							\
+	fi)
+
 ifeq ($(filter $(override_targets),do-patch),)
+ifeq ($(PATCH_METHOD),V1)
 do-patch:
 ifneq ($(PATCHFILES),)
 	$(call cmd,apply-dist-patch)
@@ -699,6 +762,10 @@ ifneq ($(EXTRA_PATCHES),)
 	$(call cmd,apply-extra-patch)
 endif
 	$(call cmd,apply-patches)
+else
+do-patch: git-init
+	$(call cmd,apply-git-patches)
+endif
 endif
 
 #

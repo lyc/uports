@@ -39,6 +39,7 @@ SED			?= sed
 WHICH			?= which
 GREP			?= grep
 EGREP			?= egrep
+GIT			?= git
 
 # cpu-vendor-os
 # cpu-vendor-kernel-system
