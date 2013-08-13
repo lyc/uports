@@ -321,7 +321,7 @@ endif
 
 GIT_ADD_EXTRA_LISTS	+= .gitignore
 GIT_AM_OPTS		+= --ignore-whitespace
-PATCHLIST		?= $(PATCHDIR)/series
+PATCHLIST		?= $(call config.lookup,$(PATCHLIST_NAME))
 
 USE_PATCH		?= V2
 PATCH_METHOD		= $(USE_PATCH)
@@ -462,8 +462,9 @@ PKGINSTALL		?= $(PKGDIR)/pkg-install
 PKGDEINSTALL		?= $(PKGDIR)/pkg-deinstall
 PKGREQ			?= $(PKGDIR)/pkg-req
 PKGMESSAGE		?= $(PKGDIR)/pkg-message
-PLIST			?= $(PKGDIR)/pkg-plist
+PLIST			?= $(call config.lookup,$(PLIST_NAME))
 
+# $(warning PLIST=$(PLIST))
 
 TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 

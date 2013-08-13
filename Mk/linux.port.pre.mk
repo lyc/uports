@@ -97,6 +97,32 @@ endif
 # $(warning OPSYS=$(OPSYS))
 # $(warning OPSYS_SUFX=$(OPSYS_SUFX))
 
+# $(call generate-config-all, cfg_name)
+define generate-config-all
+$1_1st			= $(config_$1)/$1.$(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
+$1_2nd			= $(config_$1)/$1.$(OPSYS)-$(OPSYS_SUFX)
+$1_3rd			= $(config_$1)/$1.$(OPSYS)-$(ARCH)
+$1_4th			= $(config_$1)/$1.$(OPSYS)
+$1_default		= $(config_$1)/$1
+$1_all			= $(wildcard $(config_$1)/$1*)
+endef
+
+# $(call config.lookup, cfg_name)
+#   proper config_name will be matched and return by following order:
+#      1. cfg_name.$(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
+#      2. cfg_name.$(OPSYS)-$(OPSYS_SUFX)
+#      3. cfg_name.$(OPSYS)-$(ARCH)
+#      4. cfg_name.$(OPSYS)
+#      5. cfg_name
+#
+define config.lookup
+$(strip									\
+  $(if $(filter $($1_1st),$($1_all)), $($1_1st),			\
+     $(if $(filter $($1_2nd),$($1_all)), $($1_2nd),			\
+       $(if $(filter $($1_3rd),$($1_all)), $($1_3rd),			\
+         $(if $(filter $($1_4th),$($1_all)), $($1_4th), $($1_default))))))
+endef
+
 # Get the operating system revision
 __OSREL_ARG		= -e 's/[-(].*//'
 ifeq ($(OSREL),)
@@ -173,6 +199,14 @@ PKGFILE			?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 else
 PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
+
+PATCHLIST_NAME		?= series
+PLIST_NAME		?= pkg-plist
+
+config_$(PATCHLIST_NAME)= $(PATCHDIR)
+config_$(PLIST_NAME)	= $(PKGDIR)
+config_all		= $(PATCHLIST_NAME) $(PLIST_NAME)
+$(foreach t,$(config_all),$(eval $(call generate-config-all,$t)))
 
 #
 # default target
