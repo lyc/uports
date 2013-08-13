@@ -1,0 +1,1214 @@
+From 0867de0e5a0f778d899b9dc016ae71b7dd807484 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Mon, 23 Mar 2020 12:13:45 +0800
+Subject: [PATCH] convert from original patch files
+
+---
+ configure    |   5 +-
+ djpeg.c      |   4 +
+ exifautotran |   1 +
+ jconfig.cfg  |   4 +
+ jmorecfg.h   |   5 +-
+ jpegtran.1   |  28 ++++
+ jpegtran.c   | 132 +++++++++++++++-
+ rdjpgcom.c   | 179 +++++++++++++++++++++
+ transupp.c   | 436 +++++++++++++++++++++++++++++++++++++++++++++++++--
+ transupp.h   |  12 +-
+ 10 files changed, 785 insertions(+), 21 deletions(-)
+
+diff --git a/configure b/configure
+index 2cfd9e9..b95f62f 100755
+--- a/configure
++++ b/configure
+@@ -10559,7 +10559,7 @@ if test -z "$aix_libpath"; then aix_libpath="/usr/lib:/lib"; fi
+       hardcode_shlibpath_var=no
+       ;;
+ 
+-    freebsd1*)
++    freebsd1.*)
+       ld_shlibs=no
+       ;;
+ 
+@@ -11434,7 +11434,7 @@ dgux*)
+   shlibpath_var=LD_LIBRARY_PATH
+   ;;
+ 
+-freebsd1*)
++freebsd1.*)
+   dynamic_linker=no
+   ;;
+ 
+@@ -12678,6 +12678,7 @@ JPEG_LIB_VERSION=`sed -e '/^#define JPEG_LIB_VERSION/!d' -e 's/^[^0-9]*\([0-9][0
+ JPEG_LIB_VERSION="`expr $JPEG_LIB_VERSION / 10`:2"
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $JPEG_LIB_VERSION" >&5
+ $as_echo "$JPEG_LIB_VERSION" >&6; }
++JPEG_LIB_VERSION="11"
+ 
+ 
+ ac_config_files="$ac_config_files Makefile"
+diff --git a/djpeg.c b/djpeg.c
+index bc544dc..7a90539 100644
+--- a/djpeg.c
++++ b/djpeg.c
+@@ -27,6 +27,7 @@
+ #include "cdjpeg.h"		/* Common decls for cjpeg/djpeg applications */
+ #include "jversion.h"		/* for version message */
+ 
++#include <locale.h>		/* to declare setlocal() */
+ #include <ctype.h>		/* to declare isprint() */
+ 
+ #ifdef USE_CCOMMAND		/* command-line reader for Macintosh */
+@@ -386,6 +387,9 @@ print_text_marker (j_decompress_ptr cinfo)
+ 	      cinfo->unread_marker - JPEG_APP0, (long) length);
+   }
+ 
++  if (traceit) {
++    setlocale(LC_ALL, "");
++  }
+   while (--length >= 0) {
+     ch = jpeg_getc(cinfo);
+     if (traceit) {
+diff --git a/exifautotran b/exifautotran
+index 7133724..a969ca2 100644
+--- a/exifautotran
++++ b/exifautotran
+@@ -1,3 +1,4 @@
++#!/bin/sh
+ # exifautotran [list of files]
+ #
+ # Transforms Exif files so that Orientation becomes 1
+diff --git a/jconfig.cfg b/jconfig.cfg
+index bb7435c..a7c8ec5 100644
+--- a/jconfig.cfg
++++ b/jconfig.cfg
+@@ -7,8 +7,12 @@
+ #undef void
+ #undef const
+ #undef CHAR_IS_UNSIGNED
++#ifndef HAVE_STDDEF_H
+ #undef HAVE_STDDEF_H
++#endif
++#ifndef HAVE_STDLIB_H
+ #undef HAVE_STDLIB_H
++#endif
+ #undef HAVE_LOCALE_H
+ #undef NEED_BSD_STRINGS
+ #undef NEED_SYS_TYPES_H
+diff --git a/jmorecfg.h b/jmorecfg.h
+index 928d052..4b37d4a 100644
+--- a/jmorecfg.h
++++ b/jmorecfg.h
+@@ -194,8 +194,11 @@ typedef unsigned int JDIMENSION;
+ /* a function referenced thru EXTERNs: */
+ #define GLOBAL(type)		type
+ /* a reference to a GLOBAL function: */
++#ifdef __cplusplus
++#define EXTERN(type)		extern "C" type
++#else
+ #define EXTERN(type)		extern type
+-
++#endif
+ 
+ /* This macro is used to declare a "method", that is, a function pointer.
+  * We want to supply prototype parameters if the compiler can cope.
+diff --git a/jpegtran.1 b/jpegtran.1
+index 0ad1bbc..8a1261e 100644
+--- a/jpegtran.1
++++ b/jpegtran.1
+@@ -208,6 +208,14 @@ but discards any other inessential (for image display) data.
+ Copy all extra markers.  This setting preserves miscellaneous markers
+ found in the source file, such as JFIF thumbnails, Exif data, and Photoshop
+ settings.  In some files these extra markers can be sizable.
++See 'EXIF FILES' for special tratement of EXIF markers.
++.TP
++.B \-copy exif
++This setting preserves the EXIF marker, commonly found in JPEG files produced
++by digital cameras, in addition to any comment markers.  If there is an EXIF
++marker it is copied and the JFIF marker (incompatible with EXIF) is
++omitted. If there is no EXIF marker a JFIF one is emitted as usual.  See 'EXIF
++FILES' for special tratement of EXIF markers.
+ .IP
+ The default behavior is
+ .BR "\-copy comments" .
+@@ -236,6 +244,26 @@ give more output.  Also, version information is printed at startup.
+ .B \-debug
+ Same as
+ .BR \-verbose .
++.SH EXIF FILES
++The EXIF variety of JPEG files, which are often produced by digital cameras,
++are recognized by jpegtran as EXIF files (i.e. not as JFIF, the
++usual variety of JPEG files). If the input file is recognized as EXIF (i.e.,
++there is an EXIF marker and no JFIF marker) the '-copy exif' option is
++automatically turned on if '-copy comments', or no '-copy' option, was
++specified. Thus, unless '-copy none' is specified an EXIF file is kept as EXIF
++and not converted to JFIF.
++.PP
++If a geometrical transformation is applied (e.g., rotate, transpose) the EXIF
++width and height fields are set to the width and height of the output
++image. Furthermore, the orientation field is reset to one, meaning tha the
++orientation of the output image is upright (i.e. normal).
++.PP
++Note that an explicitely given '-copy exif' option will output an EXIF file if
++the input is an EXIF file that was saved as JFIF, and that the EXIF marker is
++still present. This option is useful for recovering EXIF files that where
++converted to JFIF by a non EXIF-aware software. Note however, that the data in
++the EXIF marker is not validated, unless a geometrical transformation is
++applied.
+ .SH EXAMPLES
+ .LP
+ This example converts a baseline JPEG file to progressive form:
+diff --git a/jpegtran.c b/jpegtran.c
+index 8cb3d80..9557a8a 100644
+--- a/jpegtran.c
++++ b/jpegtran.c
+@@ -37,6 +37,7 @@
+ 
+ static const char * progname;	/* program name for error messages */
+ static char * outfilename;	/* for -outfile switch */
++static char * dropfilename;	/* for -drop switch */
+ static char * scaleoption;	/* -scale switch */
+ static JCOPY_OPTION copyoption;	/* -copy switch */
+ static jpeg_transform_info transformoption; /* image transformation options */
+@@ -57,6 +58,7 @@ usage (void)
+   fprintf(stderr, "  -copy none     Copy no extra markers from source file\n");
+   fprintf(stderr, "  -copy comments Copy only comment markers (default)\n");
+   fprintf(stderr, "  -copy all      Copy all extra markers\n");
++  fprintf(stderr, "  -copy exif     Copy EXIF marker and omit JFIF if EXIF\n");
+ #ifdef ENTROPY_OPT_SUPPORTED
+   fprintf(stderr, "  -optimize      Optimize Huffman table (smaller file, but slow compression)\n");
+ #endif
+@@ -66,6 +68,7 @@ usage (void)
+   fprintf(stderr, "Switches for modifying the image:\n");
+ #if TRANSFORMS_SUPPORTED
+   fprintf(stderr, "  -crop WxH+X+Y  Crop to a rectangular subarea\n");
++  fprintf(stderr, "  -drop +X+Y filename          Drop another image\n");
+   fprintf(stderr, "  -grayscale     Reduce to grayscale (omit color data)\n");
+   fprintf(stderr, "  -flip [horizontal|vertical]  Mirror image (left-right or top-bottom)\n");
+   fprintf(stderr, "  -perfect       Fail if there is non-transformable edge blocks\n");
+@@ -75,7 +78,8 @@ usage (void)
+ #if TRANSFORMS_SUPPORTED
+   fprintf(stderr, "  -transpose     Transpose image\n");
+   fprintf(stderr, "  -transverse    Transverse transpose image\n");
+-  fprintf(stderr, "  -trim          Drop non-transformable edge blocks\n");
++  fprintf(stderr, "  -trim          Drop non-transformable edge blocks or\n");
++  fprintf(stderr, "                 with -drop: Requantize drop file to source file\n");
+ #endif
+   fprintf(stderr, "Switches for advanced users:\n");
+   fprintf(stderr, "  -restart N     Set restart interval in rows, or in blocks with B\n");
+@@ -116,6 +120,52 @@ select_transform (JXFORM_CODE transform)
+ }
+ 
+ 
++LOCAL(void)
++handle_exif (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
++             JCOPY_OPTION *copyoption)
++/* Adjust the marker writing options to create an EXIF file, instead of JFIF,
++ * if so requested or an EXIF file is detected as input. Must be called after
++ * jpeg_copy_critical_parameters() as that sets the defaults. */
++{
++  jpeg_saved_marker_ptr cur_marker, prev_marker;
++
++  /* Look for an exif marker */
++  prev_marker = NULL;
++  cur_marker = srcinfo->marker_list;
++  while (cur_marker != NULL) {
++    if (cur_marker->marker == JPEG_APP0+1 &&
++        cur_marker->data_length >= 6 &&
++        GETJOCTET(cur_marker->data[0]) == 0x45 &&
++        GETJOCTET(cur_marker->data[1]) == 0x78 &&
++        GETJOCTET(cur_marker->data[2]) == 0x69 &&
++        GETJOCTET(cur_marker->data[3]) == 0x66 &&
++        GETJOCTET(cur_marker->data[4]) == 0 &&
++        GETJOCTET(cur_marker->data[5]) == 0)
++      break; /* found an EXIF marker */
++    prev_marker = cur_marker;
++    cur_marker = cur_marker->next;
++  }
++  /* If we've found an EXIF marker but not JFIF this is an EXIF file. Unless
++   * explicitely requested, make sure we keep the EXIF marker and do not
++   * emit a JFIF marker (which would come before). EXIF requires that the
++   * first marker be EXIF. */
++  if (cur_marker != NULL &&
++      ((*copyoption != JCOPYOPT_NONE && !srcinfo->saw_JFIF_marker) ||
++       (*copyoption == JCOPYOPT_EXIF))) {
++    dstinfo->write_JFIF_header = FALSE;
++    if (*copyoption == JCOPYOPT_COMMENTS)
++      *copyoption = JCOPYOPT_EXIF;
++  }
++  /* If making an EXIF file, make sure that EXIF is first marker */
++  if (cur_marker != NULL && prev_marker != NULL &&
++      *copyoption == JCOPYOPT_EXIF) {
++    prev_marker->next = cur_marker->next;
++    cur_marker->next = srcinfo->marker_list;
++    srcinfo->marker_list = cur_marker;
++  }
++}
++
++
+ LOCAL(int)
+ parse_switches (j_compress_ptr cinfo, int argc, char **argv,
+ 		int last_file_arg_seen, boolean for_real)
+@@ -136,6 +186,7 @@ parse_switches (j_compress_ptr cinfo, int argc, char **argv,
+   /* Set up default JPEG parameters. */
+   simple_progressive = FALSE;
+   outfilename = NULL;
++  dropfilename = NULL;
+   scaleoption = NULL;
+   copyoption = JCOPYOPT_DEFAULT;
+   transformoption.transform = JXFORM_NONE;
+@@ -179,6 +230,8 @@ parse_switches (j_compress_ptr cinfo, int argc, char **argv,
+ 	copyoption = JCOPYOPT_COMMENTS;
+       } else if (keymatch(argv[argn], "all", 1)) {
+ 	copyoption = JCOPYOPT_ALL;
++      } else if (keymatch(argv[argn], "exif", 1)) {
++        copyoption = JCOPYOPT_EXIF;
+       } else
+ 	usage();
+ 
+@@ -196,6 +249,26 @@ parse_switches (j_compress_ptr cinfo, int argc, char **argv,
+       select_transform(JXFORM_NONE);	/* force an error */
+ #endif
+ 
++    } else if (keymatch(arg, "drop", 2)) {
++#if TRANSFORMS_SUPPORTED
++      if (++argn >= argc)      /* advance to next argument */
++       usage();
++      if (transformoption.crop /* reject multiple crop/drop requests */ ||
++         ! jtransform_parse_crop_spec(&transformoption, argv[argn]) ||
++         transformoption.crop_width_set != JCROP_UNSET ||
++         transformoption.crop_height_set != JCROP_UNSET) {
++       fprintf(stderr, "%s: bogus -drop argument '%s'\n",
++               progname, argv[argn]);
++       exit(EXIT_FAILURE);
++      }
++      if (++argn >= argc)      /* advance to next argument */
++       usage();
++      dropfilename = argv[argn];
++      select_transform(JXFORM_DROP);
++#else
++      select_transform(JXFORM_NONE);   /* force an error */
++#endif
++
+     } else if (keymatch(arg, "debug", 1) || keymatch(arg, "verbose", 1)) {
+       /* Enable debug printouts. */
+       /* On first -d, print version identification */
+@@ -204,6 +277,7 @@ parse_switches (j_compress_ptr cinfo, int argc, char **argv,
+       if (! printed_version) {
+ 	fprintf(stderr, "Independent JPEG Group's JPEGTRAN, version %s\n%s\n",
+ 		JVERSION, JCOPYRIGHT);
++        fprintf(stderr, "EXIF support v 0.1 added 29-Sep-2003\n");
+ 	printed_version = TRUE;
+       }
+       cinfo->err->trace_level++;
+@@ -371,6 +445,11 @@ main (int argc, char **argv)
+   struct jpeg_decompress_struct srcinfo;
+   struct jpeg_compress_struct dstinfo;
+   struct jpeg_error_mgr jsrcerr, jdsterr;
++#if TRANSFORMS_SUPPORTED
++  struct jpeg_decompress_struct dropinfo;
++  struct jpeg_error_mgr jdroperr;
++  FILE * drop_file;
++#endif
+ #ifdef PROGRESS_REPORT
+   struct cdjpeg_progress_mgr progress;
+ #endif
+@@ -452,6 +531,21 @@ main (int argc, char **argv)
+     fp = read_stdin();
+   }
+ 
++#if TRANSFORMS_SUPPORTED
++  /* Open the drop file. */
++  if (dropfilename != NULL) {
++    if ((drop_file = fopen(dropfilename, READ_BINARY)) == NULL) {
++      fprintf(stderr, "%s: can't open %s for reading\n", progname, dropfilename);
++      exit(EXIT_FAILURE);
++    }
++    dropinfo.err = jpeg_std_error(&jdroperr);
++    jpeg_create_decompress(&dropinfo);
++    jpeg_stdio_src(&dropinfo, drop_file);
++  } else {
++    drop_file = NULL;
++  }
++#endif
++
+ #ifdef PROGRESS_REPORT
+   start_progress_monitor((j_common_ptr) &dstinfo, &progress);
+ #endif
+@@ -471,6 +565,17 @@ main (int argc, char **argv)
+ 	&srcinfo.scale_num, &srcinfo.scale_denom) < 1)
+       usage();
+ 
++#if TRANSFORMS_SUPPORTED
++  if (dropfilename != NULL) {
++    (void) jpeg_read_header(&dropinfo, TRUE);
++    transformoption.crop_width = dropinfo.image_width;
++    transformoption.crop_width_set = JCROP_POS;
++    transformoption.crop_height = dropinfo.image_height;
++    transformoption.crop_height_set = JCROP_POS;
++    transformoption.drop_ptr = &dropinfo;
++  }
++#endif
++
+   /* Any space needed by a transform option must be requested before
+    * jpeg_read_coefficients so that memory allocation will be done right.
+    */
+@@ -486,6 +591,12 @@ main (int argc, char **argv)
+   /* Read source file as DCT coefficients */
+   src_coef_arrays = jpeg_read_coefficients(&srcinfo);
+ 
++#if TRANSFORMS_SUPPORTED
++  if (dropfilename != NULL) {
++    transformoption.drop_coef_arrays = jpeg_read_coefficients(&dropinfo);
++  }
++#endif
++
+   /* Initialize destination compression parameters from source values */
+   jpeg_copy_critical_parameters(&srcinfo, &dstinfo);
+ 
+@@ -524,6 +635,9 @@ main (int argc, char **argv)
+   /* Adjust default compression parameters by re-parsing the options */
+   file_index = parse_switches(&dstinfo, argc, argv, 0, TRUE);
+ 
++  /* If we want EXIF, make sure we do not write incompatible markers */
++  handle_exif(&srcinfo,&dstinfo,&copyoption);
++                                                                                
+   /* Specify data destination for compression */
+   jpeg_stdio_dest(&dstinfo, fp);
+ 
+@@ -545,16 +659,30 @@ main (int argc, char **argv)
+   jpeg_destroy_compress(&dstinfo);
+   (void) jpeg_finish_decompress(&srcinfo);
+   jpeg_destroy_decompress(&srcinfo);
+-
++#if TRANSFORMS_SUPPORTED
++  if (dropfilename != NULL) {
++    (void) jpeg_finish_decompress(&dropinfo);
++    jpeg_destroy_decompress(&dropinfo);
++  }
++#endif
+   /* Close output file, if we opened it */
+   if (fp != stdout)
+     fclose(fp);
++#if TRANSFORMS_SUPPORTED
++  if (drop_file != NULL)
++    fclose(drop_file);
++#endif
+ 
+ #ifdef PROGRESS_REPORT
+   end_progress_monitor((j_common_ptr) &dstinfo);
+ #endif
+ 
+   /* All done. */
++#if TRANSFORMS_SUPPORTED
++  if (dropfilename != NULL)
++    exit(jsrcerr.num_warnings + jdroperr.num_warnings + jdsterr.num_warnings ?
++        EXIT_WARNING : EXIT_SUCCESS);
++#endif
+   exit(jsrcerr.num_warnings + jdsterr.num_warnings ?EXIT_WARNING:EXIT_SUCCESS);
+   return 0;			/* suppress no-return-value warnings */
+ }
+diff --git a/rdjpgcom.c b/rdjpgcom.c
+index 3719154..ef01e10 100644
+--- a/rdjpgcom.c
++++ b/rdjpgcom.c
+@@ -124,6 +124,7 @@ read_2_bytes (void)
+ #define M_EOI   0xD9		/* End Of Image (end of datastream) */
+ #define M_SOS   0xDA		/* Start Of Scan (begins compressed data) */
+ #define M_APP0	0xE0		/* Application-specific marker, type N */
++#define M_APP1  0xE1		/* Typically EXIF marker */
+ #define M_APP12	0xEC		/* (we don't bother to list all 16 APPn's) */
+ #define M_COM   0xFE		/* COMment */
+ 
+@@ -214,6 +215,175 @@ skip_variable (void)
+   }
+ }
+ 
++/*
++ * Helper routine to skip the given number of bytes.
++ */
++
++static void
++skip_n (unsigned int length)
++{
++  while (length > 0) {
++    (void) read_1_byte();
++    length--;
++  }
++}
++
++/*
++ * Parses an APP1 marker looking for EXIF data. If EXIF, the orientation is
++ * reported to stdout.
++ */
++
++static void
++process_APP1 (void)
++{
++  unsigned int length, i;
++  int is_motorola; /* byte order indicator */
++  unsigned int offset, number_of_tags, tagnum;
++  int orientation;
++  char *ostr;
++  /* This 64K buffer would probably be best if allocated dynamically, but it's
++   * the only one on this program so it's really not that
++   * important. Allocating on the stack is not an option, as 64K might be too
++   * big for some (crippled) platforms. */
++  static unsigned char exif_data[65536L];
++
++  /* Get the marker parameter length count */
++  length = read_2_bytes();
++  /* Length includes itself, so must be at least 2 */
++  if (length < 2)
++    ERREXIT("Erroneous JPEG marker length");
++  length -= 2;
++
++  /* We only care if APP1 is really an EXIF marker. Minimum length is 6 for
++   * signature plus 12 for an IFD. */
++  if (length < 18) {
++    skip_n(length);
++    return;
++  }
++
++  /* Check for actual EXIF marker */
++  for (i=0; i < 6; i++)
++    exif_data[i] = (unsigned char) read_1_byte();
++  length -= 6;
++  if (exif_data[0] != 0x45 ||
++      exif_data[1] != 0x78 ||
++      exif_data[2] != 0x69 ||
++      exif_data[3] != 0x66 ||
++      exif_data[4] != 0 ||
++      exif_data[5] != 0) {
++    skip_n(length);
++    return;
++  }
++
++  /* Read all EXIF body */
++  for (i=0; i < length; i++)
++    exif_data[i] = (unsigned char) read_1_byte();
++
++  /* Discover byte order */
++  if (exif_data[0] == 0x49 && exif_data[1] == 0x49)
++    is_motorola = 0;
++  else if (exif_data[0] == 0x4D && exif_data[1] == 0x4D)
++    is_motorola = 1;
++  else
++    return;
++
++  /* Check Tag Mark */
++  if (is_motorola) {
++    if (exif_data[2] != 0) return;
++    if (exif_data[3] != 0x2A) return;
++  } else {
++    if (exif_data[3] != 0) return;
++    if (exif_data[2] != 0x2A) return;
++  }
++
++  /* Get first IFD offset (offset to IFD0) */
++  if (is_motorola) {
++    if (exif_data[4] != 0) return;
++    if (exif_data[5] != 0) return;
++    offset = exif_data[6];
++    offset <<= 8;
++    offset += exif_data[7];
++  } else {
++    if (exif_data[7] != 0) return;
++    if (exif_data[6] != 0) return;
++    offset = exif_data[5];
++    offset <<= 8;
++    offset += exif_data[4];
++  }
++  if (offset > length - 2) return; /* check end of data segment */
++
++  /* Get the number of directory entries contained in this IFD */
++  if (is_motorola) {
++    number_of_tags = exif_data[offset];
++    number_of_tags <<= 8;
++    number_of_tags += exif_data[offset+1];
++  } else {
++    number_of_tags = exif_data[offset+1];
++    number_of_tags <<= 8;
++    number_of_tags += exif_data[offset];
++  }
++  if (number_of_tags == 0) return;
++  offset += 2;
++
++  /* Search for Orientation Tag in IFD0 */
++  for (;;) {
++    if (offset > length - 12) return; /* check end of data segment */
++    /* Get Tag number */
++    if (is_motorola) {
++      tagnum = exif_data[offset];
++      tagnum <<= 8;
++      tagnum += exif_data[offset+1];
++    } else {
++      tagnum = exif_data[offset+1];
++      tagnum <<= 8;
++      tagnum += exif_data[offset];
++    }
++    if (tagnum == 0x0112) break; /* found Orientation Tag */
++    if (--number_of_tags == 0) return;
++    offset += 12;
++  }
++
++  /* Get the Orientation value */
++  if (is_motorola) {
++    if (exif_data[offset+8] != 0) return;
++    orientation = exif_data[offset+9];
++  } else {
++    if (exif_data[offset+9] != 0) return;
++    orientation = exif_data[offset+8];
++  }
++  if (orientation == 0 || orientation > 8) return;
++
++  /* Print the orientation (position of the 0th row - 0th column) */
++  switch (orientation) {
++  case 1:
++    ostr = "top-left";
++    break;
++  case 2:
++    ostr = "top-right";
++    break;
++  case 3:
++    ostr = "bottom-right";
++    break;
++  case 4:
++    ostr = "bottom-left";
++    break;
++  case 5:
++    ostr = "left-top";
++    break;
++  case 6:
++    ostr = "right-top";
++    break;
++  case 7:
++    ostr = "right-bottom";
++    break;
++  case 8:
++    ostr = "left-bottom";
++    break;
++  default:
++    return;
++  }
++  printf("EXIF orientation: %s\n",ostr);
++}
+ 
+ /*
+  * Process a COM marker.
+@@ -381,6 +551,15 @@ scan_JPEG_header (int verbose, int raw)
+       process_COM(raw);
+       break;
+ 
++    case M_APP1:
++      /* APP1 is usually the EXIF marker used by digital cameras, attempt to
++       * process it to give some useful info. */
++      if (verbose) {
++        process_APP1();
++      } else
++        skip_variable();
++      break;
++
+     case M_APP12:
+       /* Some digital camera makers put useful textual information into
+        * APP12 markers, so we print those out too when in -verbose mode.
+diff --git a/transupp.c b/transupp.c
+index 4060544..5f4a9b4 100644
+--- a/transupp.c
++++ b/transupp.c
+@@ -51,6 +51,13 @@
+  * guarantee we can touch more than one row at a time.  So in that case,
+  * we have to use a separate destination array.
+  *
++ * If cropping or trimming is involved, the destination arrays may be smaller
++ * than the source arrays.  Note it is not possible to do horizontal flip
++ * in-place when a nonzero Y crop offset is specified, since we'd have to move
++ * data from one block row to another but the virtual array manager doesn't
++ * guarantee we can touch more than one row at a time.  So in that case,
++ * we have to use a separate destination array.
++ *
+  * Some notes about the operating environment of the individual transform
+  * routines:
+  * 1. Both the source and destination virtual arrays are allocated from the
+@@ -75,6 +82,269 @@
+  */
+ 
+ 
++/* Drop code may be used with or without virtual memory adaptation code.
++ * This code has some dependencies on internal library behavior, so you
++ * may choose to disable it.  For example, it doesn't make a difference
++ * if you only use jmemnobs anyway.
++ */
++#ifndef DROP_REQUEST_FROM_SRC
++#define DROP_REQUEST_FROM_SRC 1		/* 0 disables adaptation */
++#endif
++
++
++#if DROP_REQUEST_FROM_SRC
++/* Force jpeg_read_coefficients to request
++ * the virtual coefficient arrays from
++ * the source decompression object.
++ */
++METHODDEF(jvirt_barray_ptr)
++drop_request_virt_barray (j_common_ptr cinfo, int pool_id, boolean pre_zero,
++			  JDIMENSION blocksperrow, JDIMENSION numrows,
++			  JDIMENSION maxaccess)
++{
++  j_decompress_ptr srcinfo = (j_decompress_ptr) cinfo->client_data;
++
++  return (*srcinfo->mem->request_virt_barray)
++	  ((j_common_ptr) srcinfo, pool_id, pre_zero,
++	   blocksperrow, numrows, maxaccess);
++}
++
++
++/* Force jpeg_read_coefficients to return
++ * after requesting and before accessing
++ * the virtual coefficient arrays.
++ */
++METHODDEF(int)
++drop_consume_input (j_decompress_ptr cinfo)
++{
++  return JPEG_SUSPENDED;
++}
++
++
++METHODDEF(void)
++drop_start_input_pass (j_decompress_ptr cinfo)
++{
++  cinfo->inputctl->consume_input = drop_consume_input;
++}
++
++
++LOCAL(void)
++drop_request_from_src (j_decompress_ptr dropinfo, j_decompress_ptr srcinfo)
++{
++  void *save_client_data;
++  JMETHOD(jvirt_barray_ptr, save_request_virt_barray,
++	  (j_common_ptr cinfo, int pool_id, boolean pre_zero,
++	   JDIMENSION blocksperrow, JDIMENSION numrows, JDIMENSION maxaccess));
++  JMETHOD(void, save_start_input_pass, (j_decompress_ptr cinfo));
++
++  /* Set custom method pointers, save original pointers */
++  save_client_data = dropinfo->client_data;
++  dropinfo->client_data = (void *) srcinfo;
++  save_request_virt_barray = dropinfo->mem->request_virt_barray;
++  dropinfo->mem->request_virt_barray = drop_request_virt_barray;
++  save_start_input_pass = dropinfo->inputctl->start_input_pass;
++  dropinfo->inputctl->start_input_pass = drop_start_input_pass;
++
++  /* Execute only initialization part.
++   * Requested coefficient arrays will be realized later by the srcinfo object.
++   * Next call to the same function will then do the actual data reading.
++   * NB: since we request the coefficient arrays from another object,
++   * the inherent realization call is effectively a no-op.
++   */
++  (void) jpeg_read_coefficients(dropinfo);
++
++  /* Reset method pointers */
++  dropinfo->client_data = save_client_data;
++  dropinfo->mem->request_virt_barray = save_request_virt_barray;
++  dropinfo->inputctl->start_input_pass = save_start_input_pass;
++  /* Do input initialization for first scan now,
++   * which also resets the consume_input method.
++   */
++  (*save_start_input_pass)(dropinfo);
++}
++#endif /* DROP_REQUEST_FROM_SRC */
++
++
++LOCAL(void)
++dequant_comp (j_decompress_ptr cinfo, jpeg_component_info *compptr,
++	      jvirt_barray_ptr coef_array, JQUANT_TBL *qtblptr1)
++{
++  JDIMENSION blk_x, blk_y;
++  int offset_y, k;
++  JQUANT_TBL *qtblptr;
++  JBLOCKARRAY buffer;
++  JBLOCKROW block;
++  JCOEFPTR ptr;
++
++  qtblptr = compptr->quant_table;
++  for (blk_y = 0; blk_y < compptr->height_in_blocks;
++       blk_y += compptr->v_samp_factor) {
++    buffer = (*cinfo->mem->access_virt_barray)
++      ((j_common_ptr) cinfo, coef_array, blk_y,
++       (JDIMENSION) compptr->v_samp_factor, TRUE);
++    for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++      block = buffer[offset_y];
++      for (blk_x = 0; blk_x < compptr->width_in_blocks; blk_x++) {
++	ptr = block[blk_x];
++	for (k = 0; k < DCTSIZE2; k++)
++	  if (qtblptr->quantval[k] != qtblptr1->quantval[k])
++	    ptr[k] *= qtblptr->quantval[k] / qtblptr1->quantval[k];
++      }
++    }
++  }
++}
++
++
++LOCAL(void)
++requant_comp (j_decompress_ptr cinfo, jpeg_component_info *compptr,
++	      jvirt_barray_ptr coef_array, JQUANT_TBL *qtblptr1)
++{
++  JDIMENSION blk_x, blk_y;
++  int offset_y, k;
++  JQUANT_TBL *qtblptr;
++  JBLOCKARRAY buffer;
++  JBLOCKROW block;
++  JCOEFPTR ptr;
++  JCOEF temp, qval;
++
++  qtblptr = compptr->quant_table;
++  for (blk_y = 0; blk_y < compptr->height_in_blocks;
++       blk_y += compptr->v_samp_factor) {
++    buffer = (*cinfo->mem->access_virt_barray)
++      ((j_common_ptr) cinfo, coef_array, blk_y,
++       (JDIMENSION) compptr->v_samp_factor, TRUE);
++    for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++      block = buffer[offset_y];
++      for (blk_x = 0; blk_x < compptr->width_in_blocks; blk_x++) {
++	ptr = block[blk_x];
++	for (k = 0; k < DCTSIZE2; k++) {
++	  temp = qtblptr->quantval[k];
++	  qval = qtblptr1->quantval[k];
++	  if (temp != qval) {
++	    temp *= ptr[k];
++	    /* The following quantization code is a copy from jcdctmgr.c */
++#ifdef FAST_DIVIDE
++#define DIVIDE_BY(a,b)	a /= b
++#else
++#define DIVIDE_BY(a,b)	if (a >= b) a /= b; else a = 0
++#endif
++	    if (temp < 0) {
++	      temp = -temp;
++	      temp += qval>>1;	/* for rounding */
++	      DIVIDE_BY(temp, qval);
++	      temp = -temp;
++	    } else {
++	      temp += qval>>1;	/* for rounding */
++	      DIVIDE_BY(temp, qval);
++	    }
++	    ptr[k] = temp;
++	  }
++	}
++      }
++    }
++  }
++}
++
++
++/* Calculate largest common denominator with Euklid's algorithm.
++ */
++LOCAL(JCOEF)
++largest_common_denominator(JCOEF a, JCOEF b)
++{
++  JCOEF c;
++
++  do {
++    c = a % b;
++    a = b;
++    b = c;
++  } while (c);
++
++  return a;
++}
++
++
++LOCAL(void)
++adjust_quant(j_decompress_ptr srcinfo, jvirt_barray_ptr *src_coef_arrays,
++	     j_decompress_ptr dropinfo, jvirt_barray_ptr *drop_coef_arrays,
++	     boolean trim, j_compress_ptr dstinfo)
++{
++  jpeg_component_info *compptr1, *compptr2;
++  JQUANT_TBL *qtblptr1, *qtblptr2, *qtblptr3;
++  int ci, k;
++
++  for (ci = 0; ci < dstinfo->num_components &&
++	       ci < dropinfo->num_components; ci++) {
++    compptr1 = srcinfo->comp_info + ci;
++    compptr2 = dropinfo->comp_info + ci;
++    qtblptr1 = compptr1->quant_table;
++    qtblptr2 = compptr2->quant_table;
++    for (k = 0; k < DCTSIZE2; k++) {
++      if (qtblptr1->quantval[k] != qtblptr2->quantval[k]) {
++	if (trim)
++	  requant_comp(dropinfo, compptr2, drop_coef_arrays[ci], qtblptr1);
++	else {
++	  qtblptr3 = dstinfo->quant_tbl_ptrs[compptr1->quant_tbl_no];
++	  for (k = 0; k < DCTSIZE2; k++)
++	    if (qtblptr1->quantval[k] != qtblptr2->quantval[k])
++	      qtblptr3->quantval[k] = largest_common_denominator
++		(qtblptr1->quantval[k], qtblptr2->quantval[k]);
++	  dequant_comp(srcinfo, compptr1, src_coef_arrays[ci], qtblptr3);
++	  dequant_comp(dropinfo, compptr2, drop_coef_arrays[ci], qtblptr3);
++	}
++	break;
++      }
++    }
++  }
++}
++
++
++LOCAL(void)
++do_drop (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
++	 JDIMENSION x_crop_offset, JDIMENSION y_crop_offset,
++	 jvirt_barray_ptr *src_coef_arrays,
++	 j_decompress_ptr dropinfo, jvirt_barray_ptr *drop_coef_arrays,
++	 JDIMENSION drop_width, JDIMENSION drop_height)
++/* Drop.  If the dropinfo component number is smaller than the destination's,
++ * we fill in the remaining components with zero.  This provides the feature
++ * of dropping grayscale into (arbitrarily sampled) color images.
++ */
++{
++  JDIMENSION comp_width, comp_height;
++  JDIMENSION blk_y, x_drop_blocks, y_drop_blocks;
++  int ci, offset_y;
++  JBLOCKARRAY src_buffer, dst_buffer;
++  jpeg_component_info *compptr;
++
++  for (ci = 0; ci < dstinfo->num_components; ci++) {
++    compptr = dstinfo->comp_info + ci;
++    comp_width = drop_width * compptr->h_samp_factor;
++    comp_height = drop_height * compptr->v_samp_factor;
++    x_drop_blocks = x_crop_offset * compptr->h_samp_factor;
++    y_drop_blocks = y_crop_offset * compptr->v_samp_factor;
++    for (blk_y = 0; blk_y < comp_height; blk_y += compptr->v_samp_factor) {
++      dst_buffer = (*srcinfo->mem->access_virt_barray)
++	((j_common_ptr) srcinfo, src_coef_arrays[ci], blk_y + y_drop_blocks,
++	 (JDIMENSION) compptr->v_samp_factor, TRUE);
++      if (ci < dropinfo->num_components) {
++	src_buffer = (*srcinfo->mem->access_virt_barray)
++	  ((j_common_ptr) srcinfo, drop_coef_arrays[ci], blk_y,
++	   (JDIMENSION) compptr->v_samp_factor, FALSE);
++	for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++	  jcopy_block_row(src_buffer[offset_y],
++			  dst_buffer[offset_y] + x_drop_blocks,
++			  comp_width);
++	}
++      } else {
++	for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++	  jzero_far(dst_buffer[offset_y] + x_drop_blocks,
++		    comp_width * SIZEOF(JBLOCK));
++	} 	
++      }
++    }
++  }
++}
++
++
+ LOCAL(void)
+ do_crop (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
+ 	 JDIMENSION x_crop_offset, JDIMENSION y_crop_offset,
+@@ -82,16 +352,21 @@ do_crop (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
+ 	 jvirt_barray_ptr *dst_coef_arrays)
+ /* Crop.  This is only used when no rotate/flip is requested with the crop. */
+ {
++  JDIMENSION MCU_cols, MCU_rows, comp_width, comp_height;
+   JDIMENSION dst_blk_y, x_crop_blocks, y_crop_blocks;
+   int ci, offset_y;
+   JBLOCKARRAY src_buffer, dst_buffer;
+   jpeg_component_info *compptr;
+ 
++  MCU_cols = srcinfo->image_width / (dstinfo->max_h_samp_factor * DCTSIZE);
++  MCU_rows = srcinfo->image_height / (dstinfo->max_v_samp_factor * DCTSIZE);
+   /* We simply have to copy the right amount of data (the destination's
+    * image size) starting at the given X and Y offsets in the source.
+    */
+   for (ci = 0; ci < dstinfo->num_components; ci++) {
+     compptr = dstinfo->comp_info + ci;
++    comp_width = MCU_cols * compptr->h_samp_factor;
++    comp_height = MCU_rows * compptr->v_samp_factor;
+     x_crop_blocks = x_crop_offset * compptr->h_samp_factor;
+     y_crop_blocks = y_crop_offset * compptr->v_samp_factor;
+     for (dst_blk_y = 0; dst_blk_y < compptr->height_in_blocks;
+@@ -99,17 +374,49 @@ do_crop (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
+       dst_buffer = (*srcinfo->mem->access_virt_barray)
+ 	((j_common_ptr) srcinfo, dst_coef_arrays[ci], dst_blk_y,
+ 	 (JDIMENSION) compptr->v_samp_factor, TRUE);
++      if (dstinfo->image_height > srcinfo->image_height) {
++      if (dst_blk_y < y_crop_blocks ||
++          dst_blk_y >= comp_height + y_crop_blocks) {
++        for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++          jzero_far(dst_buffer[offset_y],
++                    compptr->width_in_blocks * SIZEOF(JBLOCK));
++        }
++        continue;
++      }
++      src_buffer = (*srcinfo->mem->access_virt_barray)
++        ((j_common_ptr) srcinfo, src_coef_arrays[ci],
++         dst_blk_y - y_crop_blocks,
++         (JDIMENSION) compptr->v_samp_factor, FALSE);
++      } else {
+       src_buffer = (*srcinfo->mem->access_virt_barray)
+ 	((j_common_ptr) srcinfo, src_coef_arrays[ci],
+ 	 dst_blk_y + y_crop_blocks,
+ 	 (JDIMENSION) compptr->v_samp_factor, FALSE);
++      }
+       for (offset_y = 0; offset_y < compptr->v_samp_factor; offset_y++) {
++      if (dstinfo->image_width > srcinfo->image_width) {
++        if (x_crop_blocks > 0) {
++          jzero_far(dst_buffer[offset_y],
++                    x_crop_blocks * SIZEOF(JBLOCK));
++        }
++        jcopy_block_row(src_buffer[offset_y],
++                        dst_buffer[offset_y] + x_crop_blocks,
++                        comp_width);
++        if (compptr->width_in_blocks > comp_width + x_crop_blocks) {
++          jzero_far(dst_buffer[offset_y] +
++                      comp_width + x_crop_blocks,
++                    (compptr->width_in_blocks -
++                      comp_width - x_crop_blocks) * SIZEOF(JBLOCK));
++        }
++      } else {
++
+ 	jcopy_block_row(src_buffer[offset_y] + x_crop_blocks,
+ 			dst_buffer[offset_y],
+ 			compptr->width_in_blocks);
+       }
+     }
+   }
++  }
+ }
+ 
+ 
+@@ -876,7 +1183,9 @@ jtransform_request_workspace (j_decompress_ptr srcinfo,
+   JDIMENSION xoffset, yoffset;
+   JDIMENSION width_in_iMCUs, height_in_iMCUs;
+   JDIMENSION width_in_blocks, height_in_blocks;
++  JDIMENSION dtemp;
+   int ci, h_samp_factor, v_samp_factor;
++  int itemp;
+ 
+   /* Determine number of components in output image */
+   if (info->force_grayscale &&
+@@ -957,33 +1266,112 @@ jtransform_request_workspace (j_decompress_ptr srcinfo,
+       info->crop_xoffset = 0;	/* default to +0 */
+     if (info->crop_yoffset_set == JCROP_UNSET)
+       info->crop_yoffset = 0;	/* default to +0 */
+-    if (info->crop_xoffset >= info->output_width ||
+-	info->crop_yoffset >= info->output_height)
++    if (info->crop_width_set == JCROP_UNSET) {
++      if (info->crop_xoffset >= info->output_width)
+       ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
+-    if (info->crop_width_set == JCROP_UNSET)
+       info->crop_width = info->output_width - info->crop_xoffset;
+-    if (info->crop_height_set == JCROP_UNSET)
++    } else {
++      /* Check for crop extension */
++      if (info->crop_width > info->output_width) {
++      /* Crop extension does not work when transforming! */
++      if (info->transform != JXFORM_NONE ||
++          info->crop_xoffset >= info->crop_width ||
++          info->crop_xoffset > info->crop_width - info->output_width)
++        ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
++      } else {
++      if (info->crop_xoffset >= info->output_width ||
++          info->crop_width <= 0 ||
++          info->crop_xoffset > info->output_width - info->crop_width)
++        ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
++      }
++    }
++    if (info->crop_height_set == JCROP_UNSET) {
++      if (info->crop_yoffset >= info->output_height)
++      ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
+       info->crop_height = info->output_height - info->crop_yoffset;
+-    /* Ensure parameters are valid */
+-    if (info->crop_width <= 0 || info->crop_width > info->output_width ||
+-	info->crop_height <= 0 || info->crop_height > info->output_height ||
+-	info->crop_xoffset > info->output_width - info->crop_width ||
++    } else {
++      /* Check for crop extension */
++      if (info->crop_height > info->output_height) {
++      /* Crop extension does not work when transforming! */
++      if (info->transform != JXFORM_NONE ||
++          info->crop_yoffset >= info->crop_height ||
++          info->crop_yoffset > info->crop_height - info->output_height)
++        ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
++      } else {
++      if (info->crop_yoffset >= info->output_height ||
++          info->crop_height <= 0 ||
+ 	info->crop_yoffset > info->output_height - info->crop_height)
+       ERREXIT(srcinfo, JERR_BAD_CROP_SPEC);
++      }
++    }
+     /* Convert negative crop offsets into regular offsets */
+-    if (info->crop_xoffset_set == JCROP_NEG)
++    if (info->crop_xoffset_set == JCROP_NEG) {
++      if (info->crop_width > info->output_width)
++      xoffset = info->crop_width - info->output_width - info->crop_xoffset;
++      else
+       xoffset = info->output_width - info->crop_width - info->crop_xoffset;
+-    else
++    } else
+       xoffset = info->crop_xoffset;
+-    if (info->crop_yoffset_set == JCROP_NEG)
++    if (info->crop_yoffset_set == JCROP_NEG) {
++      if (info->crop_height > info->output_height)
++      yoffset = info->crop_height - info->output_height - info->crop_yoffset;
++      else
+       yoffset = info->output_height - info->crop_height - info->crop_yoffset;
+-    else
++    } else
+       yoffset = info->crop_yoffset;
+     /* Now adjust so that upper left corner falls at an iMCU boundary */
++    if (info->transform == JXFORM_DROP) {
++      /* Ensure the effective drop region will not exceed the requested */
++      itemp = info->iMCU_sample_width;
++      dtemp = itemp - 1 - ((xoffset + itemp - 1) % itemp);
++      xoffset += dtemp;
++      if (info->crop_width > dtemp)
++      info->drop_width = (info->crop_width - dtemp) / itemp;
++      else
++      info->drop_width = 0;
++      itemp = info->iMCU_sample_height;
++      dtemp = itemp - 1 - ((yoffset + itemp - 1) % itemp);
++      yoffset += dtemp;
++      if (info->crop_height > dtemp)
++      info->drop_height = (info->crop_height - dtemp) / itemp;
++      else
++      info->drop_height = 0;
++      /* Check if sampling factors match for dropping */
++      if (info->drop_width != 0 && info->drop_height != 0)
++      for (ci = 0; ci < info->num_components &&
++                   ci < info->drop_ptr->num_components; ci++) {
++        if (info->drop_ptr->comp_info[ci].h_samp_factor *
++            srcinfo->max_h_samp_factor !=
++            srcinfo->comp_info[ci].h_samp_factor *
++            info->drop_ptr->max_h_samp_factor)
++          ERREXIT6(srcinfo, JERR_BAD_DROP_SAMPLING, ci,
++            info->drop_ptr->comp_info[ci].h_samp_factor,
++            info->drop_ptr->max_h_samp_factor,
++            srcinfo->comp_info[ci].h_samp_factor,
++            srcinfo->max_h_samp_factor, 'h');
++        if (info->drop_ptr->comp_info[ci].v_samp_factor *
++            srcinfo->max_v_samp_factor !=
++            srcinfo->comp_info[ci].v_samp_factor *
++            info->drop_ptr->max_v_samp_factor)
++          ERREXIT6(srcinfo, JERR_BAD_DROP_SAMPLING, ci,
++            info->drop_ptr->comp_info[ci].v_samp_factor,
++            info->drop_ptr->max_v_samp_factor,
++            srcinfo->comp_info[ci].v_samp_factor,
++            srcinfo->max_v_samp_factor, 'v');
++      }
++   } else {
++    /* Ensure the effective crop region will cover the requested */
++    if (info->crop_width > info->output_width)
++    info->output_width = info->crop_width;
++    else
+     info->output_width =
+       info->crop_width + (xoffset % info->iMCU_sample_width);
++    if (info->crop_height > info->output_height)
++    info->output_height = info->crop_height;
++    else
+     info->output_height =
+       info->crop_height + (yoffset % info->iMCU_sample_height);
++    }
+     /* Save x/y offsets measured in iMCUs */
+     info->x_crop_offset = xoffset / info->iMCU_sample_width;
+     info->y_crop_offset = yoffset / info->iMCU_sample_height;
+@@ -999,7 +1387,9 @@ jtransform_request_workspace (j_decompress_ptr srcinfo,
+   transpose_it = FALSE;
+   switch (info->transform) {
+   case JXFORM_NONE:
+-    if (info->x_crop_offset != 0 || info->y_crop_offset != 0)
++    if (info->x_crop_offset != 0 || info->y_crop_offset != 0 ||
++      info->output_width > srcinfo->image_width ||
++      info->output_height > srcinfo->image_height)
+       need_workspace = TRUE;
+     /* No workspace needed if neither cropping nor transforming */
+     break;
+@@ -1053,6 +1443,11 @@ jtransform_request_workspace (j_decompress_ptr srcinfo,
+     need_workspace = TRUE;
+     transpose_it = TRUE;
+     break;
++  case JXFORM_DROP:
++#if DROP_REQUEST_FROM_SRC
++    drop_request_from_src(info->drop_ptr, srcinfo);
++#endif
++    break;
+   }
+ 
+   /* Allocate workspace if needed.
+@@ -1359,6 +1754,11 @@ jtransform_adjust_parameters (j_decompress_ptr srcinfo,
+   case JXFORM_ROT_270:
+     transpose_critical_parameters(dstinfo);
+     break;
++  case JXFORM_DROP:
++    if (info->drop_width != 0 && info->drop_height != 0)
++      adjust_quant(srcinfo, src_coef_arrays,
++                 info->drop_ptr, info->drop_coef_arrays,
++                 info->trim, dstinfo);
+   default:
+     break;
+   }
+@@ -1413,7 +1813,9 @@ jtransform_execute_transform (j_decompress_ptr srcinfo,
+    */
+   switch (info->transform) {
+   case JXFORM_NONE:
+-    if (info->x_crop_offset != 0 || info->y_crop_offset != 0)
++    if (info->x_crop_offset != 0 || info->y_crop_offset != 0 ||
++      info->output_width > srcinfo->image_width ||
++      info->output_height > srcinfo->image_height)
+       do_crop(srcinfo, dstinfo, info->x_crop_offset, info->y_crop_offset,
+ 	      src_coef_arrays, dst_coef_arrays);
+     break;
+@@ -1449,6 +1851,12 @@ jtransform_execute_transform (j_decompress_ptr srcinfo,
+     do_rot_270(srcinfo, dstinfo, info->x_crop_offset, info->y_crop_offset,
+ 	       src_coef_arrays, dst_coef_arrays);
+     break;
++  case JXFORM_DROP:
++    if (info->drop_width != 0 && info->drop_height != 0)
++      do_drop(srcinfo, dstinfo, info->x_crop_offset, info->y_crop_offset,
++            src_coef_arrays, info->drop_ptr, info->drop_coef_arrays,
++            info->drop_width, info->drop_height);
++    break;
+   }
+ }
+ 
+diff --git a/transupp.h b/transupp.h
+index 7c16c19..1dd9ebb 100644
+--- a/transupp.h
++++ b/transupp.h
+@@ -101,7 +101,8 @@ typedef enum {
+ 	JXFORM_TRANSVERSE,	/* transpose across UR-to-LL axis */
+ 	JXFORM_ROT_90,		/* 90-degree clockwise rotation */
+ 	JXFORM_ROT_180,		/* 180-degree rotation */
+-	JXFORM_ROT_270		/* 270-degree clockwise (or 90 ccw) */
++	JXFORM_ROT_270,		/* 270-degree clockwise (or 90 ccw) */
++	JXFORM_DROP		/* drop */
+ } JXFORM_CODE;
+ 
+ /*
+@@ -141,6 +142,10 @@ typedef struct {
+   JDIMENSION crop_yoffset;	/* Y offset of selected region */
+   JCROP_CODE crop_yoffset_set;	/* (negative measures from bottom edge) */
+ 
++  /* Drop parameters: set by caller for drop request */
++  j_decompress_ptr drop_ptr;
++  jvirt_barray_ptr * drop_coef_arrays;
++
+   /* Internal workspace: caller should not touch these */
+   int num_components;		/* # of components in workspace */
+   jvirt_barray_ptr * workspace_coef_arrays; /* workspace for transformations */
+@@ -148,6 +153,8 @@ typedef struct {
+   JDIMENSION output_height;
+   JDIMENSION x_crop_offset;	/* destination crop offsets measured in iMCUs */
+   JDIMENSION y_crop_offset;
++  JDIMENSION drop_width;	/* drop dimensions measured in iMCUs */
++  JDIMENSION drop_height;
+   int iMCU_sample_width;	/* destination iMCU size */
+   int iMCU_sample_height;
+ } jpeg_transform_info;
+@@ -196,7 +203,8 @@ EXTERN(boolean) jtransform_perfect_transform
+ typedef enum {
+ 	JCOPYOPT_NONE,		/* copy no optional markers */
+ 	JCOPYOPT_COMMENTS,	/* copy only comment (COM) markers */
+-	JCOPYOPT_ALL		/* copy all optional markers */
++	JCOPYOPT_ALL,		/* copy all optional markers */
++	JCOPYOPT_EXIF		/* copy Exif APP1 marker */
+ } JCOPY_OPTION;
+ 
+ #define JCOPYOPT_DEFAULT  JCOPYOPT_COMMENTS	/* recommended default */
+-- 
+2.25.1
+
