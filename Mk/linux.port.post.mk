@@ -239,6 +239,10 @@ FETCH_REGET		?= 1
 FETCH_CMD		+=						\
 	-nd -N --connect-timeout=3 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
 
+ifeq ($(NO_CHECK_CERTIFICATE),yes)
+FETCH_CMD		+= --no-check-certificate
+endif
+
 # stuff for extract ...
 
 ifeq ($(USE_ZIP),yes)
