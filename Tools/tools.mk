@@ -398,6 +398,57 @@ depends_exclude_targets	+= ports
 ports: $(addsuffix .install,$(ports_all))
 
 #
+# Host utilities check...
+#
+
+USE_HOSTTOOLS		?= $(PORTS_GROUP_DEFAULT)
+$(USE_HOSTTOOLS)_PREFIX	?= $(PREFIX)
+
+# extract every group's PREFIX and DESTDIR
+
+get-group-envs		= $(if $(PORTS_$1_ENVS),$(PORTS_$1_ENVS),$(PORTS_ENVS))
+find-path 		= $(strip					\
+			    $(if $(filter $2=%,$1),			\
+			      $(patsubst $2=%,%,$(filter $2=%,$1)),))
+define setup-path
+$1_$2			:= $(call find-path,$(call get-group-envs,$1),$2)
+endef
+
+$(foreach g,$(groups_all),						\
+  $(foreach t,PREFIX DESTDIR,						\
+    $(eval $(call setup-path,$g,$t))))
+
+# make sure every group has its own PREFIX and DESTDIR
+env-name		= $(if $(PORTS_$1_ENVS),PORTS_$1_ENVS,PORTS_ENVS)
+$(foreach g,$(groups_all),						\
+  $(foreach t,PREFIX DESTDIR,						\
+    $(if $($g_$t),,							\
+      $(error Oops, there's no $t defined in your $(call env-name,$g))))) #'
+
+
+ifneq ($(USE_HOSTTOOLS),)
+  $(USE_HOSTTOOLS)_BASE	:= $($(USE_HOSTTOOLS)_DESTDIR)$($(USE_HOSTTOOLS)_PREFIX)
+
+  ifneq ($(groups_$(USE_HOSTTOOLS)),)
+    export PATH		:= $($(USE_HOSTTOOLS)_BASE)/bin:$(PATH)
+  endif
+
+# check pkg-config
+  ifneq ($(filter pkg-config,$(groups_$(USE_HOSTTOOLS))),)
+    export PKG_CONFIG	:= $($(USE_HOSTTOOLS)_BASE)/bin/pkg-config
+  endif
+
+# check cmake
+  ifneq ($(filter cmake,$(groups_$(USE_HOSTTOOLS))),)
+    export CMAKE_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/cmake
+  endif
+
+# check others
+# ...
+
+endif # USE_HOSTTOOLS
+
+#
 #
 #
 
@@ -497,9 +548,11 @@ merge			= $(shell echo					\
 			    $(addprefix $1,$(addsuffix $2,$3))		\
 			      | sed -e 's/ /:/g')
 
+PC_BASE			:= $($(PORTS_GROUP_DEFAULT)_DESTDIR)$($(PORTS_GROUP_DEFAULT)_PREFIX)
+
 PKGCONFIG_ENVS			+=					\
-	PKG_CONFIG_LIBDIR=$(call merge,$(DESTDIR)$(PREFIX)/,/pkgconfig,$(pkgs))\
-	PKG_CONFIG_SYSROOT_DIR=$(DESTDIR)				\
+	PKG_CONFIG_LIBDIR=$(call merge,$(PC_BASE)/,/pkgconfig,$(pkgs))	\
+	PKG_CONFIG_SYSROOT_DIR=$($(PORTS_GROUP_DEFAULT)_DESTDIR)	\
 	PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=yes				\
 	PKG_CONFIG_ALLOW_SYSTEM_LIBS=yes
 
@@ -584,6 +637,18 @@ $(foreach p,$(ports_all),$(eval $(call show-port-groups,$p)))
 
 info.debug.targets:
 	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
+ifneq ($(USE_HOSTTOOLS),)
+	@$(echo) "-------------------------------------------------"
+	@$(echo) "USE_HOSTTOOLS = $(USE_HOSTTOOLS)"
+	@$(echo) "$(PORTS_GROUP_DEFAULT)_PREFIX = $($(PORTS_GROUP_DEFAULT)_PREFIX)"
+	@$(echo) "$(PORTS_GROUP_DEFAULT)_DESTDIR = $($(PORTS_GROUP_DEFAULT)_DESTDIR)"
+	@$(echo) "$(USE_HOSTTOOLS)_PREFIX = $($(USE_HOSTTOOLS)_PREFIX)"
+	@$(echo) "$(USE_HOSTTOOLS)_DESTDIR = $($(USE_HOSTTOOLS)_DESTDIR)"
+	@$(echo) "PATH = $(PATH)"
+	@$(echo) "PC_BASE = $(call merge,$(PC_BASE)/,/pkgconfig,$(pkgs))"
+	@$(echo) "PKG_CONFIG = $(PKG_CONFIG)"
+	@$(echo) "pkg-config = $(shell which pkg-config)"
+endif
 
 debug_targets		= sep1 port					\
 			  sep2 category sep3 category-all sep4 port-categories \

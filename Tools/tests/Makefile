@@ -75,6 +75,10 @@ PORTS_LISTS		= host@devel/pkg-config				\
 # remove from environment variable list.
 
 wrkdir			= $(shell cd && pwd)/local
+PREFIX			= /usr
+DESTDIR			= $(wrkdir)/target
+USE_HOSTTOOLS		= host
+
 PORTS_ENVS		= USE_GLOBALBASE=yes				\
 			  DISTDIR_SITE=/opt/distfiles/ports		\
 			  PACKAGES_SITE=/opt/distfiles/ports/packages	\
@@ -87,8 +91,8 @@ PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  DESTDIR=$(wrkdir)/host
 
 PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
-			  PREFIX=/usr					\
-			  DESTDIR=$(wrkdir)/target
+			  PREFIX=$(PREFIX)				\
+			  DESTDIR=$(DESTDIR)
 
 PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  PREFIX=/opt					\
