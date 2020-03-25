@@ -38,7 +38,7 @@ PORTSDIR 		= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
 
 override_targets	+=						\
-	post-extract post-patch
+	post-extract post-patch post-build
 
 post-extract:
 	@cp $(DISTDIR)/$(DIST_SUBDIR)/jpegexiforient.c $(WRKSRC)
@@ -48,5 +48,8 @@ post-patch:
 	@$(SED) -e 's|%PREFIX%|$(PREFIX)|g ; s|%VERSION%|$(DISTVERSION2)|g' \
 		$(FILESDIR)/lib$(PORTNAME)-$(DISTVERSION2).pc.in >	\
 		$(WRKDIR)/lib$(PORTNAME)-$(DISTVERSION2).pc
+
+post-build:
+	@cd $(WRKSRC) && $(CC) $(CFLAGS) -o jpegexiforient jpegexiforient.c
 
 include $(PORTSDIR)/Mk/linux.port.post.mk
