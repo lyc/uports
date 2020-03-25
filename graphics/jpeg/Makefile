@@ -38,7 +38,7 @@ PORTSDIR 		= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
 
 override_targets	+=						\
-	post-extract post-patch post-build
+	post-extract post-patch post-build pre-install post-install
 
 post-extract:
 	@cp $(DISTDIR)/$(DIST_SUBDIR)/jpegexiforient.c $(WRKSRC)
@@ -51,5 +51,22 @@ post-patch:
 
 post-build:
 	@cd $(WRKSRC) && $(CC) $(CFLAGS) -o jpegexiforient jpegexiforient.c
+
+pre-install:
+	@mkdir -p $(addprefix $(DESTDIR)$(PREFIX)/,bin lib/pkgconfig include)
+
+# FIXME: replace cp by $(INSTALL_PROGRAM) or $(INSTALL_DATA)
+post-install:
+ifneq ($(ADDITIONAL_HEADER),)
+	@for f in $(ADDITIONAL_HEADER); do				\
+	    cp $(WRKSRC)/$$f $(DESTDIR)$(PREFIX)/include;		\
+	done
+endif
+	@cp $(WRKSRC)/jpegexiforient $(DESTDIR)$(PREFIX)/bin
+	@cp $(WRKSRC)/exifautotran $(DESTDIR)$(PREFIX)/bin
+	@cp $(WRKDIR)/lib$(PORTNAME)-$(DISTVERSION2).pc			\
+		$(DESTDIR)$(PREFIX)/lib/pkgconfig
+	@cd $(DESTDIR)$(PREFIX)/lib/pkgconfig &&			\
+		ln -sf lib$(PORTNAME)-$(DISTVERSION2).pc lib$(PORTNAME).pc
 
 include $(PORTSDIR)/Mk/linux.port.post.mk

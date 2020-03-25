@@ -1,0 +1,14 @@
+./share/man/man3/zlib.3
+./share/man/man3
+./share/man
+./share
+./lib/pkgconfig/zlib.pc
+./lib/pkgconfig
+./lib/libz.so.1.2.11
+./lib/libz.so.1
+./lib/libz.so
+./lib/libz.a
+./lib
+./include/zlib.h
+./include/zconf.h
+./include
