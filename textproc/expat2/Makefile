@@ -16,7 +16,13 @@ COMMENT			= XML 1.0 parser written by C
 #USE_LDCONFIG		= yes
 #USE_AUTOTOOLS		= yes
 GNU_CONFIGURE		= yes
-CONFIGURE_ARGS		+= --enable-shared
+CONFIGURE_ARGS		+= --enable-shared				\
+			   --prefix=$(PREFIX)				\
+			   --exec-prefix=$(PREFIX)
+
+ifneq ($(DESTDIR),)
+MAKE_ARGS		+= INSTALL_ROOT="$(DESTDIR)"
+endif
 
 #
 #

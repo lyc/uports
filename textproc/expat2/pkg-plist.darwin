@@ -1,0 +1,16 @@
+./share/man/man1/xmlwf.1
+./share/man/man1
+./share/man
+./share
+./lib/pkgconfig/expat.pc
+./lib/pkgconfig
+./lib/libexpat.la
+./lib/libexpat.dylib
+./lib/libexpat.a
+./lib/libexpat.1.dylib
+./lib
+./include/expat_external.h
+./include/expat.h
+./include
+./bin/xmlwf
+./bin
