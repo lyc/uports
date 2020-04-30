@@ -1,0 +1,198 @@
+From bd76743665685bf706304dd3cf16d8e7a9268c1b Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Fri, 1 May 2020 02:07:35 +0800
+Subject: [PATCH 1/3] Enable to build shared library
+
+---
+ Makefile                     |  3 +++
+ Makefile.unix                |  2 +-
+ rules.mk                     | 45 ++++++++++++++++++++++++++++++------
+ src/Makefile.test_parser     |  3 +--
+ src/Makefile.test_parser_fsm |  4 +---
+ toplevel.mk                  | 15 ++++++++++--
+ 6 files changed, 57 insertions(+), 15 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 74c6d9b..1c26e22 100644
+--- a/Makefile
++++ b/Makefile
+@@ -53,6 +53,9 @@ unix_dbg:
+ unix_tests: unix
+ 	$(MAKE) -f Makefile.unix tests
+ 
++install:
++	$(MAKE) -f Makefile.unix install
++
+ # This target does everything that unix_tests does and logs an entry
+ # in a MySQL database. To run this target, you must install Python MySQL
+ # package.
+diff --git a/Makefile.unix b/Makefile.unix
+index 05bac1b..06da193 100644
+--- a/Makefile.unix
++++ b/Makefile.unix
+@@ -30,7 +30,7 @@ PLATFORM = unix
+ 
+ MODULE_LIST = .
+ 
+-LIBRARY = libcparser.a
++LIBRARY = cparser
+ 
+ TEST_LIST = ./test_token ./test_parser_fsm ./test_parser
+ 
+diff --git a/rules.mk b/rules.mk
+index dc3033f..580e76f 100644
+--- a/rules.mk
++++ b/rules.mk
+@@ -50,6 +50,13 @@ else
+ endif
+ 
+ # Update compilation flags based on DEBUG
++ifeq ($(OPSYS),linux)
++  ETCFLAGS += -fPIC
++else
++  ifeq ($(OPSYS),darwin)
++    ETCFLAGS += -fno-common
++  endif
++endif
+ ifeq ("$(DEBUG)", "TRUE")
+   CFLAGS += $(ETCFLAGS) -Wall -g -Werror -O0
+ else
+@@ -67,6 +74,11 @@ SRC_INC += -I. -I../inc \
+ SRC_OBJ = $(patsubst %.c,$(OBJDIR)/%.o,$(SRC_FILES))
+ SRC_DEP = $(patsubst %.c,$(OBJDIR)/%.d,$(SRC_FILES))
+ 
++LIBRARY_A = lib$(LIBRARY).a
++ifneq ($(findstring $(OPSYS),linux darwin),)
++LIBRARY_SO = lib$(LIBRARY).$(if $(findstring linux,$(OPSYS)),so,dylib)
++endif
++
+ # Include the list of dependency files
+ -include $(SRC_DEP)
+ 
+@@ -76,16 +88,30 @@ $(OBJDIR)/%.o:%.c
+ 	$(CC) $(CFLAGS) -MM $(SRC_INC) -MF $(patsubst %.o,%.d,$@) -MT $@ $< 
+ 	@echo "  COMPILE $<..."
+ 	$(CC) -c $(CFLAGS) $(SRC_INC) $< -o $@
+-ifneq ("$(LIBRARY)", "")
++
++$(LIBDIR)/$(LIBRARY_A): $(SRC_OBJ)
+ 	@echo "  ARCHIVE $(notdir $@)..."
+-	$(AR) rcs $(LIBDIR)/$(LIBRARY) $@
++	$(AR) rcu $(LIBDIR)/$(LIBRARY_A) $(SRC_OBJ)
++
++ifneq ($(findstring $(OPSYS),linux darwin),)
++$(LIBDIR)/$(LIBRARY_SO): $(SRC_OBJ)
++	@echo "  ARCHIVE $(notdir $@)..."
++ifneq ($(findstring linux,$(OPSYS)),)
++	$(CC) -o $@.$(VERSION).$(REVISION) -shared -Wl,-soname,$(LIBRARY_SO).$(VERSION) $(SRC_OBJ)
++	(cd $(LIBDIR) && /sbin/ldconfig -nv . >/dev/null && ln -sf $(LIBRARY_SO).$(VERSION) $(LIBRARY_SO))
++else
++	realname=$(patsubst %,%.$(VERSION).$(REVISION).dylib,$(patsubst %.dylib,%,$(LIBRARY_SO))); \
++	soname=$(patsubst %,%.$(VERSION).dylib,$(patsubst %.dylib,%,$(LIBRARY_SO))); \
++	$(CC) -dynamiclib -o $(LIBDIR)/$$realname -install_name $$soname -compatibility_version $(VERSION) -current_version $(VERSION).$(REVISION) $(SRC_OBJ); \
++	(cd $(LIBDIR) && ln -s $$realname $$soname && ln -s $$soname $(LIBRARY_SO))
++endif
+ endif
+ 
+ all: lib bin
+ 
+ dir: $(OBJDIR)
+ 
+-lib: dir $(SRC_OBJ)
++lib: dir $(LIBDIR)/$(LIBRARY_A) $(LIBDIR)/$(LIBRARY_SO)
+ 
+ bin: dir $(BINDIR)/$(SRC_BIN)
+ 
+@@ -95,14 +121,19 @@ $(OBJDIR):
+ 
+ # Build test programs
+ ifneq ("$(SRC_BIN)", "")
+-$(BINDIR)/$(SRC_BIN): $(SRC_OBJ) $(patsubst %,../../%,$(AR_LIST))
++ifeq ($(SRC_BIN),test_parser_fsm)
++SRC_LIB = $(LIBDIR)/$(LIBRARY_A)
++endif
++ifeq ($(SRC_BIN),test_parser)
++SRC_LIB = -L$(LIBDIR) -l$(LIBRARY)
++endif
++$(BINDIR)/$(SRC_BIN): $(SRC_OBJ)
+ 	@echo "  LINK    $(notdir $@)..."
+-	$(CC) $(SRC_OBJ) $(patsubst %,../../%,$(AR_LIST)) -o $(BINDIR)/$(SRC_BIN) $(SRC_LIB)
++	$(CC) -o $(BINDIR)/$(SRC_BIN) $(SRC_OBJ) $(SRC_LIB)
+ endif
+ 
+-
+ clean: local_clean
+ 	rm -f $(SRC_BIN) *.o $(SRC_BIN).exe 
+ 	rm -f *.d
+ 
+-local_clean:
+\ No newline at end of file
++local_clean:
+diff --git a/src/Makefile.test_parser b/src/Makefile.test_parser
+index ec8e596..0ee0ac7 100644
+--- a/src/Makefile.test_parser
++++ b/src/Makefile.test_parser
+@@ -29,8 +29,7 @@
+ CLI_FLAGS += -D TEST_LABEL1
+ 
+ SRC_BASE = ..
+-SRC_FILES = cparser.c cparser_token.c cparser_token_tbl.c cparser_io_unix.c cparser_fsm.c cparser_line.c
+-SRC_FILES += cparser_tree_$(PLATFORM).c test_cli_cmd.c test_parser.c
++SRC_FILES = cparser_tree_$(PLATFORM).c test_cli_cmd.c test_parser.c
+ SRC_INC += -I $(PLATFORM)/
+ SRC_BIN = test_parser
+ VPATH += $(PLATFORM)/
+diff --git a/src/Makefile.test_parser_fsm b/src/Makefile.test_parser_fsm
+index 2a28f9c..21d964c 100644
+--- a/src/Makefile.test_parser_fsm
++++ b/src/Makefile.test_parser_fsm
+@@ -29,9 +29,7 @@
+ CLI_FLAGS += -D TEST_LABEL1
+ 
+ SRC_BASE = ..
+-SRC_FILES = cparser.c cparser_token.c cparser_token_tbl.c cparser_io_unix.c \
+-            cparser_fsm.c cparser_line.c
+-SRC_FILES += cparser_tree_$(PLATFORM).c test_cli_cmd.c test_fsm.c
++SRC_FILES = cparser_tree_$(PLATFORM).c test_cli_cmd.c test_fsm.c
+ SRC_INC += -I $(PLATFORM)/
+ SRC_BIN = test_parser_fsm
+ VPATH += $(PLATFORM)/
+diff --git a/toplevel.mk b/toplevel.mk
+index edf265f..56ff028 100644
+--- a/toplevel.mk
++++ b/toplevel.mk
+@@ -68,11 +68,11 @@ $(BUILDDIR):
+ 
+ $(DIR_LIST):
+ 	@echo "MAKE $(basename $@)"
+-	$(MAKE) PLATFORM=$(PLATFORM) MODULE=$(basename $@) DEBUG="$(DEBUG)" LIBRARY=$(LIBRARY) -C $(basename $@)/src all
++	$(MAKE) PLATFORM=$(PLATFORM) MODULE=$(basename $@) DEBUG="$(DEBUG)" LIBRARY=$(LIBRARY) -C $(basename $@)/src lib
+ 
+ $(TEST_LIST):
+ 	@echo "MAKE TEST $(dir $@):$(notdir $@)..."
+-	$(MAKE) PLATFORM=$(PLATFORM) MODULE=$(dir $@) DEBUG="$(DEBUG)" -C $(dir $@)src -f Makefile.$(notdir $@) all
++	$(MAKE) PLATFORM=$(PLATFORM) MODULE=$(dir $@) DEBUG="$(DEBUG)" LIBRARY=$(LIBRARY) -C $(dir $@)src -f Makefile.$(notdir $@) bin
+ 
+ $(CLEAN_LIST):
+ 	@echo "CLEAN $(basename $@)"
+@@ -82,6 +82,17 @@ bin: $(BUILDDIR) $(DIR_LIST)
+ 
+ all: bin $(TEST_LIST)
+ 
++dummy:
++
++install: dummy
++	@echo "INSTALL ..."
++	@mkdir -p $(addprefix $(DESTDIR)$(PREFIX)/,bin include lib)
++	@install -p -m 0755 scripts/mk_parser.py $(DESTDIR)$(PREFIX)/bin
++	@install -p -m 0644 src/cparser_priv.h $(DESTDIR)$(PREFIX)/include
++	@install -p -m 0644 src/cparser_token.h $(DESTDIR)$(PREFIX)/include
++	@install -p -m 0644 $(addprefix inc/,$(shell ls inc)) $(DESTDIR)$(PREFIX)/include
++	@cd $(BUILDDIR)/lib && tar cf - * | (cd $(DESTDIR)$(PREFIX)/lib; tar xf -)
++
+ NIGHTLY_DIR = ./scripts/nightly
+ NIGHTLY_UNIT_TEST = env PYTHONPATH=$(NIGHTLY_DIR)/sql_driver $(NIGHTLY_DIR)/unit_tests/nightly_run.py
+ 
+-- 
+2.26.2
+
