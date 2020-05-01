@@ -294,6 +294,60 @@ endif
 EXTRACT_ONLY		?= $(_DISTFILES)
 EXTRACT_LISTS		+= $(EXTRACT_ONLY)
 
+#
+# examples for git
+#
+# git clone https://chromium.googlesource.com/webm/libwebp (Google webp)
+# git clone git@github.com:mbj4668/pyang.git               (Github pyang)
+# git clone git@10.2.3.6:swc/swc.git                       (Gitlab swc)
+# git clone git@apostles.idv.tw:/srv/git/lang.git          (Personal...)
+#
+# git clone https://       chromium.googlesource.com             / webm/lib webp
+# git clone          git@  github.com                :  mbj4668  /          pyang   .git
+# git clone          git@  10.2.3.6                  :  swc      /          swc     .git
+# git clone          git@  apostles.idv.tw           :           / srv/git/ lang    .git
+# ^^^^^^^^^ ^^^^^^^^ ^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^    ^^^^^^^^   ^^^^^^^^ ^^^^^^^ ^^^^^^^^^^^^^^^^^^
+# |         #1       |  #2 |                         #3 |          |        |       |
+# |         |        |     |                            |          |        |       $(SCM_REPO_SUFFIX)
+# |         |        |     |                            |          |        $(PORTNAME)
+# |         |        |     |                            |          $(SCM_REPO_PREFIX)
+# |         |        |     |                            $(MASTER_SITE_SUBDIR)
+# |         |        |     $(MASTER_SITES)
+# |         |        $(SCM_USER)
+# |         $(SCM_PROTOCOL)
+# $(SCM_CMD)
+#
+# NOTE:
+#  #1. $(SCM_PROTOCOL) default keep unset means SSH will be used as default
+#  #2. '@' must be existed if $(SCM_USER) is set
+#  #3. ":" must be existed if $(SCM_PROTOCOL) didn't set
+
+SCM_BRANCH		?=
+SCM_REPO_PREINIT_CMD	?= autogen.sh
+
+ifeq ($(USE_SCM),git)
+SCM_LS_CMD		?= git ls-remote
+SCM_CMD			?= git clone
+SCM_PROTOCOL		?=
+
+ifeq ($(SCM_PROTOCOL),)
+SCM_USER		?= git
+endif
+# MASTER_SITES
+# MASTER_SITE_SUBDIR
+SCM_REPO_PREFIX		?=
+# DISTNAME
+SCM_REPO_SUFFIX		?= .git
+
+ifneq ($(words $(MASTER_SITES)),1)
+$(error Oops, you set multiple MASTER_SITES while using USE_SCM is set)
+endif
+
+SCM_REPO_URL		?= $(SCM_PROTOCOL)$(if $(SCM_USER),$(SCM_USER)@)$(MASTER_SITES)$(if $(SCM_PROTOCOL),,:)$(MASTER_SITE_SUBDIR)/$(SCM_REPO_PREFIX)$(PORTNAME)$(SCM_REPO_SUFFIX)
+
+# $(warning SCM_REPO_URL=$(SCM_REPO_URL))
+endif
+
 # stuff for patch ...
 
 DISTORIG		?= .bak.orig
@@ -599,6 +653,7 @@ fetch_msg1 = "  ERR     $(DISTDIR) is not writable by you; cannot fetch."
 fetch_msg2 = "  ERR     Couldn't fetch it - please try to retrieve this port manually into $(_DISTDIR) and try again"
 
 ifeq ($(filter $(override_targets),do-fetch),)
+ifeq ($(USE_SCM),)
 do-fetch: do-fetch-sanity-check
 	@(cd $(_DISTDIR);						\
 	for f in $(distfiles); do					\
@@ -679,6 +734,9 @@ ifneq ($(PATCHFILES),)
 	        exit 1;							\
 	    fi;								\
 	done)
+else
+do-fetch:
+endif
 endif
 endif
 
@@ -766,8 +824,43 @@ else
 	$(call cmd,extract-only)
 endif
 
+#(call lookup-branch branches(ls-remote),branch)
+lookup-branch		= $(word 1,					\
+			    $(filter %$(2) $(2)%,			\
+			      $(patsubst refs/heads/%,%,$(1))))
+branches		:= $(shell $(SCM_LS_CMD) $(SCM_REPO_URL)	\
+			     2>/dev/null | grep "refs/heads")
+
+ifeq ($(USE_SCM),git)
+quiet_cmd_git-clone	?=
+      cmd_git-clone	?= set -e;					\
+	if [ -z "$(branches)" ]; then					\
+	    $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
+	    false;							\
+	fi;								\
+	if [ -z "$(SCM_BRANCH)" ]; then					\
+	    branch=$(call lookup-branch,$(branches),$(PORTVERSION),heads); \
+	else								\
+	    branch=$(call lookup-branch,$(branches),$(SCM_BRANCH),heads); \
+	fi;								\
+	if [ -z "$$branch" ]; then					\
+	    $(kecho) "  ERR     Can't find specific branch($$branch)";	\
+	    false;							\
+	fi;								\
+	cd $(WRKDIR);							\
+	$(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
+	$(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME)
+endif
+
 ifeq ($(filter $(override_targets),do-extract),)
+ifeq ($(USE_SCM),)
 do-extract: $(EXTRACT_ONLY)
+else
+do-extract:
+ifeq ($(USE_SCM),git)
+	$(call cmd,git-clone)
+endif
+endif
 endif
 
 ifeq ($(USE_ALTERNATIVE),yes)
@@ -806,6 +899,19 @@ endif
 #
 
 ask-license:
+
+ifneq ($(USE_SCM),)
+quiet_cmd_pre-init-repo	?=
+      cmd_pre-init-repo	?= set -e;					\
+	cd $(WRKSRC);							\
+	if [ -x $(SCM_REPO_PREINIT_CMD) ]; then				\
+	    ./$(SCM_REPO_PREINIT_CMD);					\
+	fi
+
+pre-init-repo:
+	$(call cmd,pre-init-repo)
+pre-patch: pre-init-repo
+endif
 
 patch_msg1=Applying distribution patches for $(PKGNAME)
 patch_msg2=Applying $(OPSYS) patches for $(PKGNAME)
@@ -910,8 +1016,19 @@ ifneq ($(EXTRA_PATCHES),)
 endif
 	$(call cmd,apply-patches)
 else
+ifeq ($(USE_SCM),)
 do-patch: git-init
 	$(call cmd,apply-git-patches)
+else
+ifeq ($(SCM_BRANCH),)
+do-patch:
+ifneq ($(NO_SCM_PATCH_APPLY),yes)
+	$(call cmd,apply-git-patches)
+endif
+else
+do-patch:
+endif
+endif
 endif
 endif
 
@@ -922,6 +1039,7 @@ endif
 run-autotools-fixup:
 configure-autotools:
 run-autotools:
+
 
 configure_msg1=Script \"${CONFIGURE_SCRIPT}\" failed unexpectedly.
 
