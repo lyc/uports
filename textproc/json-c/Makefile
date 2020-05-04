@@ -4,14 +4,22 @@
 
 PORTNAME		= json-c
 PORTVERSION		= 0.12
+DISTVERSIONSUFFIX	= -20140410
 CATEGORIES		= textproc
 MASTER_SITES 		= $(MASTER_SITE_GITHUB)
 MASTER_SITE_SUBDIR	= $(PORTNAME)/$(PORTNAME)
 LICENSE			= MIT
-DISTVERSION		= $(PORTVERSION)-20140410
 
 MAINTAINER		= dtchang@askey.com.tw
 COMMENT			= A JSON implementation in C
+
+
+EXTRACT_TRANSFORM	= /json-c-json-c/json-c/g
+ifeq ($(USE_SCM),git)
+MASTER_SITES		:= github.com
+MASTER_SITE_SUBDIR	:= json-c
+NO_SCM_PATCH_APPLY	= yes
+endif
 
 USE_REINPLACE 		= yes
 #NO_CHECK_CERTIFICATE	= yes
@@ -29,11 +37,6 @@ CONFIGURE_ARGS		+= --enable-shared				\
 MASTERDIR		= $(CURDIR)
 PORTSDIR		= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
-
-override_targets 	+= post-extract
-
-post-extract:
-	@(cd $(WRKDIR) && mv $(PORTNAME)-$(DISTNAME) $(DISTNAME))
 
 ifeq ($(CROSS_COMPILE),mips-linux-uclibc)
 override_targets 	+= post-configure
