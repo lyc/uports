@@ -6,7 +6,7 @@ $(if $(_POSTMKINCLUDED),						\
   $(error $(PKGNAME): You cannot inlcude linux.port[.post].mk twice))
 _POSTMKINCLUDED		:= yes
 
-WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work
+WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
 
 ifneq ($(NO_WRKSUBDIR),yes)
 WRKSRC			?= $(WRKDIR)/$(DISTNAME)
