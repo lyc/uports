@@ -2,6 +2,12 @@
 # linux.port.post.mk
 #
 
+# $(call subdirectory,makefile)
+subdirectory		= $(patsubst %/$1,%,				\
+			    $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
+
+PORTSDIR		:= $(abspath $(call subdirectory,linux.port.post.mk)/..)
+
 $(if $(_POSTMKINCLUDED),						\
   $(error $(PKGNAME): You cannot inlcude linux.port[.post].mk twice))
 _POSTMKINCLUDED		:= yes

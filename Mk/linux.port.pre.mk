@@ -2,6 +2,12 @@
 # linux.port.pre.mk
 #
 
+# $(call subdirectory,makefile)
+subdirectory		= $(patsubst %/$1,%,				\
+			    $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
+
+PORTSDIR		:= $(abspath $(call subdirectory,linux.port.pre.mk)/..)
+
 ifneq ($(PORTS_PARTIAL_SPECIALIZATION),yes)
 include $(PORTSDIR)/Mk/linux.debug.mk
 endif
@@ -140,16 +146,6 @@ _SUF2			= ,$(PORTEPOCH)
 endif
 
 MASTERDIR		?= $(CURDIR)
-
-ifneq ($(findstring $(OPSYS),linux darwin),)
-PORTSDIR		?= $(MASTERDIR)/../..
-else
-ifeq ($(OPSYS),NetBSD)
-PORTSDIR		?= /usr/opt
-else
-PORTSDIR		?= /usr/ports
-endif
-endif
 
 LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
