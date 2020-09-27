@@ -35,7 +35,7 @@ CONFIGURE_ARGS		+= --enable-shared				\
 #
 
 MASTERDIR		= $(CURDIR)
-PORTSDIR		= $(MASTERDIR)/../..
+PORTSDIR		?= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
 
 ifeq ($(CROSS_COMPILE),mips-linux-uclibc)

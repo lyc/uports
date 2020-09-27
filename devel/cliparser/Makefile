@@ -22,7 +22,7 @@ USE_REINPLACE		= yes
 #
 
 MASTERDIR		= $(CURDIR)
-PORTSDIR		= $(MASTERDIR)/../..
+PORTSDIR		?= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
 
 override_targets	+= post-patch do-configure pre-install post-install

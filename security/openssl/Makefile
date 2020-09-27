@@ -61,5 +61,5 @@ endif
 #
 
 MASTERDIR 		= $(CURDIR)
-PORTSDIR 		= $(MASTERDIR)/../..
+PORTSDIR 		?= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.mk
