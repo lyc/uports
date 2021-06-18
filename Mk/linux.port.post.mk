@@ -539,6 +539,7 @@ MAKE_ENV		+= SHELL=$(SH) NO_LINT=YES
 MAKE_FLAGS		?= -f
 MAKEFILE		?= Makefile
 MAKE_ENV		+= 						\
+	DESTDIR=$(STAGEDIR)						\
 	PREFIX=$(PREFIX) LOCALBASE=$(LOCALBASE) LIBDIR="$(LIBDIR)"	\
 	CC="$(CC)" CFLAGS="$(CFLAGS)"					\
 	CPP="$(CPP)" CPPFLAGS="$(CPPFLAGS)"				\
@@ -1094,10 +1095,6 @@ stage-dir:
 	$(call cmd,stagedir)
 endif
 
-ifeq ($(filter $(override_targets),do-stage),)
-do-stage:
-endif
-
 #
 # Install...
 #
@@ -1108,12 +1105,14 @@ quiet_cmd_run-install	?=
       cmd_run-install	?= set -e;					\
 	(cd $(INSTALL_WRKSRC) &&					\
 	    $(SETENV) $(MAKE_ENV) $(MAKE) $(MAKE_FLAGS) $(MAKEFILE)	\
-	    $(MAKE_ARGS) $(INSTALL_TARGET))
+	    DESTDIR=$(STAGEDIR) $(MAKE_ARGS) $(INSTALL_TARGET))
 
 ifeq ($(filter $(override_targets),do-install),)
 do-install:
 	$(call cmd,run-install)
 endif
+
+fixup-lib-pkgconfig:
 
 #
 # Package...
@@ -1215,20 +1214,20 @@ _BUILD_SEQ		= 100:build-message				\
 			  500:do-build					\
 			  700:post-build 850:post-build-script
 _STAGE_DEP		= build
-_STAGE_SEQ		= 50:stage-message 100:stage-dir 		\
-			  300:pre-stage 450:pre-stage-script		\
-			  500:do-stage					\
-			  700:post-stage 850:post-stage-script
-_INSTALL_DEP		= stage
-_INSTALL_SEQ		= 100:install-message				\
-			  150:run-depends 180:lib-depends		\
-			  200:check-already-installed			\
+# STAGE is special in its numbering as it has install and stage, so install is
+# the main, and stage goes after.
+_STAGE_SEQ		= 50:stage-message 100:stage-dir 150:run-depends\
 			  300:pre-install 450:pre-install-script	\
 			  500:do-install				\
+			  600:fixup-lib-pkgconfig			\
 			  700:post-install 750:post-install-script	\
+			  800:post-stage				\
 			  870:install-ldconfig-file			\
-			  880:install-license				\
-			  900:security-check
+			  880:install-license
+_INSTALL_DEP		= stage
+_INSTALL_SEQ		= 100:install-message				\
+			  200:check-already-installed			\
+			  500:security-check
 _PACKAGE_DEP		= install
 _PACKAGE_SEQ		= 100:package-message				\
 			  300:pre-package 450:pre-package-script	\
