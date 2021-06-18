@@ -129,6 +129,14 @@ $(strip									\
          $(if $(filter $($1_4th),$($1_all)), $($1_4th), $($1_default))))))
 endef
 
+# $(call set-global-link, dir_site, dir)
+define set-global-link
+  $(shell if [ ! -z $1 ]; then						\
+	    if [ ! -d $1 ] && [ ! -h $1 ]; then mkdir -p $1; fi;	\
+	    if [ ! -d $2 ] && [ ! -h $2 ]; then ln -s $1 $2; fi;	\
+	  fi)
+endef
+
 # Get the operating system revision
 __OSREL_ARG		= -e 's/[-(].*//'
 ifeq ($(OSREL),)
@@ -195,6 +203,22 @@ PKGFILE			?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 else
 PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
+
+# generate all glboal links ...
+
+distfiles_NAME		:= DISTDIR
+global_link_all		= distfiles
+
+ifeq ($(USE_GLOBALBASE),yes)
+$(foreach d, $(global_link_all),					\
+  $(eval								\
+    $(if $($($d_NAME)_SITE),						\
+      $(if $(wildcard $(portdir)/$d),,					\
+        $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME)))),	\
+      $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
+endif
+
+# 'generate all config files ...
 
 PATCHLIST_NAME		?= series
 PLIST_NAME		?= pkg-plist
