@@ -46,6 +46,7 @@ EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
 PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(PKGNAME)
 CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(PKGNAME)
 BUILD_COOKIE		?= $(WRKDIR)/build._done.$(PKGNAME)
+STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
@@ -543,6 +544,10 @@ MAKE_ENV		+= 						\
 	CPP="$(CPP)" CPPFLAGS="$(CPPFLAGS)"				\
 	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"				\
 	LDFLAGS="$(LDFLAGS)"
+
+# stuff for stage ...
+
+STAGEDIR		?= $(WRKDIR)/stage
 
 # stuff for install/deinstall/uninstall ...
 
@@ -1077,6 +1082,23 @@ endif
 #- check-conflicts:
 
 #
+# Stage ...
+#
+
+quiet_cmd_stagedir	?=
+      cmd_stagedir	?= set -e;					\
+	[ -d $(STAGEDIR)$(PREFIX) ] || mkdir -p $(STAGEDIR)$(PREFIX);
+
+ifeq ($(filter $(override_targets),stage-dir),)
+stage-dir:
+	$(call cmd,stagedir)
+endif
+
+ifeq ($(filter $(override_targets),do-stage),)
+do-stage:
+endif
+
+#
 # Install...
 #
 
@@ -1145,7 +1167,7 @@ security-check:
 # should not be modified.
 
 _TARGET_STAGES		= SANITY PKG FETCH EXTRACT PATCH CONFIGURE	\
-			  BUILD INSTALL PACKAGE
+			  BUILD STAGE INSTALL PACKAGE
 
 # Define the SEQ of actions to take when each target is ran, and which targets
 # it depends on before running its SEQ.
@@ -1192,7 +1214,12 @@ _BUILD_SEQ		= 100:build-message				\
 			  300:pre-build 450:pre-build-script		\
 			  500:do-build					\
 			  700:post-build 850:post-build-script
-_INSTALL_DEP		= build
+_STAGE_DEP		= build
+_STAGE_SEQ		= 50:stage-message 100:stage-dir 		\
+			  300:pre-stage 450:pre-stage-script		\
+			  500:do-stage					\
+			  700:post-stage 850:post-stage-script
+_INSTALL_DEP		= stage
 _INSTALL_SEQ		= 100:install-message				\
 			  150:run-depends 180:lib-depends		\
 			  200:check-already-installed			\
@@ -1295,7 +1322,7 @@ $(foreach s,$(_TARGET_STAGES),						\
 # See above *_SEQ and *_DEP. The _DEP will run before this defined target is
 # ran. The _SEQ will run as this target once _DEP is satisfied.
 
-_TARGET_TARGETS		= extract patch configure build install package
+_TARGET_TARGETS		= extract patch configure build stage install package
 
 # $(call uppercase-target, target)
 define uppercase-target
@@ -1304,8 +1331,9 @@ $(strip									\
     $(if $(filter $1,patch),PATCH,					\
       $(if $(filter $1,configure),CONFIGURE,				\
         $(if $(filter $1,build),BUILD,					\
-          $(if $(filter $1,install),INSTALL,				\
-            $(if $(filter $1,package),PACKAGE)))))))
+          $(if $(filter $1,stage),STAGE,				\
+            $(if $(filter $1,install),INSTALL,				\
+              $(if $(filter $1,package),PACKAGE))))))))
 endef
 
 #$(warning _EXTRACT_REAL_SEQ=$(call get-real-seqs,EXTRACT))
@@ -1383,6 +1411,8 @@ configure-message:
 	@$(kecho) "  CONFIGURE $(PKGNAME)"
 build-message:
 	@$(kecho) "  BUILD   $(PKGNAME)"
+stage-message:
+	@$(kecho) "  STAGE   $(PKGNAME)"
 install-message:
 	@$(kecho) "  INSTALL $(PKGNAME)"
 package-message:
@@ -1435,6 +1465,13 @@ ifeq ($(filter $(override_targets),reinstall),)
 reinstall:
 	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
 	@cd $(CURDIR) && make install
+endif
+
+ifeq ($(filter $(override_targets),restage),)
+restage:
+	@rm -fr $(STAGEDIR) $(WRKDIR)/pkg
+	@rm -f $(STAGE_COOKIE) $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@cd $(CURDIR) && make stage
 endif
 
 # deinstall/uninstall
