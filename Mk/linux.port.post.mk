@@ -1103,6 +1103,14 @@ quiet_cmd_stageqa	?= STAGE-QA $(PKGNAME)
       cmd_stageqa	?= set -e;					\
 	$(SETENV) $(QA_ENV) $(SH) $(SCRIPTSDIR)/qa.sh
 
+ifeq ($(filter $(override_targets),makeplist),)
+makeplist: generate-plist
+endif
+
+ifeq ($(filter $(override_targets),check-plist),)
+check-plist: generate-plist
+endif
+
 ifeq ($(filter $(override_targets),stage-qa),)
 stage-qa:
 	$(call cmd,stageqa)
@@ -1131,26 +1139,46 @@ fixup-lib-pkgconfig:
 # Package...
 #
 
-quiet_cmd_run-package	?=
-      cmd_run-package	?= set -e;					\
+MKDIR			?= /bin/mkdir -p
+LN			?= ln
+
+#$(_PORTS_DIRECTORIES):
+$(WRKDIR)/pkg:
+	@$(MKDIR) $@
+
+$(PKGREPOSITORY):
+	@$(MKDIR) $@
+
+_PORTS_DIRECTORIES	+= $(WRKDIR)/pkg
+
+ifeq ($(_HAVE_PACKAGES),yes)
+_EXTRA_PACKAGE_TARGET_DEP	+= $(PKGFILE)
+_PORTS_DIRECTORIES	+= $(PKGREPOSITORY)
+
+quiet_cmd_copy-package	?=
+      cmd_copy-package	?= set -e;					\
 	if [ -d $(PACKAGES) ]; then					\
-	    [ -d $(PKGREPOSITORY) ] || mkdir -p $(PKGREPOSITORY);	\
-	fi;								\
-	os=`uname -s`;							\
-	if [ "$$os" = "Darwin" ]; then					\
-	    temp=`mktemp -d /tmp/tmp-$(PORTNAME).XXXXXX`;		\
-	else								\
-	    temp=`mktemp -d --suffix=$(PORTNAME)`;			\
-	fi;								\
-	$(PORTSDIR)/Tools/install-if-change				\
-	    -b $(DESTDIR)$(PREFIX) -p $(PLIST) $$temp;			\
-	(cd $$temp && tar Jcf $(PKGFILE) *);				\
-	$(kecho) "  PACKAGE $(PKGNAME)";				\
-	rm -fr $$temp
+	    $(kecho) "  COPY    $(PKGNAME)";				\
+	    $(LN) -f $(WRKDIR_PKGFILE) $(PKGFILE) 2>/dev/null || cp -f $(WRKDIR_PKGFILE) $(PKGFILE); \
+	fi
+
+$(PKGFILE): $(WRKDIR_PKGFILE) $(PKGREPOSITORY)
+	$(call cmd,copy-package)
+endif
+
+# from here this will become a loop for subpackages
+quiet_cmd_wrkdir-package?=
+      cmd_wrkdir-package?= set -e;					\
+	cd $(STAGEDIR)/$(PREFIX) && tar Jcf $(WRKDIR_PKGFILE) *
+
+$(WRKDIR_PKGFILE): $(WRKDIR)/pkg
+	$(call cmd,wrkdir-package)
+
+_EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
+# This will be the end of the loop
 
 ifeq ($(filter $(override_targets),do-package),)
-do-package:
-	$(call cmd,run-package)
+do-package: $(_EXTRA_PACKAGE_TARGET_DEP) $(WRKDIR)/pkg
 endif
 
 #- package-links: delete-package-links
@@ -1246,7 +1274,7 @@ _INSTALL_DEP		= stage
 _INSTALL_SEQ		= 100:install-message				\
 			  200:check-already-installed			\
 			  500:security-check
-_PACKAGE_DEP		= install
+_PACKAGE_DEP		= stage
 _PACKAGE_SEQ		= 100:package-message				\
 			  300:pre-package 450:pre-package-script	\
 			  500:do-package				\
@@ -1657,15 +1685,11 @@ endif
 quiet_cmd_generate-plist?= GEN     $(TMPPLIST)
       cmd_generate-plist?= set -e;					\
 	if [ -f $(BUILD_COOKIE) ]; then					\
-	    tmpdir=/tmp/$(PKGNAME);					\
-	    if [ -d $$tmpdir ]; then rm -fr $$tmpdir; fi; 		\
-	    cd $(CURDIR) &&						\
-                $(MAKE) DESTDIR=$$tmpdir PREFIX=$(PREFIX) post-install >/dev/null; \
-	    cd $$tmpdir$(PREFIX) &&					\
+	    cd $(STAGEDIR)/$(PREFIX) &&					\
                 find . | sort -r | $(SED) -e '/^\.$$/d' > $(TMPPLIST);	\
 	fi
 
-generate-plist:
+generate-plist: stage
 	$(call cmd,generate-plist)
 
 $(TMPPLIST): generate-plist
