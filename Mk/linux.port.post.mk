@@ -1144,104 +1144,160 @@ security-check:
 # Please note that the order of the following targets is important, and
 # should not be modified.
 
-_SANITY_SEQ		= pre-everything				\
-			  check-categories check-license
+_TARGET_STAGES		= SANITY PKG FETCH EXTRACT PATCH CONFIGURE	\
+			  BUILD INSTALL PACKAGE
 
+# Define the SEQ of actions to take when each target is ran, and which targets
+# it depends on before running its SEQ.
+#
+# Main target has a priority of 500, pre-target 300, post-target 700,
+# target-depends 150.  Other targets are spaced in between those
+#
+# If you change the pre-foo and post-foo values here, go and keep them in sync
+# in _OPTIONS_TARGETS in bsd.options.mk
+
+_SANITY_SEQ		= 100:pre-everything				\
+			  250:check-categories 600:check-license
 _PKG_DEP		= check-sanity
-_PKG_SEQ		= pkg-depends
-
+_PKG_SEQ		= 500:pkg-depends
 _FETCH_DEP		= pkg
-_FETCH_SEQ		= fetch-depends					\
-			  pre-fetch pre-fetch-script			\
-			  do-fetch					\
-			  post-fetch post-fetch-script
-
+_FETCH_SEQ		= 100:fetch-depends				\
+			  300:pre-fetch 450:pre-fetch-script		\
+			  500:do-fetch					\
+			  700:post-fetch 850:post-fetch-script
 _EXTRACT_DEP		= fetch
-_EXTRACT_SEQ		= extract-message				\
-			  checksum					\
-			  extract-depends				\
-			  pre-extract pre-extract-script		\
-			  do-extract					\
-			  post-extract post-extract-script
-_EXTRACT_LINK		= post-extract-script
-_EXTRACT_NEXT		= ask-license
-
+_EXTRACT_SEQ		= 050:extract-message				\
+			  100:checksum					\
+			  150:extract-depends				\
+			  300:pre-extract 450:pre-extract-script	\
+			  500:do-extract				\
+			  700:post-extract 850:post-extract-script
 _PATCH_DEP		= extract
-_PATCH_SEQ		= ask-license					\
-			  patch-message					\
-			  patch-depends					\
-			  pre-patch pre-patch-script			\
-			  do-patch					\
-			  post-patch post-patch-script
-_PATCH_LINK		= post-patch-script
-_PATCH_NEXT		= build-depends
-
+_PATCH_SEQ		= 050:ask-license				\
+			  100:patch-message				\
+			  150:patch-depends				\
+			  300:pre-patch 450:pre-patch-script		\
+			  500:do-patch					\
+			  700:post-patch 850:post-patch-script
 _CONFIGURE_DEP 		= patch
-_CONFIGURE_SEQ		= build-depends lib-depends			\
-			  configure-message				\
-			  run-autotools-fixup configure-autotools	\
-			  pre-configure pre-configure-script		\
-			  run-autotools					\
-			  do-configure					\
-			  post-configure post-configure-script
-_CONFIGURE_LINK		= post-configure-script
-_CONFIGURE_NEXT		= build-message
-
+_CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\
+			  200:configure-message				\
+			  300:pre-configure 450:pre-configure-script	\
+			  490:run-autotools-fixup			\
+			  491:configure-autotools 492:run-autotools	\
+			  500:do-configure				\
+			  700:post-configure 850:post-configure-script
 _BUILD_DEP		= configure
-_BUILD_SEQ		= build-message					\
-			  pre-build pre-build-script			\
-			  do-build					\
-			  post-build post-build-script
-_BUILD_LINK		= post-build-script
-_BUILD_NEXT		= install-message
-
+_BUILD_SEQ		= 100:build-message				\
+			  300:pre-build 450:pre-build-script		\
+			  500:do-build					\
+			  700:post-build 850:post-build-script
 _INSTALL_DEP		= build
-_INSTALL_SEQ		= install-message				\
-			  run-depends lib-depends			\
-			  pre-install pre-install-script		\
-			  check-already-installed			\
-			  do-install					\
-			  install-license				\
-			  post-install post-install-script		\
-			  install-ldconfig-file				\
-			  security-check
-_INSTALL_LINK		= security-check
-_INSTALL_NEXT		= package-message
-
+_INSTALL_SEQ		= 100:install-message				\
+			  150:run-depends 180:lib-depends		\
+			  200:check-already-installed			\
+			  300:pre-install 450:pre-install-script	\
+			  500:do-install				\
+			  700:post-install 750:post-install-script	\
+			  870:install-ldconfig-file			\
+			  880:install-license				\
+			  900:security-check
 _PACKAGE_DEP		= install
-_PACKAGE_SEQ		= package-message				\
-			  pre-package pre-package-script		\
-			  do-package					\
-			  post-package post-package-script
-_PACKAGE_LINK		= post-package-script
-_PACKAGE_NEXT		=
+_PACKAGE_SEQ		= 100:package-message				\
+			  300:pre-package 450:pre-package-script	\
+			  500:do-package				\
+			  700:post-package 850:post-package-script
 
-cookie_targets		:=						\
-	extract patch configure build install package
+# Enforce order for -jN builds
 
-embellish_targets	:=						\
-	$(patsubst %,pre-%,fetch $(cookie_targets))			\
-	$(patsubst %,post-%,fetch $(cookie_targets))
+# step 1.
+#              +---------> TARGET_ORDER_OVERRIDES --------->+
+#              | (replace directly if existed, didn't sort) |
+#  _XXX_SEQ ----------------------------------------------------> _XXX_REAL_SEQ
 
-embellish_script_targets:=						\
-	$(patsubst %,%-script,$(embellish_targets))
+# $(call rm-order, order:target)
+rm-order		= $(lastword $(subst :, ,$1))
+# $(call rm-seq-order, _XXX_SEQ)
+rm-seq-order		= $(foreach t,$1,$(call rm-order,$t))
 
-ifeq ($(filter $(override_targets),check-sanity),)
-check-sanity: $(_SANITY_SEQ)
-endif
+# $(call init-setup-depend, STAGE)
+define init-setup-depend-1
+_$1_REAL_SEQ		:=
+endef
 
-ifeq ($(filter $(override_targets),pkg),)
-pkg: $(_PKG_DEP) $(_PKG_SEQ)
-endif
+$(foreach s,$(_TARGET_STAGES),						\
+  $(eval								\
+    $(call init-setup-depend-1,$s)))
 
-ifeq ($(filter $(override_targets),fetch),)
-fetch: $(_FETCH_DEP) $(_FETCH_SEQ)
-endif
+#(call filter-overrides, order:target, TARGET_ORDER_OVERRIDES)
+filter-overrides	= $(if						\
+			    $(filter					\
+			      $(call rm-order,$1),			\
+			      $(call rm-seq-order,$2)),			\
+			    $(filter %:$(call rm-order,$1),$2),		\
+			    $1)
 
-# Main logick. The loop gererates 6 main targets and using cookies
-# ensures that those already completed are skipped.
+# $(call regenerate-order-seq, STAGE, override-checked-order:target)
+define regenerate-order-seq
+_$1_REAL_SEQ		:= $(_$1_REAL_SEQ) $2
+endef
 
-# $(call uppercase-target target)
+$(foreach s,$(_TARGET_STAGES),						\
+  $(foreach t,$(_$s_SEQ),						\
+    $(eval								\
+      $(call regenerate-order-seq,$s,					\
+        $(call filter-overrides,$t,$(TARGET_ORDER_OVERRIDES))))))
+
+# setp 2.
+#
+# sort(_XXX_REAL_SEQS) ===> seq[0..n]
+#
+#  *) _PHONY_TARGETS += seq[0..n]
+#  *) make seq[0..n] dependence      seq[1]: seq[0]
+#   )                        seq[2]: seq[1]
+#   )                seq[3]: seq[2]
+#   )          ...
+#   )      seq[n]: seq[n-1]
+
+# $(call get-real-seqs, STAGE)
+get-real-seqs		= $(call rm-seq-order,$(sort $(_$1_REAL_SEQ)))
+# $(call first-seq, STAGE)
+first-seq		= $(firstword $(call get-real-seqs,$1))
+# $(call other-seqs, STAGE)
+other-seqs		= $(filter-out					\
+			    $(call first-seq,$1),$(call get-real-seqs,$1))
+
+# $(call init-setup-depend, STAGE, seq[0])
+define init-setup-depend-2
+_PHONY_TARGETS		+= $2
+_$1_IDX			:= $2
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(eval								\
+    $(call init-setup-depend-2,$s,$(call first-seq,$s))))
+
+
+# $(call setup-dependence, STAGE, seq[1..n])
+define setup-dependence
+_PHONY_TARGETS		+= $2
+$2: | $($1_IDX)
+
+_$1_IDX			:= $2
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(foreach t,$(call other-seqs,$s),					\
+    $(eval								\
+      $(call setup-dependence,$s,$t))))
+
+# Define all of the main targets which depend on a sequence of other targets.
+# See above *_SEQ and *_DEP. The _DEP will run before this defined target is
+# ran. The _SEQ will run as this target once _DEP is satisfied.
+
+_TARGET_TARGETS		= extract patch configure build install package
+
+# $(call uppercase-target, target)
 define uppercase-target
 $(strip									\
   $(if $(filter $1,extract),EXTRACT,					\
@@ -1252,16 +1308,25 @@ $(strip									\
             $(if $(filter $1,package),PACKAGE)))))))
 endef
 
-# $(call generate-cookie-targets, target, uppercase_target)
+#$(warning _EXTRACT_REAL_SEQ=$(call get-real-seqs,EXTRACT))
+#$(warning _PATCH_REAL_SEQ=$(_PATCH_REAL_SEQ))
+#$(warning _PATCH_REAL_SEQ=$(call get-real-seqs,PATCH))
+#$(warning _CONFIGURE_REAL_SEQ=$(call get-real-seqs,CONFIGURE))
+#$(warning _BUILD_REAL_SEQ=$(call get-real-seqs,BUILD))
+#$(warning _INSTALL_REAL_SEQ=$(call get-real-seqs,INSTALL))
+#$(warning _PACKAGE_REAL_SEQ=$(call get-real-seqs,PACKAGE))
+
+# $(call generate-cookie-targets, target, TARGET)
 define generate-cookie-targets
+_PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
 ifeq ($(wildcard $($2_COOKIE)),)
-ifneq ($($(patsubst %,_%_NEXT,$2)),)
-$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
-endif
-$($2_COOKIE): $($(patsubst %,_%_DEP,$2)) $($(patsubst %,_%_SEQ,$2))
+#ifneq ($($(patsubst %,_%_NEXT,$2)),)
+#$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
+#endif
+$($2_COOKIE): $(_$2_DEP) $(call get-real-seqs,$2)
 	@touch $($2_COOKIE)
 ifneq ($($2_LISTS),)
 	@echo $($2_LISTS) >> $($2_COOKIE)
@@ -1272,55 +1337,30 @@ $($2_COOKIE):
 endif
 endef
 
-$(foreach t,$(cookie_targets),						\
+$(foreach t,$(_TARGET_TARGETS),						\
   $(eval 								\
     $(call generate-cookie-targets,$t,$(call uppercase-target,$t))))
 
+#$(warning _SANITY_REAL_SEQ=$(SANITY_REAL_SEQ))
+#$(warning _SANITY_REAL_SEQ=$(call get-real-seqs,SANITY))
+#$(warning _PKG_REAL_SEQ=$(call get-real-seqs,PKG))
+#$(warning _FETCH_REAL_SEQ=$(call get-real-seqs,FETCH))
 
-# Enforce order for -jN builds
+.PHONY: $(_PHONY_TARGETS) check-sanity pkg fetch
 
-check-categories : pre-everything
-check-license : check-categories
-pkg-depends: check-license
-fetch-depends: pkg-depends
-pre-fetch: fetch-depends
-extract-message: post-fetch-script
-checksum: extract-message
-extract-depends: checksum
-pre-extract: extract-depends
-patch-message: ask-license
-patch-depends: patch-message
-pre-patch: patch-depends
-lib-depends: build-depends
-configure-message: lib-depends
-run-autotools-fixup: configure-message
-configure-autotools: run-autotools-fixup
-pre-configure: configure-autotools
-run-autotools: pre-configure-script
-do-configure: run-autotools
-pre-build: build-message
-run-depends: install-message
-pre-install: run-depends
-check-already-installed: pre-install-script
-do-install: check-already-installed
-install-license: do-install
-post-install: install-license
-install-ldconfig-file: post-install-script
-security-check: install-ldconfig-file
-pre-package: package-message
+ifeq ($(filter $(override_targets),check-sanity),)
+check-sanity: $(call get-real-seqs,SANITY)
+endif
 
-# $(call generate-cookie-targets-depends, target)
-define generate-cookie-targets-depends
-pre-$1-script: pre-$1
-do-$1: pre-$1-script
-post-$1: do-$1
-post-$1-script: post-$1
-endef
+ifeq ($(filter $(override_targets),pkg),)
+pkg: $(_PKG_DEP) $(call get-real-seqs,PKG)
+endif
 
-$(foreach t, fetch $(cookie_targets),					\
-  $(eval 								\
-    $(call generate-cookie-targets-depends,$t)))
+ifeq ($(filter $(override_targets),fetch),)
+fetch: $(_FETCH_DEP) $(call get-real-seqs,FETCH)
+endif
 
+#
 
 ifeq ($(USE_ALTERNATIVE),yes)
 ifeq ($(USE_STICKY),yes)
@@ -1350,6 +1390,10 @@ package-message:
 
 # Empty pre-* and post-* targets
 
+embellish_targets	:=						\
+	$(patsubst %,pre-%,fetch $(_TARGET_TARGETS))			\
+	$(patsubst %,post-%,fetch $(_TARGET_TARGETS))
+
 # $(call generate-embellish-targets target)
 define generate-embellish-targets
 ifeq ($(filter $(override_targets),$1),)
@@ -1361,6 +1405,9 @@ endef
 $(foreach t,$(embellish_targets),					\
   $(eval								\
     $(call generate-embellish-targets,$t)))
+
+embellish_script_targets:=						\
+	$(patsubst %,%-script,$(embellish_targets))
 
 # $(call generate-embellish-script-targets target)
 define generate-embellish-script-targets
