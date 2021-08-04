@@ -52,10 +52,8 @@ GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --openssldir=$(PREFIX)/lib/ssl		\
 			   shared					\
 			   no-kbr5
+MAKE_ARGS		+= INSTALL_PREFIX="$(STAGEDIR)"
 
-ifneq ($(DESTDIR),)
-MAKE_ARGS		+= INSTALL_PREFIX="$(DESTDIR)"
-endif
 #
 #
 #

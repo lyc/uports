@@ -19,10 +19,7 @@ GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --enable-shared				\
 			   --prefix=$(PREFIX)				\
 			   --exec-prefix=$(PREFIX)
-
-ifneq ($(DESTDIR),)
-MAKE_ARGS		+= INSTALL_ROOT="$(DESTDIR)"
-endif
+MAKE_ARGS		+= INSTALL_ROOT="$(STAGEDIR)"
 
 #
 #
