@@ -158,6 +158,7 @@ MASTERDIR		?= $(CURDIR)
 LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
+SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 
 ifeq ($(USE_XZ),yes)
 EXTRACT_SUFX 		?= .tar.xz

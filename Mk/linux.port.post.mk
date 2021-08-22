@@ -550,6 +550,10 @@ MAKE_ENV		+= 						\
 
 STAGEDIR		?= $(WRKDIR)/stage
 
+QA_ENV			+=						\
+	STAGEDIR=$(STAGEDIR) PREFIX=$(PREFIX)				\
+	LOCALBASE=$(LOCALBASE) "STRIP=$(STRIP)" TMPPLIST=$(TMPPLIST)
+
 # stuff for install/deinstall/uninstall ...
 
 COMMENTFILE		?= $(PKGDIR)/pkg-comment
@@ -1095,6 +1099,15 @@ stage-dir:
 	$(call cmd,stagedir)
 endif
 
+quiet_cmd_stageqa	?= STAGE-QA $(PKGNAME)
+      cmd_stageqa	?= set -e;					\
+	$(SETENV) $(QA_ENV) $(SH) $(SCRIPTSDIR)/qa.sh
+
+ifeq ($(filter $(override_targets),stage-qa),)
+stage-qa:
+	$(call cmd,stageqa)
+endif
+
 #
 # Install...
 #
@@ -1224,6 +1237,11 @@ _STAGE_SEQ		= 50:stage-message 100:stage-dir 150:run-depends\
 			  800:post-stage				\
 			  870:install-ldconfig-file			\
 			  880:install-license
+ifdef DEVELOPER
+_STAGE_SEQ		+= 995:stage-qa
+else
+stage-qa: stage
+endif
 _INSTALL_DEP		= stage
 _INSTALL_SEQ		= 100:install-message				\
 			  200:check-already-installed			\
