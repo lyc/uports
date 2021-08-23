@@ -192,6 +192,28 @@ PKGDIR			?= $(MASTERDIR)
 
 PREFIX			?= $(LOCALBASE)
 
+# generate all glboal links ...
+
+ifeq ($(USE_GLOBALBASE),yes)
+distfiles_NAME		:= DISTDIR
+packages_NAME		:= PACKAGES
+ifneq ($(DISTDIR_SITE),)
+global_link_all		+= distfiles
+endif
+ifneq ($(PACKAGES_SITE),)
+global_link_all		+= packages
+endif
+
+$(foreach d, $(global_link_all),					\
+  $(eval								\
+    $(if $($($d_NAME)_SITE),						\
+      $(if $(wildcard $(portdir)/$d),,					\
+        $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME)))),	\
+      $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
+endif
+
+#'
+
 PKG_SUFX		?= .txz
 ifneq ($(OPSYS_SUFX),)
 PKGREPOSITORYSUBDIR	?= $(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
@@ -205,21 +227,7 @@ else
 PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 
-# generate all glboal links ...
-
-distfiles_NAME		:= DISTDIR
-global_link_all		= distfiles
-
-ifeq ($(USE_GLOBALBASE),yes)
-$(foreach d, $(global_link_all),					\
-  $(eval								\
-    $(if $($($d_NAME)_SITE),						\
-      $(if $(wildcard $(portdir)/$d),,					\
-        $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME)))),	\
-      $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
-endif
-
-# 'generate all config files ...
+# generate all config files ...
 
 PATCHLIST_NAME		?= series
 PLIST_NAME		?= pkg-plist
