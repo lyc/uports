@@ -570,6 +570,24 @@ TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 
 # stuff for package ...
 
+PLIST_EXT		= $(patsubst					\
+			    $(patsubst					\
+			      %/work,%,$(WRKDIR))/pkg-plist.%,%,$(PLIST))
+
+ORIGIN			= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
+
+PKG_ENV			+=						\
+	STAGEDIR=$(STAGEDIR)						\
+	PKGNAME=$(PKGNAME)						\
+	VERSION=$(PKGVERSION)						\
+	ORIGIN=$(call ORIGIN,$(MASTERDIR))				\
+	PREFIX=$(PREFIX)						\
+	INDEX=$(CATEGORIES)						\
+	COMPRESS=XZ							\
+	EXT=$(PLIST_EXT)						\
+	PLIST=$(PLIST)							\
+	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
+
 #
 #
 #
@@ -1169,7 +1187,7 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
-	cd $(STAGEDIR)/$(PREFIX) && tar Jcf $(WRKDIR_PKGFILE) *
+	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create
 
 $(WRKDIR_PKGFILE): $(WRKDIR)/pkg
 	$(call cmd,wrkdir-package)

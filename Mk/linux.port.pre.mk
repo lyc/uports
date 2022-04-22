@@ -214,7 +214,7 @@ endif
 
 #'
 
-PKG_SUFX		?= .txz
+PKG_SUFX		?= .pkg
 PKG_COMPRESSION_FORMAT	?= $(patsubst .%,%,PKG_SUFX)
 ifneq ($(OPSYS_SUFX),)
 REPO_SUFX		?= -$(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
