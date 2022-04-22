@@ -1199,11 +1199,43 @@ ifeq ($(filter $(override_targets),do-package),)
 do-package: $(_EXTRA_PACKAGE_TARGET_DEP) $(WRKDIR)/pkg
 endif
 
-#- package-links: delete-package-links
-#- delete-package-links:
-#- delete-package: delete-package-links
-#- delete-package-link-list:
-#- delete-package-list: delete-package-links-list
+quiet_cmd_delete-package?= DELETE  $(PKGNAME)
+      cmd_delete-package?= set -e;					\
+	rm -fr $(PACKAGE_COOKIE);					\
+	rm -fr "$(PKGFILE)" "$(WRKDIR_PKGFILE)" 2>/dev/null || :
+
+ifeq ($(filter $(override_targets),delete-package),)
+delete-package:
+	$(call cmd,delete-package)
+endif
+
+ifeq ($(filter $(override_targets),delete-package-list),)
+delete-package-list:
+	@echo "[ -f $(PKGFILE) ] && (echo deleting $(PKGFILE); rm $(PKGFILE))"
+endif
+
+ifeq ($(PORTS_VERBOSE),1)
+_INSTALL_PKG_ARGS=
+else
+_INSTALL_PKG_ARGS= -q
+endif
+
+quiet_cmd_install-package?= PKG ADD $(PKGNAME)
+      cmd_install-package?= set -e;					\
+	if [ -f "$(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)" ]; then		\
+	    _pkgfile="$(WRKDIR_PKGFILE)";				\
+	else								\
+	    _pkgfile="$(PKGFILE)";					\
+	fi;								\
+	$(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $${_pkgfile}
+
+ifneq ($(DESTDIR),)
+ifeq ($(filter $(override_targets),install-package),)
+install-package:
+	$(call cmd,install-package)
+endif
+endif
+
 
 # Utility targets follow
 
