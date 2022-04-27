@@ -1239,8 +1239,37 @@ endif
 
 # Utility targets follow
 
-#- install-mtree
+cai_msg0="  You may wish to \`\`make deinstall'' and install this port again"
+cai_msg1="  by \`\`make reinstall'' to upgrade it properly."
+cai_msg2="  If you really wish to overwrite the old port of ${PKGBASE}"
+cai_msg3="  without deleting it first, set the variable \"FORCE_PKG_REGISTER\""
+cai_msg4="  in your environment or the \"make install\" command line."
+
+quiet_cmd_check-already-installed?=
+      cmd_check-already-installed?= set -e;				\
+	pkgname=`$(SCRIPTSDIR)/pkg.sh info -q -O $(PKGBASE)`;		\
+	if [ -n "$$pkgname" ]; then					\
+	    v=`$(SCRIPTSDIR)/pkg.sh version -t $$pkgname $(PKGNAME)`;	\
+	    if [ "$$v" = "<" ]; then					\
+	        $(kecho) "  ===>    An older version of $(PKGBASE) is already installed ($${pkgname})"; \
+	    else							\
+	        $(kecho) "  ===>    $(PKGNAME) is already installed";	\
+	    fi;								\
+	    $(kecho) $(cai_msg0);					\
+	    $(kecho) $(cai_msg1);					\
+	    $(kecho) $(cai_msg2);					\
+	    $(kecho) $(cai_msg3);					\
+	    $(kecho) $(cai_msg4);					\
+	fi
+
+ifeq ($(filter $(override_targets),check-already-installed),)
 check-already-installed:
+ifneq ($(DESTDIR),)
+	$(call cmd,check-already-installed)
+endif
+endif
+
+#- install-mtree
 install-ldconfig-file:
 security-check:
 
@@ -1558,7 +1587,7 @@ $(foreach t,$(embellish_script_targets),				\
 
 ifeq ($(filter $(override_targets),reinstall),)
 reinstall:
-	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@rm -f $(INSTALL_COOKIE)
 	@cd $(CURDIR) && make install
 endif
 
@@ -1576,29 +1605,23 @@ pre-deinstall:
 	@$(DO_NADA)
 endif
 
+quiet_cmd_deinstall?= UNINSTALL $(PKGBASE)
+      cmd_deinstall?= set -e;						\
+	if $(SCRIPTSDIR)/pkg.sh info -e $(PKGBASE); then		\
+	    p=`$(SCRIPTSDIR)/pkg.sh info -qO $(PKGBASE)`;		\
+	    $(kecho) "  UNINSTALL $$p";					\
+	    $(SCRIPTSDIR)/pkg.sh delete -fq $(PKGBASE);			\
+	else								\
+	    $(kecho) "  $(PKGBASE) not installed, skipping";		\
+	fi
+
 ifeq ($(filter $(override_targets),deinstall uninstall),)
 deinstall uninstall: pre-deinstall
-	@if [ -f $(PLIST) ]; then					\
-	    $(kecho) "  UNINSTALL $(PKGNAME)";				\
-	    for f in `cat $(PLIST)`; do					\
-	        case $$f in						\
-		.*)							\
-		    prefix=$(DESTDIR)$(PREFIX);				\
-		    realname=$$f;;					\
-	        @rmdir*)						\
-	            ;;							\
-		esac;							\
-	        if [ -f $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-		elif [ -h $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-		elif [ -c $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-	        fi;							\
-	    done;							\
-	fi
-	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+ifneq ($(DESTDIR),)
+	$(call cmd,deinstall)
+	@rm -f $(INSTALL_COOKIE)
 #	@cd $(MASTERDIR) && $(MAKE) $(__softMAKEFLAGS) run-ldconfig
+endif
 endif
 
 # clean

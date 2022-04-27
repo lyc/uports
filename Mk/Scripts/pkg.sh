@@ -165,18 +165,260 @@ do_add() {
     return ${rc}
 }
 
+do_info()
+{
+    local rc destdir db
+    local by_origin origin quiet exist pkgname info
+
+    rc=0
+    destdir=$DESTDIR
+    db=${destdir}/var/db
+
+#    echo "==>$*"
+#    echo destdir=$destdir
+#    echo db=$db
+
+    by_origin=0
+    origin=0
+    quiet=0
+    exist=0
+    pkgname=
+    info=
+
+    while getopts eoOq OPT
+    do
+        case "$OPT" in
+            e) eval exist=1 ;;
+            o) eval origin=1 ;;
+            O) eval by_origin=1 ;;
+            q) eval quiet=1 ;;
+            *) echo >&2 "Usage: pkg info [ -eoOq ] pkgname"; exit 1 ;;
+        esac
+    done
+
+#    echo origin=$origin
+#    echo by_origin=$by_origin
+#    echo quiet=$quiet
+
+    if [ $OPTIND -gt 1 ]; then
+        shiftcount=`expr $OPTIND - 1`
+        shift $shiftcount
+    fi
+
+#    echo 0=$0
+    pkgname=$1
+    if [ -z "$pkgname" ]; then
+	echo >&2 "Usage: $0 info [ -oq ] {pkgname} " ; exit 1
+    fi
+#    echo pkgname=$pkgname
+
+    if [ -f ${db}/pkg ]; then
+        info=`cat ${db}/pkg | grep $pkgname`
+    fi
+#    echo info=$info
+
+    if [ $exist -eq 1 ]; then
+        if [ -z "$info" ]; then
+            rc=1
+        fi
+    elif [ $by_origin -eq 1 ]; then
+        if [ $quiet -eq 1 ]; then
+            if [ -n "$info" ]; then
+                echo `echo $info | awk '{ print $1}' | sed -e 's/://g'`
+            fi
+        fi
+    fi
+#    echo rc=$rc
+    return ${rc}
+}
+
+do_version()
+{
+    local rc destdir db
+    local quiet test v1 v2
+
+#    echo "do_version ..."
+
+    rc=0
+    destdir=$DESTDIR
+    db=${destdir}/var/db
+
+#    echo "2==>$*"
+#    echo destdir=$destdir
+#    echo db=$db
+
+    quiet=0
+    test=0
+
+    while getopts qt OPT
+    do
+        case "$OPT" in
+            q) eval quiet=1 ;;
+            t) eval test=1 ;;
+            *) echo >&2 "Usage: pkg version [ -qt ] pkgname"; exit 1 ;;
+        esac
+    done
+
+#    echo quiet=$quiet
+#    echo test=$test
+
+    if [ $OPTIND -gt 1 ]; then
+        shiftcount=`expr $OPTIND - 1`
+        shift $shiftcount
+    fi
+
+#    echo "3==>$*"
+#    echo 0=$0
+#    echo 1=$1
+#    echo 2=$2
+
+    if [ $test -eq 1 ]; then
+        local v1=$1
+        local v2=$2
+        if [ -z $v1 ] || [ -z $v2 ]; then
+            echo >&2 "Usage: pkg version [ -t ] ver1 ver2"; exit 1
+        fi
+        if [ "$v1" = "$v2" ];then
+            echo "="
+        elif [ "$v1" > "$v2" ];then
+            echo ">"
+        else
+            echo "<"
+        fi
+    fi
+    return ${rc}
+}
+
+do_delete()
+{
+    local rc destdir db
+    local quiet force all dryrun pkgname
+
+#    echo "do_delete ..."
+
+    rc=0
+    destdir=$DESTDIR
+    db=${destdir}/var/db
+
+#    echo "2==>$*"
+#    echo destdir=$destdir
+#    echo db=$db
+
+    all=0
+    dryrun=0
+    quiet=0
+    force=0
+    while getopts afnq OPT
+    do
+        case "$OPT" in
+            a) eval all=1 ;;
+            f) eval force=1 ;;
+            n) eval dryrun=1 ;;
+            q) eval quiet=1 ;;
+            *) echo >&2 "Usage: pkg delete [ -afnq ] pkgname"; exit 1 ;;
+        esac
+    done
+
+#    echo all=$all
+#    echo quiet=$quiet
+#    echo force=$force
+
+    if [ $OPTIND -gt 1 ]; then
+        shiftcount=`expr $OPTIND - 1`
+        shift $shiftcount
+    fi
+
+#    echo "3==>$*"
+#    echo 0=$0
+#    echo 1=$1
+
+    if [ $all -ne 1 ]; then
+        pkgname=$1
+        if [ -z $pkgname ]; then
+            echo >&2 "Usage: pkg delete [ -afnq ] pkgname"; exit 1
+        fi
+    fi
+
+    if [ -f ${db}/pkg ]; then
+        local info plist prefix fname size
+
+        # prepare pkgname for delete...
+        if [ $all -eq 1 ]; then
+            pkgname=`cat ${db}/pkg | awk '{ print $1 }' | sed -e 's/://g'`
+        fi
+
+        # do delete pkgname ...
+        for p in $pkgname; do
+#            echo pkgname=$p
+            info=`cat ${db}/pkg | grep $p`
+            if [ ! -z "$info" ]; then
+                plist=${db}/`echo $info | awk '{ print $6 }'`
+                prefix=`echo $info | awk '{ print $4 }'`
+                if [ -f $plist ]; then
+#                    echo plist=$plist
+#                    echo prefix=$prefix
+                    if [ $quiet -ne 1 ]; then
+                        echo "delete $p ..."
+                    fi
+                    for f in `cat $plist`; do
+                        case $f in
+                            .*)
+                                fname=$destdir$prefix/$f
+                                ;;
+                            @rmdir*)
+                                ;;
+                        esac
+                        if [ -f $fname ] || [ -h $fname ] || [ -c $fname ]; then
+                            if [ $dryrun -eq 1 ]; then
+                                echo rm -fr $fname
+                            else
+                                rm -fr $fname
+                            fi
+                        fi
+                    done
+                    if [ $dryrun -eq 1 ]; then
+                        echo rm -fr $plist
+                    else
+                        rm -fr $plist
+                    fi
+                fi
+                if [ $dryrun -eq 1 ]; then
+                    echo sed -i -e "/^$p/d" ${db}/pkg
+                else
+                    sed -i -e "/^$p/d" ${db}/pkg
+                fi
+            fi
+        done
+
+        # delete ${db}/pkg if empty...
+        size=`ls -al ${db}/pkg | awk '{ print $5 }'`
+        if [ $size -eq 0 ]; then
+            rm -fr ${db}/pkg
+        fi
+    fi
+    return ${rc}
+}
+
 # obtain operating mode from command line
 ret=0
 add=0
 create=0
+delete=0
+info=0
+version=0
 case "$1" in
     add) add=1 ;;
     create) create=1 ;;
-    *) echo >&2 "Usage: $0 {add|create}" ; exit 1 ;;
+    delete) delete=1 ;;
+    info) info=1 ;;
+    version) version=1 ;;
+    *) echo >&2 "Usage: $0 {add|create|delete|info|version}" ; exit 1 ;;
 esac
 
 shift 1
 args=$*
+
+# echo "1==>$*"
 
 if [ ${create} -eq 1 ]; then
     # validate environment
@@ -189,6 +431,16 @@ else
     if [ ${add} -eq 1 ]; then
         do_add $args
     fi
+    if [ ${delete} -eq 1 ]; then
+        do_delete $args
+    fi
+    if [ ${info} -eq 1 ]; then
+        do_info $args || ret=1
+    fi
+    if [ ${version} -eq 1 ]; then
+        do_version $args
+    fi
 fi
 
+# echo ret=$ret
 exit ${ret}
