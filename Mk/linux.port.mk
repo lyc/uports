@@ -1554,11 +1554,18 @@ quiet_cmd_my-install?=
 	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $(WRKDIR_PKGFILE); \
 	fi
 
+quiet_cmd_missing-destdir?=
+      cmd_missing-destdir?= set -e;					\
+	$(kecho) "  ERROR   missing DESTDIR";				\
+	exit 1
+
 ifeq ($(filter $(override_targets),check-already-installed),)
 check-already-installed:
 ifneq ($(DESTDIR),)
 #	$(call cmd,check-already-installed)
 	$(call cmd,my-install)
+else
+	$(call cmd,missing-destdir)
 endif
 endif
 
@@ -1880,8 +1887,12 @@ $(foreach t,$(embellish_script_targets),				\
 
 ifeq ($(filter $(override_targets),reinstall),)
 reinstall:
+ifneq ($(DESTDIR),)
 	@rm -f $(INSTALL_COOKIE)
 	@cd $(CURDIR) && make install
+else
+	$(call cmd,missing-destdir)
+endif
 endif
 
 ifeq ($(filter $(override_targets),restage),)
@@ -1909,11 +1920,14 @@ quiet_cmd_deinstall?= UNINSTALL $(PKGBASE)
 	fi
 
 ifeq ($(filter $(override_targets),deinstall uninstall),)
-deinstall uninstall: pre-deinstall
 ifneq ($(DESTDIR),)
+deinstall uninstall: pre-deinstall
 	$(call cmd,deinstall)
 	@rm -f $(INSTALL_COOKIE)
 #	@cd $(MASTERDIR) && $(MAKE) $(__softMAKEFLAGS) run-ldconfig
+else
+deinstall uninstall:
+	$(call cmd,missing-destdir)
 endif
 endif
 
