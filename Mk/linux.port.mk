@@ -1543,10 +1543,22 @@ quiet_cmd_check-already-installed?=
 	    $(kecho) $(cai_msg4);					\
 	fi
 
+quiet_cmd_my-install?=
+      cmd_my-install?= set -e;						\
+	if [ -f $(PKGFILE) ]; then					\
+	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $(PKGFILE);	\
+	else								\
+	    if [ ! -f $(WRKDIR_PKGFILE) ]; then				\
+		(cd $(MASTERDIR) && make package);			\
+	    fi;								\
+	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $(WRKDIR_PKGFILE); \
+	fi
+
 ifeq ($(filter $(override_targets),check-already-installed),)
 check-already-installed:
 ifneq ($(DESTDIR),)
-	$(call cmd,check-already-installed)
+#	$(call cmd,check-already-installed)
+	$(call cmd,my-install)
 endif
 endif
 
@@ -1630,7 +1642,7 @@ _STAGE_SEQ		+= 995:stage-qa
 else
 stage-qa: stage
 endif
-_INSTALL_DEP		= stage
+_INSTALL_DEP		= package
 _INSTALL_SEQ		= 100:install-message				\
 			  200:check-already-installed			\
 			  500:security-check
