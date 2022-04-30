@@ -818,21 +818,23 @@ TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 
 # stuff for package ...
 
-PLIST_EXT		= $(patsubst					\
+# $(call config.ext,$(WRKDIR),$(PLIST))
+config.ext		= $(patsubst					\
 			    $(patsubst					\
-			      %/work,%,$(WRKDIR))/pkg-plist.%,%,$(PLIST))
+			      %/work$(TYPE_SUFFIX),%,$1)/pkg-plist.%,%,$2)
 
-ORIGIN			= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
+# $(call get-port-origin,$(MASTERDIR))
+get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
 
 PKG_ENV			+=						\
 	STAGEDIR=$(STAGEDIR)						\
 	PKGNAME=$(PKGNAME)						\
 	VERSION=$(PKGVERSION)						\
-	ORIGIN=$(call ORIGIN,$(MASTERDIR))				\
+	ORIGIN=$(call get-port-origin,$(MASTERDIR))			\
 	PREFIX=$(PREFIX)						\
 	INDEX=$(CATEGORIES)						\
 	COMPRESS=XZ							\
-	EXT=$(PLIST_EXT)						\
+	EXT=$(call config.ext,$(WRKDIR),$(PLIST))			\
 	PLIST=$(PLIST)							\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
