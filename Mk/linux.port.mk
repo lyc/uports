@@ -856,8 +856,15 @@ check-categories:
 	@false
 else
 VALID_CATEGORIES	+=						\
-	archivers converters devel graphics lang net net-mgmt bsp	\
-	print security textproc www x11 x11-fonts x11-toolkits linux
+	accessibility archivers astro audio benchmarks biology cad	\
+	comms converters databases deskutils devel dns docs editors	\
+	elisp emulators ftp games geography graphics hamradio haskell	\
+	irc java lang linux lisp mail math mbone misc multimedia net	\
+	net-im net-mgmt net-p2p net-vpn news parallel pear perl5 plan9	\
+	ports-mgmt portuguese print python ruby rubygems scheme science	\
+	security shells sysutils tcl textproc tk wayland windowmaker	\
+	www x11 x11-clocks x11-drivers x11-fm x11-fonts x11-servers	\
+	x11-themes x11-toolkits x11-wm xfce zope base
 
 check-categories:
 	@for cat in $(CATEGORIES); do					\
