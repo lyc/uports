@@ -519,32 +519,26 @@ endif
 
 # stuff for extract ...
 
+TAR			?= $(shell which tar)
+
 ifeq ($(USE_ZIP),yes)
 EXTRACT_CMD		?= unzip
 EXTRACT_BEFORE_ARGS	?= -q
 EXTRACT_AFTER_ARGS	?= -d $(DISTNAME)
 else
-EXTRACT_BEFORE_ARGS	?= -dc
+EXTRACT_CMD		?= $(TAR)
 ifneq ($(EXTRACT_TRANSFORM),)
 ifeq ($(OPSYS),linux)
-EXTRACT_AFTER_ARGS	= | $(TAR) -x --xform s$(EXTRACT_TRANSFORM) -f -
+EXTRACT_BEFORE_ARGS	?= -x --xform s$(EXTRACT_TRANSFORM) -f
 else
 ifeq ($(OPSYS),darwin)
-EXTRACT_AFTER_ARGS	= | $(TAR) -x -s $(EXTRACT_TRANSFORM) -f -
+EXTRACT_BEFORE_ARGS	?= -x -s $(EXTRACT_TRANSFORM) -f
 endif
 endif
 else
-EXTRACT_AFTER_ARGS	?= | $(TAR) -xf -
+EXTRACT_BEFORE_ARGS	?= -xf
 endif
-ifeq ($(USE_XZ),yes)
-EXTRACT_CMD		?= $(XZ_CMD)
-else
-ifeq ($(USE_BZIP2),yes)
-EXTRACT_CMD		?= $(BZIP2_CMD)
-else
-EXTRACT_CMD		?= $(GZIP_CMD)
-endif
-endif
+EXTRACT_AFTER_ARGS	?=
 endif
 
 # This is what is actually going to be extracted, and is overridable

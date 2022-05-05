@@ -7,35 +7,29 @@ COMMANDS_Include_MAINTAINER=	yowching.lee@gmail.com
 ifndef _COMMANDSMKINCLUDED
 _COMMANDSMKINCLUDED	= yes
 
-TAR			?= tar
-XZCAT			?= $(shell which xzcat)
-XZ_CMD			?= $(shell which xz)
-BZCAT			?= $(shell which bzcat)
-BZIP2_CMD		?= $(shell which bzip2)
-$(if $(BZIP2_CMD),,$(error Sorry, ports need "bzip2" package...))
-#GNUZIP_CMD		?= $(shell which gnuzip) -f
-_gzip			?= $(shell which gzip)
-_gzcat			?= $(shell which gzcat)
-ifeq ($(_gzcat),)
-ifeq ($(_gzip),)
-$(error Sorry, ports need "gzcat" utility that did not exist on your distribution.  You can create a symbolic to "gzip" to fix this problem)
-else
-GZCAT			?= $(_gzip) -dc
-endif
-else
-GZCAT			?= $(_gzcat)
-endif
-ifneq ($(_gzip),)
-GZIP			?= -9
-GZIP_CMD		?= $(_gzip) -nf $(GZIP)
-endif
+EGREP			?= $(shell which egrep)
+FIND			?= $(shell which find)
+GREP			?= $(shell which grep)
+GIT			?= git
+REALPATH		?= $(shell which realpath)
+SED			?= $(shell which sed)
 SETENV			?= env
 SH			?= /bin/sh
 UNAME			?= uname
-SED			?= sed
 WHICH			?= which
-GREP			?= grep
-EGREP			?= egrep
-GIT			?= git
+XARGS			?= /usr/bin/xargs
+
+XZ			?= -Mmax
+XZCAT			=  /usr/bin/xzcat ${XZ}
+XZ_CMD			?= /usr/bin/xz ${XZ}
+
+MD5			?= /sbin/md5
+SHA256			?= /sbin/sha256
+SOELIM			?= /usr/bin/soelim
+
+# ECHO is defined in /usr/share/mk/sys.mk, which can either be "echo",
+# or "true" if the make flag -s is given.  Use ECHO_CMD where you mean
+# the echo command.
+ECHO_CMD		?= echo	# Shell builtin
 
 endif
