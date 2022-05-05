@@ -22,7 +22,8 @@ override PREFIX		:= $(PREFIX)/tools
 endif
 endif
 
-USE_BZIP2		= yes
+USES			+= tar:bzip2
+
 GNU_CONFIGURE		= yes
 ifneq ($(CONFIGURE_TARGET),)
 WRKSRC_SUBDIR		:= build-$(word 1,$(subst -, ,$(CONFIGURE_TARGET)))

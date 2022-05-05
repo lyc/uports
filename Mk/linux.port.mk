@@ -12,13 +12,26 @@ include $(PORTSDIR)/Mk/linux.debug.mk
 LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
+USESDIR			?= ${PORTSDIR}/Mk/Uses
 SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 STAGEDIR		?= $(WRKDIR)/stage
 
 include $(PORTSDIR)/Mk/linux.commands.mk
 
+# utilities for all sections
+
 SLASH			:= /
 COMMON			:= ,
+
+# $(call setup_uses, use, use:args)
+define setup_uses
+ifndef $1_ARGS
+$1_ARGS			:= $(patsubst :%,%,$(patsubst $1%,%,$2))
+endif
+$(if $(wildcard $(USESDIR)/$1.mk),					\
+  include $(USESDIR)/$1.mk,						\
+  ERROR += "Unknown USES=$1")
+endef
 
 #
 # DESTDIR section to start a chrooted process if invoked with DESTDIR set
@@ -231,19 +244,26 @@ config_$(PLIST_NAME)	= $(PKGDIR)
 config_all		= $(PATCHLIST_NAME) $(PLIST_NAME)
 $(foreach t,$(config_all),$(eval $(call generate-config-all,$t)))
 
-ifeq ($(USE_XZ),yes)
-EXTRACT_SUFX 		?= .tar.xz
-else
-ifeq ($(USE_BZIP2),yes)
-EXTRACT_SUFX 		?= .tar.bz2
-else
-ifeq ($(USE_ZIP),yes)
-EXTRACT_SUFX 		?= .zip
-else
+# setup empty variables for USES targets
+_USES_TARGETS		=						\
+	sanity fetch extract patch configure build install package stage
+
+define setup_uses_target
+_USES_$1		?=
+endef
+
+$(foreach u,$(_USES_TARGETS),						\
+  $(eval								\
+    $(call setup_uses_target,$(u))))
+
+# Loading features
+$(foreach u,$(USES),							\
+  $(eval								\
+    $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
+
+# $(warning ERROR=$(ERROR))
+
 EXTRACT_SUFX 		?= .tar.gz
-endif
-endif
-endif
 
     endif
   endif
@@ -293,6 +313,11 @@ PATCH_WRKSRC		?= $(WRKSRC)
 CONFIGURE_WRKSRC	?= $(WRKSRC)/$(WRKSRC_SUBDIR)
 BUILD_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
 INSTALL_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
+
+# Loading features
+$(foreach u,$(_USES_POST),						\
+  $(eval								\
+    $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
 EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
@@ -1601,28 +1626,29 @@ _TARGET_STAGES		= SANITY PKG FETCH EXTRACT PATCH CONFIGURE	\
 # in _OPTIONS_TARGETS in bsd.options.mk
 
 _SANITY_SEQ		= 100:pre-everything				\
-			  250:check-categories 600:check-license
+			  250:check-categories 600:check-license $(_USES_sanity)
 _PKG_DEP		= check-sanity
 _PKG_SEQ		= 500:pkg-depends
 _FETCH_DEP		= pkg
 _FETCH_SEQ		= 100:fetch-depends				\
 			  300:pre-fetch 450:pre-fetch-script		\
 			  500:do-fetch					\
-			  700:post-fetch 850:post-fetch-script
+			  700:post-fetch 850:post-fetch-script $(_USES_fetch)
 _EXTRACT_DEP		= fetch
 _EXTRACT_SEQ		= 050:extract-message				\
 			  100:checksum					\
 			  150:extract-depends				\
 			  300:pre-extract 450:pre-extract-script	\
 			  500:do-extract				\
-			  700:post-extract 850:post-extract-script
+			  700:post-extract 850:post-extract-script	\
+			  $(_USES_extract)
 _PATCH_DEP		= extract
 _PATCH_SEQ		= 050:ask-license				\
 			  100:patch-message				\
 			  150:patch-depends				\
 			  300:pre-patch 450:pre-patch-script		\
 			  500:do-patch					\
-			  700:post-patch 850:post-patch-script
+			  700:post-patch 850:post-patch-script $(_USES_patch)
 _CONFIGURE_DEP 		= patch
 _CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\
 			  200:configure-message				\
@@ -1630,12 +1656,13 @@ _CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\
 			  490:run-autotools-fixup			\
 			  491:configure-autotools 492:run-autotools	\
 			  500:do-configure				\
-			  700:post-configure 850:post-configure-script
+			  700:post-configure 850:post-configure-script	\
+			  $(_USES_configure)
 _BUILD_DEP		= configure
 _BUILD_SEQ		= 100:build-message				\
 			  300:pre-build 450:pre-build-script		\
 			  500:do-build					\
-			  700:post-build 850:post-build-script
+			  700:post-build 850:post-build-script $(_USES_build)
 _STAGE_DEP		= build
 # STAGE is special in its numbering as it has install and stage, so install is
 # the main, and stage goes after.
@@ -1646,7 +1673,7 @@ _STAGE_SEQ		= 50:stage-message 100:stage-dir 150:run-depends\
 			  700:post-install 750:post-install-script	\
 			  800:post-stage				\
 			  870:install-ldconfig-file			\
-			  880:install-license
+			  880:install-license $(_USES_install) $(_USES_stage)
 ifdef DEVELOPER
 _STAGE_SEQ		+= 995:stage-qa
 else
@@ -1660,7 +1687,8 @@ _PACKAGE_DEP		= stage
 _PACKAGE_SEQ		= 100:package-message				\
 			  300:pre-package 450:pre-package-script	\
 			  500:do-package				\
-			  700:post-package 850:post-package-script
+			  700:post-package 850:post-package-script	\
+			  $(_USES_package)
 
 # Enforce order for -jN builds
 
