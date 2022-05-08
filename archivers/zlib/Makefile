@@ -8,10 +8,11 @@ CATEGORIES 		= archivers
 MASTER_SITES		= http://www.gzip.org/%SUBDIR%/			\
 			  http://www.zlib.net/
 MASTER_SITE_SUBDIR	= zlib
-LICENSE			= zlib
 
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= A Massively Spiffy Yet Delicately Unobrtusive Compression Library.
+
+LICENSE			= zlib
 
 GNU_CONFIGURE		= yes
 ifneq ($(CROSS_COMPILE),)

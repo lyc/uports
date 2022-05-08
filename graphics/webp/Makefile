@@ -8,12 +8,13 @@ CATEGORIES 		= graphics
 MASTER_SITES 		= http://downloads.webmproject.org/releases/webp/ \
 			  https://storage.googleapis.com/downloads.webmproject.org/releases/webp/
 DISTNAME		= lib$(PORTNAME)-$(PORTVERSION)
-LICENSE			= BSD3CLAUSE
 
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= Google WebP image format conversion tool
 
+LICENSE			= BSD3CLAUSE
 
+USES			= libtool:keepla
 ifeq ($(USE_SCM),git)
 SCM_PROTOCOL		= https://
 MASTER_SITES		:= chromium.googlesource.com

@@ -17,8 +17,9 @@ EXTRACT_ONLY		= $(DISTNAME)$(EXTRACT_SUFX)
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= IJG's jpeg compression utilities #'
 
-WRKSRC			= $(WRKDIR)/$(PORTNAME)-$(DISTVERSION2)
+USES			= libtool:keepla
 
+WRKSRC			= $(WRKDIR)/$(PORTNAME)-$(DISTVERSION2)
 DISTVERSION2		= 8b
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --enable-shared --enable-static

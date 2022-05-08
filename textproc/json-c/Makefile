@@ -8,23 +8,22 @@ DISTVERSIONSUFFIX	= -20140410
 CATEGORIES		= textproc
 MASTER_SITES 		= $(MASTER_SITE_GITHUB)
 MASTER_SITE_SUBDIR	= $(PORTNAME)/$(PORTNAME)
-LICENSE			= MIT
 
 MAINTAINER		= dtchang@askey.com.tw
 COMMENT			= A JSON implementation in C
 
+LICENSE			= MIT
 
-EXTRACT_TRANSFORM	= /json-c-json-c/json-c/g
+USES			= libtool:keepla
 ifeq ($(USE_SCM),git)
 MASTER_SITES		:= github.com
 MASTER_SITE_SUBDIR	:= json-c
 NO_SCM_PATCH_APPLY	= yes
 endif
 
+EXTRACT_TRANSFORM	= /json-c-json-c/json-c/g
 USE_REINPLACE 		= yes
 #NO_CHECK_CERTIFICATE	= yes
-#USE_LDCONFIG		= yes
-#USE_AUTOTOOLS 		= yes
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --enable-shared				\
 			   ac_cv_func_malloc_0_nonnull=yes		\

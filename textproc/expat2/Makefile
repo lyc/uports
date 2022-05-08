@@ -7,14 +7,14 @@ PORTVERSION		= 2.1.0
 CATEGORIES		= textproc
 MASTER_SITES		= $(MASTER_SITE_SOURCEFORGE)
 MASTER_SITE_SUBDIR	= expat
-LICENSE			= MIT
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= XML 1.0 parser written by C
 
+LICENSE			= MIT
 
-#USE_LDCONFIG		= yes
-#USE_AUTOTOOLS		= yes
+USES			= libtool:keepla
+
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --enable-shared				\
 			   --prefix=$(PREFIX)				\

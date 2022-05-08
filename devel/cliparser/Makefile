@@ -7,13 +7,12 @@ PORTVERSION		= 0.5
 CATEGORIES		= textproc
 MASTER_SITES		= $(MASTER_SITE_SOURCEFORGE)
 MASTER_SITE_SUBDIR	= cliparser
-LICENSE			= BSD
-
 DISTNAME		= cli_parser-$(PKGVERSION)
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= CLI Parser provides a framework for quickly development of Cisco-like CLI commands.
 
+LICENSE			= BSD
 
 USE_REINPLACE		= yes
 

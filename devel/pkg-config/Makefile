@@ -8,10 +8,11 @@ PORTREVISION		= 0
 CATEGORIES		= devel
 MASTER_SITES		= http://pkgconfig.freedesktop.org/releases/
 DIST_SUBDIR		= gnome2
-LICENSE			= GPLv2
 
 MAINTAINER		= gnome@FreeBSD.org
 COMMENT			= A utility to retrieve information about installed libraries
+
+LICENSE			= GPLv2
 
 ifeq ($(PC_PATH),)
 PC_PATH			= $(LOCALBASE)/lib/pkgconfig
@@ -19,7 +20,6 @@ ifneq ($(LOCALBASE),$(PREFIX))
 PC_PATH			:= $(PREFIX)/lib/pkgconfig
 endif
 endif
-
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		= --disable-shared				\
 			  --disable-threads				\

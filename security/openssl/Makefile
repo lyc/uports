@@ -11,10 +11,6 @@ MASTER_SITES		= http://www.openssl.org/%SUBDIR%/		\
 			  ftp://ftp.cert.dfn.de/pub/tools/net/openssl/%SUBDIR%/
 MASTER_SITE_SUBDIR	= source
 DIST_SUBDIR		= $(DISTNAME)
-LICENSE			= OpenSSL SSLeay
-
-MAINTAINER 		= yowching.lee@gmail.com
-COMMENT 		= Secure Sockets Layer and cryptography libraries
 
 # just for test purpose
 #
@@ -25,6 +21,11 @@ COMMENT 		= Secure Sockets Layer and cryptography libraries
 #	0002-engines-e_padlock-backport-cvs-head-changes.patch:padlock \
 #	0003-engines-e_padlock-implement-sha1-sha224-sha256-accel.patch:padlock \
 #	0004-crypto-engine-autoload-padlock-dynamic-engine.patch:padlock
+
+MAINTAINER 		= yowching.lee@gmail.com
+COMMENT 		= Secure Sockets Layer and cryptography libraries
+
+LICENSE			= OpenSSL SSLeay
 
 ifneq ($(CROSS_COMPILE),)
   CONFIGURE_SCRIPT	:= Configure
