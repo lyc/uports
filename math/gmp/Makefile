@@ -22,7 +22,7 @@ override PREFIX		:= $(PREFIX)/tools
 endif
 endif
 
-USES			+= tar:bzip2
+USES			+= tar:bzip2 libtool:keepla
 
 GNU_CONFIGURE		= yes
 ifneq ($(CONFIGURE_TARGET),)

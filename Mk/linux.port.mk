@@ -821,6 +821,9 @@ MAKE_ENV		+= 						\
 QA_ENV			+=						\
 	STAGEDIR=$(STAGEDIR) PREFIX=$(PREFIX)				\
 	LOCALBASE=$(LOCALBASE) "STRIP=$(STRIP)" TMPPLIST=$(TMPPLIST)
+ifneq ($(findstring libtool,$(USES)),)
+QA_ENV			+= USESLIBTOOL=yes
+endif
 
 # stuff for install/deinstall/uninstall ...
 
