@@ -20,11 +20,29 @@ include $(PORTSDIR)/Mk/linux.commands.mk
 
 # utilities for all sections
 
+EMPTY			:=
+SPACE			:= $(EMPTY) $(EMPTY)
 SLASH			:= /
 COMMA			:= ,
 
 remove-comma		= $(subst $(COMMA), ,$1)
 find-uses-arg		= $(findstring $1,$(call remove-comma,$2))
+
+paren_left		= (
+paren_right		= )
+chars_lower		= a b c d e f g h i j k l m n o p q r s t u v w x y z
+chars_upper		= A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+
+__tr_list = $(join $(join $(1),$(foreach char,$(1),$(COMMA))),$(2))
+__tr_head_stripped = $(subst $(SPACE),,$(foreach cv,$(call __tr_list,$(1),$(2)),$$$(paren_left)subst$(cv)$(COMMA)))
+__tr_head = $(subst $(paren_left)subst,$(paren_left)subst$(space),$(__tr_head_stripped))
+__tr_tail = $(subst $(SPACE),,$(foreach cv,$(1),$(paren_right)))
+__tr_template = $(__tr_head)$$(1)$(__tr_tail)
+
+$(eval toupper = $(call __tr_template,$(chars_lower),$(chars_upper)))
+$(eval tolower = $(call __tr_template,$(chars_upper),$(chars_lower)))
+
+merge_dirs		= $(shell echo $1 | sed -e 's/ /:/g')
 
 # $(call setup_uses, use, use:args)
 define setup_uses
@@ -1784,18 +1802,6 @@ $(foreach s,$(_TARGET_STAGES),						\
 
 _TARGET_TARGETS		= extract patch configure build stage install package
 
-# $(call uppercase-target, target)
-define uppercase-target
-$(strip									\
-  $(if $(filter $1,extract),EXTRACT,					\
-    $(if $(filter $1,patch),PATCH,					\
-      $(if $(filter $1,configure),CONFIGURE,				\
-        $(if $(filter $1,build),BUILD,					\
-          $(if $(filter $1,stage),STAGE,				\
-            $(if $(filter $1,install),INSTALL,				\
-              $(if $(filter $1,package),PACKAGE))))))))
-endef
-
 #$(warning _EXTRACT_REAL_SEQ=$(call get-real-seqs,EXTRACT))
 #$(warning _PATCH_REAL_SEQ=$(_PATCH_REAL_SEQ))
 #$(warning _PATCH_REAL_SEQ=$(call get-real-seqs,PATCH))
@@ -1827,7 +1833,7 @@ endef
 
 $(foreach t,$(_TARGET_TARGETS),						\
   $(eval 								\
-    $(call generate-cookie-targets,$t,$(call uppercase-target,$t))))
+    $(call generate-cookie-targets,$t,$(call toupper,$t))))
 
 #$(warning _SANITY_REAL_SEQ=$(SANITY_REAL_SEQ))
 #$(warning _SANITY_REAL_SEQ=$(call get-real-seqs,SANITY))
