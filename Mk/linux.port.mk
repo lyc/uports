@@ -21,7 +21,10 @@ include $(PORTSDIR)/Mk/linux.commands.mk
 # utilities for all sections
 
 SLASH			:= /
-COMMON			:= ,
+COMMA			:= ,
+
+remove-comma		= $(subst $(COMMA), ,$1)
+find-uses-arg		= $(findstring $1,$(call remove-comma,$2))
 
 # $(call setup_uses, use, use:args)
 define setup_uses
@@ -372,7 +375,6 @@ DISTFILES		?= $(DISTNAME)$(EXTRACT_SUFX)
 
 SUBDIR			:= %SUBDIR%
 
-remove-common		= $(subst $(COMMON), ,$1)
 remove-terminator	= $(patsubst %/,%,$1)
 add-terminator-DEFAULT	= $(call remove-terminator,$1)/:DEFAULT
 
@@ -423,7 +425,7 @@ patchfiles		= $(call patch-files-DEFAULT,$(PATCHFILES))
 # $(call get-all-site-groups, lists)
 define get-all-site-groups
 $(sort									\
-  $(call remove-common,							\
+  $(call remove-comma,							\
     $(foreach x,$1,							\
       $(call get-site-group,$x))))
 endef
@@ -441,7 +443,7 @@ $(if									\
 # $(call find-groups-by-file, lists, file)
 define find-groups-by-file
 $(strip									\
-  $(call remove-common,							\
+  $(call remove-comma,							\
     $(foreach x,$1,							\
       $(if								\
         $(filter $2,							\
@@ -452,7 +454,7 @@ endef
 # $(call find-groups-by-site, lists, site)
 define find-groups-by-site
 $(strip									\
-  $(call remove-common,							\
+  $(call remove-comma,							\
     $(foreach x,$1,							\
       $(if								\
         $(filter $2,							\
@@ -465,7 +467,7 @@ define filter-x-by-group
 $(foreach x,$1,								\
   $(if									\
     $(filter $2,							\
-      $(call remove-common,						\
+      $(call remove-comma,						\
         $(call get-site-group,$x))),					\
           $(call get-site-name,$x)$3))
 endef

@@ -16,7 +16,7 @@ ifndef _INCLUDE_USES_LIBTOOL_MK
 _INCLUDE_USES_LIBTOOL_MK:= yes
 _USES_POST		+= libtool
 
-ifneq ($(findstring build,$(subst $(COMMON), ,$(libtool_ARGS))),)
+ifneq ($(call find-uses-arg,build,$(libtool_ARGS)),)
 #BUILD_DEPENDS+=	libtool:devel/libtool
 endif
 endif
@@ -29,7 +29,7 @@ _USES_configure		+= 480:patch-libtool
 patch-libtool:
 	@echo $@
 
-ifneq ($(findstring keepla,$(subst $(COMMON), ,$(libtool_ARGS))),)
+ifneq ($(call find-uses-arg,keepla,$(libtool_ARGS)),)
 quiet_cmd_patch-lafiles?= PATCH   $(PKGNAME) lafiles
       cmd_patch-lafiles?= set -e;					\
 	${FIND} ${STAGEDIR} -type f -name '*.la' |			\
