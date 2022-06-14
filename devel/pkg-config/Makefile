@@ -3,7 +3,7 @@
 # Whom:			Max Lee <yowching.lee@gmail.com>
 
 PORTNAME		= pkg-config
-PORTVERSION		= 0.29.2
+DISTVERSION		= 0.29.2
 PORTREVISION		= 0
 CATEGORIES		= devel
 MASTER_SITES		= http://pkgconfig.freedesktop.org/releases/

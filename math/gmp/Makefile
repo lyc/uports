@@ -3,7 +3,7 @@
 # Whom:                 Max Lee
 
 PORTNAME		= gmp
-PORTVERSION		= 5.0.2
+DISTVERSION		= 5.0.2
 PORTREVISION		= 0
 CATEGORIES		= devel
 MASTER_SITES		= ftp://ftp.gmplib.org/pub/gmp/

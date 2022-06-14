@@ -3,7 +3,7 @@
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME		= expat
-PORTVERSION		= 2.1.0
+DISTVERSION		= 2.1.0
 CATEGORIES		= textproc
 MASTER_SITES		= $(MASTER_SITE_SOURCEFORGE)
 MASTER_SITE_SUBDIR	= expat

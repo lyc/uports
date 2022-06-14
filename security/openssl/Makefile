@@ -3,7 +3,7 @@
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= openssl
-PORTVERSION 		= 1.0.1
+DISTVERSION 		= 1.0.1
 DISTVERSIONSUFFIX	= g
 CATEGORIES 		= security
 MASTER_SITES		= http://www.openssl.org/%SUBDIR%/		\

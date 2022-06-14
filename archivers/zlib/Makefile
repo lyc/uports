@@ -1,9 +1,9 @@
-# Ports collection:     zlib-1.2.7
+# Ports collection:     zlib-1.2.11
 # Date created:         2011/6/24
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= zlib
-PORTVERSION 		= 1.2.11
+DISTVERSION 		= 1.2.11
 CATEGORIES 		= archivers
 MASTER_SITES		= http://www.gzip.org/%SUBDIR%/			\
 			  http://www.zlib.net/

@@ -3,15 +3,17 @@
 # Whom:                Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= jpeg
-PORTVERSION 		= 8
+DISTVERSIONPREFIX	= src.v
+DISTVERSION		= 8
+DISTVERSIONSUFFIX	= b
 PORTREVISION 		= 3
 CATEGORIES 		= graphics
 MASTER_SITES 		= http://www.ijg.org/files/			\
 			  http://sylvana.net/jpegcrop/:exif
-DISTNAME		= jpegsrc.v$(DISTVERSION2)
+DISTNAME		= $(PORTNAME)$(DISTVERSIONFULL)
 DISTFILES 		= $(DISTNAME)$(EXTRACT_SUFX)			\
 			  jpegexiforient.c:exif exifautotran.txt:exif
-DIST_SUBDIR		= $(PORTNAME)$(DISTVERSION2)2
+DIST_SUBDIR		= $(PORTNAME)$(DISTVERSION2)3
 EXTRACT_ONLY		= $(DISTNAME)$(EXTRACT_SUFX)
 
 MAINTAINER 		= yowching.lee@gmail.com
@@ -19,8 +21,8 @@ COMMENT 		= IJG's jpeg compression utilities #'
 
 USES			= libtool:keepla
 
+DISTVERSION2		= $(DISTVERSION)$(DISTVERSIONSUFFIX)
 WRKSRC			= $(WRKDIR)/$(PORTNAME)-$(DISTVERSION2)
-DISTVERSION2		= 8b
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --enable-shared --enable-static
 ADDITIONAL_HEADER	= jinclude.h jpegint.h

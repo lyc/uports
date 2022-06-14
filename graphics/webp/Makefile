@@ -3,11 +3,11 @@
 # Whom:			Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= webp
-PORTVERSION 		= 1.1.0
+DISTVERSION 		= 1.1.0
 CATEGORIES 		= graphics
 MASTER_SITES 		= http://downloads.webmproject.org/releases/webp/ \
 			  https://storage.googleapis.com/downloads.webmproject.org/releases/webp/
-DISTNAME		= lib$(PORTNAME)-$(PORTVERSION)
+DISTNAME		= lib$(PORTNAME)-$(DISTVERSIONFULL)
 
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= Google WebP image format conversion tool

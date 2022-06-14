@@ -3,7 +3,7 @@
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME		= cliparser
-PORTVERSION		= 0.5
+DISTVERSION		= 0.5
 CATEGORIES		= textproc
 MASTER_SITES		= $(MASTER_SITE_SOURCEFORGE)
 MASTER_SITE_SUBDIR	= cliparser

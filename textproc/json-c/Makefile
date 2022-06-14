@@ -3,7 +3,7 @@
 # Whom:                 colin@askey.com.tw
 
 PORTNAME		= json-c
-PORTVERSION		= 0.12
+DISTVERSION		= 0.12
 DISTVERSIONSUFFIX	= -20140410
 CATEGORIES		= textproc
 MASTER_SITES 		= $(MASTER_SITE_GITHUB)
