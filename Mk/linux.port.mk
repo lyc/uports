@@ -172,8 +172,27 @@ check-if-pre-makefile	:= $(strip					\
         $(error ERR, you cannot include linux.port[.pre].mk twice),)
 _PREMKINCLUDED		= yes
 
-# TODO: check $(PORTVERSON) at here ...
-DISTVERSION		?= $(PORTVERSION)
+portversion-tr1		= $(shell echo $1 | sed -e 's/[-_,]//g')
+portversion-tr2		= $(shell echo $1 | sed -e 's/[-_,]/./g')
+portversion-tr3		= $(shell echo $1 | sed -e 's/:/::/g')
+distversion-tr1		= $(shell echo $1 | 				\
+			    sed -e 's/\([a-z]\)[a-z]*/\1/g'		\
+			        -e 's/\([0-9]\)\([a-z]\)/\1.\2/g'	\
+			        -e 's/:\(.\)/\1/g'			\
+			        -e 's/[^a-z0-9][^a-z0-9]*/./g')
+distversion-tr2		= $(shell echo $1 | sed -e 's/:\(.\)/\1/g')
+
+ifdef PORTVERSION
+  ifneq ($(call portversion-tr1,$(PORTVERSION)),$(PORTVERSION))
+$(error PORTVERSION $(PORTVERSION) may not contain '-' '_' or ',')
+  endif
+  ifdef DISTVERSION
+$(error	Defining both PORTVERSION and DISTVERSION is wrong, only set one, if necessary, set DISTNAME)
+  endif
+DISTVERSION		?= $(call portversion-tr3,$(PORTVERSION))
+else ifdef DISTVERSION
+PORTVERSION		= $(call distversion-tr1,$(call tolower,$(DISTVERSION)))
+endif
 
 PORTREVISION		?= 0
 ifneq ($(PORTREVISION),0)
@@ -185,11 +204,10 @@ ifneq ($(PORTEPOCH),0)
 _SUF2			= ,$(PORTEPOCH)
 endif
 
-PKGVERSION		?= $(PORTVERSION)$(_SUF1)$(_SUF2)
-PKGNAME			?=						\
-	$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION)
-DISTNAME		?=						\
-	$(PORTNAME)-$(DISTVERSIONPREFIX)$(DISTVERSION)$(DISTVERSIONSUFFIX)
+PKGVERSION		?= $(call portversion-tr2,$(PORTVERSION))$(_SUF1)$(_SUF2)
+PKGNAME			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION)
+DISTVERSIONFULL		?= $(DISTVERSIONPREFIX)$(call distversion-tr2,$(DISTVERSION))$(DISTVERSIONSUFFIX)
+DISTNAME		?= $(PORTNAME)-$(DISTVERSIONFULL)
 
 INDEXFILE		?= INDEX
 
