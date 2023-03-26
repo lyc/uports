@@ -156,7 +156,12 @@ do_add() {
 
     # update db
     touch ${db}/pkg
-    sed -i -e "/${name}/d" ${db}/pkg
+#   sed --in-place operation will be failed inside aarch64 docker environment
+#    sed -i -e "/${name}/d" ${db}/pkg > ${tmp}
+    tmp=`mktemp`
+    sed -e "/${name}/d" ${db}/pkg > ${tmp}
+    cp ${tmp} ${db}/pkg
+    rm ${tmp}
     echo "$name: $ver $path $prefix \"${index}\" ${name}-pkg-plist.${ext}" >> ${db}/pkg
 
     # copy pkg-plist.$EXT to $db
@@ -383,9 +388,14 @@ do_delete()
                     fi
                 fi
                 if [ $dryrun -eq 1 ]; then
-                    echo sed -i -e "/^$p/d" ${db}/pkg
+#                    echo sed -i -e "/^$p/d" ${db}/pkg
+                    echo sed -e "/^$p/d" ${db}/pkg > ${tmp}
                 else
-                    sed -i -e "/^$p/d" ${db}/pkg
+#                    sed -i -e "/^$p/d" ${db}/pkg
+                    tmp=`mktemp`
+                    sed -e "/^$p/d" ${db}/pkg > ${tmp}
+                    cp ${tmp} ${db}/pkg
+                    rm ${tmp}
                 fi
             fi
         done
