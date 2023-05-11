@@ -1,21 +1,20 @@
-$(foreach s,heanet nchc kent easynews ufpr umn,				\
+# List:		https://sourceforge.net/p/forge/documentation/Mirrors/
+# Updated:	2017-03-13
+$(foreach p,https http,							\
   $(eval								\
-    MASTER_SITE_SOURCEFORGE	+= http://$s.dl.sourceforge.net/sourceforge/%SUBDIR%/))
-MASTER_SITE_SOURCEFORGE		+= http://downloads.sourceforge.net/%SUBDIR%/
+    MASTER_SITE_SOURCEFORGE	+= $p://downloads.sourceforge.net/project/%SUBDIR%/))
 
-# official sf.net mirrors that don't mirror all projects, check
-# http://prdownloads.sourceforge.net/%SUBDIR%/
-$(foreach s,easynews switch puzzle belnet osdn ovh keihanna,		\
+$(foreach p,https http,							\
+  $(foreach m,excellmedia freefr jaist nchc netcologne netix superb-dca2 superb-sea2 ufpr vorboss, \
   $(eval								\
-    MASTER_SITE_SOURCEFORGE_EXTENDED	+= http://$s.dl.sourceforge.net/sourceforge/%SUBDIR%/))
-MASTER_SITE_SOURCEFORGE_EXTENDED+= $(MASTER_SITE_SOURCEFORGE)
+      MASTER_SITE_SOURCEFORGE	+= $p://$m.dl.sourceforge.net/project/%SUBDIR%/)))
 
 MASTER_SITE_SOURCEWARE		+=					\
 	ftp://ftp.funet.fi/pub/mirrors/sources.redhat.com/pub/%SUBDIR%/	\
 	ftp://ftp-stud.fht-esslingen.de/pub/Mirrors/sources.redhat.com/%SUBDIR%/
 
 MASTER_SITE_GITHUB		+=					\
-	https://github.com/%SUBDIR%/archive/
+	https://github.com/%SUBDIR%/archive/refs/tags/
 
 MASTER_SITE_GNU			+=					\
 	http://ftp.gnu.org/gnu/%SUBDIR%/				\
