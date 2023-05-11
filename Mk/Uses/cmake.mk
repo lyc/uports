@@ -138,6 +138,11 @@ INSTALL_WRKSRC		?= $(CONFIGURE_WRKSRC)
 TEST_WRKSRC		?= $(CONFIGURE_WRKSRC)
 endif
 
+ifneq ($(LIB_DEPENDS),)
+CMAKE_ARGS		+= -DCMAKE_LIBRARY_PATH=$(DESTDIR)$(PREFIX)/lib	\
+			   -DCMAKE_INCLUDE_PATH=$(DESTDIR)$(PREFIX)/include
+endif
+
 ## By default we use the ninja generator.
 ##  Except, if cmake:run is set (cmake not wanted as generator)
 ##             fortran is used, as the ninja-generator does not handle it.

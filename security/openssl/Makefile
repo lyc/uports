@@ -21,6 +21,8 @@ LICENSE			= OpenSSL SSLeay
 
 USES			= git:ownership
 
+LIB_DEPENDS		= libz.so:archivers/zlib
+
 ifneq ($(CROSS_COMPILE),)
   CONFIGURE_SCRIPT	:= Configure
     CONFIGURE_ENV	+= CROSS_COMPILE=
@@ -50,6 +52,7 @@ CONFIGURE_ARGS		+= --openssldir=$(PREFIX)/lib/ssl		\
 			   enable-rc5					\
 			   no-asm					\
 			   shared
+CONFIGURE_ARGS		+= zlib
 MAKE_ARGS		+= INSTALL_PREFIX="$(STAGEDIR)"
 
 #

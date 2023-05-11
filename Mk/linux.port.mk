@@ -321,6 +321,12 @@ EXTRACT_SUFX 		?= .tar.gz
 package-info:
 	@echo $(DISTVERSIONFULL) $(LICENSE)
 
+libdirs			= lib
+libdirs			+= $(if $(wildcard				\
+			     $(DESTDIR)$(PREFIX)/lib64/pkgconfig/*.pc),lib64)
+
+#$(warning libdirs=$(libdirs))
+
     endif
   endif
 # End of pre-makefile section.
@@ -795,7 +801,12 @@ ifeq ($(GNU_CONFIGURE),yes)
 GUN_CONFIGURE_PREFIX	?= $(PREFIX)
 CONFIGURE_ARGS		+=						\
 	--prefix=$(GUN_CONFIGURE_PREFIX) $$_late_configure_args
+ifeq ($(LIB_DEPENDS),)
 CONFIGURE_ENV		+=
+else
+CONFIGURE_ENV		+= CFLAGS="-I$(DESTDIR)$(PREFIX)/include"	\
+			   LDFLAGS="$(addprefix -L$(DESTDIR)$(PREFIX)/,$(libdirs))"
+endif
 HAS_CONFIGURE		= yes
 
 # FIXME...
