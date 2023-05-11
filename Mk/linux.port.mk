@@ -318,6 +318,9 @@ $(foreach u,$(USES),							\
 
 EXTRACT_SUFX 		?= .tar.gz
 
+package-info:
+	@echo $(DISTVERSIONFULL) $(LICENSE)
+
     endif
   endif
 # End of pre-makefile section.
@@ -366,6 +369,11 @@ PATCH_WRKSRC		?= $(WRKSRC)
 CONFIGURE_WRKSRC	?= $(WRKSRC)/$(WRKSRC_SUBDIR)
 BUILD_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
 INSTALL_WRKSRC		?= $(WRKSRC)/$(WRKSRC_SUBDIR)
+
+package-source:
+	@if [ -d $(WRKSRC) ]; then cd $(WRKSRC) && realpath `pwd`; fi
+
+      ifneq ($(_INNERMKINCLUDE),no)
 
 # Loading features
 $(foreach u,$(_USES_POST),						\
@@ -657,7 +665,9 @@ SCM_REPO_PREINIT_CMD	?= autogen.sh
 ifeq ($(USE_SCM),git)
 SCM_LS_CMD		?= git ls-remote
 SCM_CMD			?= git clone
+SCM_CMD_OPTS		?=
 SCM_PROTOCOL		?=
+SCM_DEST		?= $(DISTNAME)
 
 ifeq ($(SCM_PROTOCOL),)
 SCM_USER		?= git
@@ -1213,22 +1223,32 @@ branches		:= $(shell $(SCM_LS_CMD) $(SCM_REPO_URL)	\
 ifeq ($(USE_SCM),git)
 quiet_cmd_git-clone	?=
       cmd_git-clone	?= set -e;					\
-	if [ -z "$(branches)" ]; then					\
-	    $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
-	    false;							\
-	fi;								\
-	if [ -z "$(SCM_BRANCH)" ]; then					\
-	    branch=$(call lookup-branch,$(branches),$(PORTVERSION),heads); \
+	if [ ! -z "$(SCM_BRANCH)" ]; then				\
+	    if [ -z "$(branches)" ]; then				\
+	        $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
+	        false;							\
+	    fi;								\
+	    if [ -z "$(SCM_BRANCH)" ]; then				\
+	        branch=$(call lookup-branch,$(branches),$(PORTVERSION),heads); \
+	    else							\
+	        branch=$(call lookup-branch,$(branches),$(SCM_BRANCH),heads); \
+	    fi;								\
+	    if [ -z "$$branch" ]; then					\
+	        $(kecho) "  ERR     Can't find specific branch($$branch)"; \
+	        false;							\
+	    fi;								\
+	    cd $(WRKDIR);						\
+	    $(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
+	    $(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME);		\
 	else								\
-	    branch=$(call lookup-branch,$(branches),$(SCM_BRANCH),heads); \
-	fi;								\
-	if [ -z "$$branch" ]; then					\
-	    $(kecho) "  ERR     Can't find specific branch($$branch)";	\
-	    false;							\
-	fi;								\
-	cd $(WRKDIR);							\
-	$(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
-	$(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME)
+	    cd $(WRKDIR);						\
+	    $(kecho) "  GIT     $(DISTNAME)";				\
+	    $(SCM_CMD) $(SCM_CMD_OPTS) $(SCM_REPO_URL) $(SCM_DEST);	\
+	    if [ ! -z "$(SCM_DETACH)" ]; then				\
+	        cd $(WRKSRC);						\
+	        git checkout --detach $(SCM_DETACH);			\
+	    fi;                                                         \
+	fi
 endif
 
 ifeq ($(filter $(override_targets),do-extract),)
@@ -1957,6 +1977,12 @@ $(foreach t,$(embellish_script_targets),				\
 
 #- checkpatch:
 
+ifeq ($(filter $(override_targets),rebuild),)
+rebuild:
+	@rm -f $(BUILD_COOKIE) $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@cd $(CURDIR) && make --no-print-directory build
+endif
+
 # reinstall:
 
 ifeq ($(filter $(override_targets),reinstall),)
@@ -2032,14 +2058,12 @@ endif
 ifeq ($(filter $(override_target),do-distclean),)
 do-distclean:
 ifeq ($(USE_ALTERNATIVE),yes)
-ifneq ($(USE_STICKY),yes)
 ifeq ($(FORCE_ALTERNATIVE_REMOVE),yes)
 	@if [ -h $(ALTERNATIVE_WRKSRC) ]; then				\
 	    rm $(ALTERNATIVE_WRKSRC);					\
 	elif [ -d $(ALTERNATIVE_WRKSRC) ]; then				\
 	    rm -fr $(ALTERNATIVE_WRKSRC);				\
 	fi
-endif
 endif
 endif
 	@if [ -d $(WRKDIR) ]; then					\
@@ -2053,11 +2077,11 @@ endif
 endif
 
 ifeq ($(filter $(override_targets),distclean),)
-distclean: pre-distclean
-ifneq ($(NOCLEANDEPENDS),yes)
-	@cd $(MASTERDIR) && $(MAKE) --no-print-directory $(__softMAKEFLAGS) distclean-depends
-endif
-	@cd $(MASTERDIR) && $(MAKE) --no-print-directory $(__softMAKEFLAGS) do-distclean
+distclean: do-distclean
+#ifneq ($(NOCLEANDEPENDS),yes)
+#	@cd $(MASTERDIR) && $(MAKE) --no-print-directory $(__softMAKEFLAGS) distclean-depends
+#endif
+#	@cd $(MASTERDIR) && $(MAKE) --no-print-directory $(__softMAKEFLAGS) do-distclean
 endif
 
 #--- really-distclean:
@@ -2153,9 +2177,13 @@ $(TMPPLIST): generate-plist
 #- depend:
 #- tags:
 
+      endif
+#     End of inner-makefile section. (_INNERINCLUDED)
+
     endif
+#   End of post-makefile section. (_POSTMKINCLUDED)
+
   endif
-# End of post-makefile section.
 
 #endif
 # End of the DESTDIR if statement

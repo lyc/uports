@@ -43,9 +43,11 @@ categories_all_lists	=						\
 	www x11 x11-clocks x11-drivers x11-fm x11-fonts x11-servers	\
 	x11-themes x11-toolkits x11-wm xfce zope base
 
+suffix_special_all	= package-source
 suffix_all_lists	=						\
 	fetch extract patch configure build stage package install	\
-	clean distclean deinstall uninstall
+	clean distclean deinstall uninstall rebuild restage reinstall	\
+	$(suffix_special_all)
 
 #
 # utilities ...
@@ -317,8 +319,16 @@ quiet_cmd_generate-port-target	?= PORT    $(call transform-port-string,$@)
 
 .PHONY: $(ports_target_all)
 depends_exclude_targets	+= $(ports_target_all)
-$(ports_target_all):
+
+$(filter-out $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
 	$(call cmd,generate-port-target)
+
+$(filter $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
+	@category=$(call get-category,$(call rm-group,$@));		\
+	port=$(call extract-port,$(call rm-group,$@));			\
+	suffix=$(call extract-suffix,$(call rm-group,$@));		\
+	envs="$(call get-envs,$@)";					\
+	make -C $(portdir)/$$category/$$port _INNERMKINCLUDE=no --no-print-directory $$envs $$suffix
 
 #
 # generate port.suffix target...
@@ -506,7 +516,7 @@ $(foreach g,$(groups_all), 						\
     $(call show-group-lists,$g)))
 
 info.ports.sep:
-	@$(echo) "                     ----  ---------------"
+	@$(echo) "                     ----  -----------------------------------------------"
 
 define show-port-lists
   show-port-list-$(subst @,-,$(subst /,-,$1)):
@@ -527,7 +537,9 @@ define show-port-lists
 	extra=$(filter $1,$(ports_all_group_extra));			\
 	suffix=`if [ -z "$$$$extra" ]; then				\
 	  $(echo) " [$$$$g$(AT)]"; fi`;					\
-	$(echo) "                     [$$$$flag$$$$status]: $$$$p$$$$suffix"
+	args="--no-print-directory BEFOREPORTMK=yes";			\
+	info=$$$$(make -C $(portdir)/$$$$p $$$$args package-info);	\
+	printf "                     [%s%s]: %s%s \t\t %s\n" "$$$$flag" "$$$$status" "$$$$p" "$$$$suffix" "$$$$info"
 
   info.ports.ports: show-port-list-$(subst @,-,$(subst /,-,$1))
 endef
@@ -536,8 +548,8 @@ $(foreach p,$(ports_all_group),						\
   $(eval								\
     $(call show-port-lists,$p)))
 
-depends_exclude_targets	+= info.ports
-info.ports: $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
+depends_exclude_targets	+= $(addsuffix .ports,i info)
+$(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
 
 #
 # info.pc ...
@@ -566,8 +578,8 @@ endif
 
 PA			?= --list-all | sort
 
-depends_exclude_targets	+= info.pc
-info.pc:
+depends_exclude_targets	+= $(addsuffix .pc,i info)
+$(addsuffix .pc,i info):
 ifneq ($(PKG_CONFIG),)
 ifneq ($(PKGCONFIG_CMD),)
 ifneq ($(wildcard $(PKG_CONFIG)),)
@@ -666,5 +678,5 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	    $(echo) "-------------------------------------------------";\
 	fi
 
-depends_exclude_targets	+= info.debug
-info.debug: $(addprefix info.debug.,$(debug_targets))
+depends_exclude_targets	+= $(addsuffix .debug,i info)
+$(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))
