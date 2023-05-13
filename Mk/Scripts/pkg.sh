@@ -119,9 +119,6 @@ do_add() {
     else
 	echo >&2 "Unsupported pkg format" ; exit 1
     fi
-    plist=${db}/${name}-pkg-plist.${ext}
-    txz=`mktemp --suffix=$name.txz`
-
 #    echo pver=$pver
 #    echo name=$name
 #    echo ver=$ver
@@ -132,6 +129,13 @@ do_add() {
 #    echo ext=$ext
 #    echo sep=$sep
 #    echo p_start=$p_start
+
+    plist=${db}/${name}-pkg-plist.${ext}
+    case `uname -s` in
+        Darwin) txz=$(mktemp /tmp/tmp-XXXXXX)$name.txz;;
+        Linux) txz=$(mktemp --suffix=$name.txz);;
+    esac
+
 #    echo plist=$plist
 #    echo txz=$txz
 

@@ -91,10 +91,19 @@ check-if-options	:= $(strip					\
 #
 # ex:                                   ARCH    /         / OPSYS  / OPSYS_SUFX
 #                                       -------   -------   ------   ----------
-#   following from config.guess running on Debian and macOS system
+#   following from config.guess running on Debian and macOS(Intel) system
 #
 #   - x86_64-unknown-linux-gnu       => x86_64  / unknown / linux  / gnu
 #   - x86_64-apple-darwin17.7.0      => x86_64  / apple   / darwin / Mach-O
+#
+#   following from config.guess running macOS(Apple Silicom) system
+#
+#   - aarch64-apple-darwin21.6.0     => aarch64 / apple  / darwin /
+#   - fron uname -s                  => arm64
+#
+#   following from config.guess running on docker system (Debian 10)
+#
+#   - arch64-unknown-linux-gnu       => aarch64 / unknown / linux  / gnu
 #
 #   and following from toolchains which we met in some projects ever
 #
@@ -135,6 +144,11 @@ OPSYS			?= $(call triplet.kernel,$(CROSS_COMPILE))
 OPSYS_SUFX		?= $(call triplet.system,$(CROSS_COMPILE))
 else
 OPSYS			?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ifeq ($(OPSYS),darwin)
+ifeq ($(ARCH),arm64)
+ARCH			:= aarch64
+endif
+endif
 endif
 endif
 
