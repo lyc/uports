@@ -1,10 +1,12 @@
-# Ports collection:     openssl-1.0.0
+# Ports collection:     openssl
 # Date created:         2012/3/28
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= openssl
-DISTVERSION 		= 1.0.1
-DISTVERSIONSUFFIX	= g
+DISTVERSION 		= 1.1.1
+DISTVERSIONSUFFIX	= s
+PORTREVISION		= 2
+PORTEPOCH		= 1
 CATEGORIES 		= security
 MASTER_SITES		= http://www.openssl.org/%SUBDIR%/		\
 			  ftp://ftp.openssl.org/%SUBDIR%/		\
@@ -12,20 +14,12 @@ MASTER_SITES		= http://www.openssl.org/%SUBDIR%/		\
 MASTER_SITE_SUBDIR	= source
 DIST_SUBDIR		= $(DISTNAME)
 
-# just for test purpose
-#
-#PATCH_DIST_STRIP	= -p1
-#PATCH_SITES		+= http://git.alpinelinux.org/cgit/aports/plain/main/openssl/:padlock
-#PATCHFILES		+=						\
-#	0001-crypto-hmac-support-EVP_MD_CTX_FLAG_ONESHOT-and-set-.patch:padlock \
-#	0002-engines-e_padlock-backport-cvs-head-changes.patch:padlock \
-#	0003-engines-e_padlock-implement-sha1-sha224-sha256-accel.patch:padlock \
-#	0004-crypto-engine-autoload-padlock-dynamic-engine.patch:padlock
-
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= Secure Sockets Layer and cryptography libraries
 
 LICENSE			= OpenSSL SSLeay
+
+USES			= git:ownership
 
 ifneq ($(CROSS_COMPILE),)
   CONFIGURE_SCRIPT	:= Configure
@@ -42,17 +36,20 @@ ifneq ($(CROSS_COMPILE),)
 else
   CONFIGURE_SCRIPT	:= config
   ifeq ($(shell uname -s),Darwin)
-    ifeq ($(shell uname -m),x86_64)
       CONFIGURE_SCRIPT	:= Configure
+    ifeq ($(shell uname -m),x86_64)
       CONFIGURE_ARGS	+= darwin64-x86_64-cc
+    endif
+    ifeq ($(shell uname -m),arm64)
+      CONFIGURE_ARGS	+= darwin64-arm64-cc
     endif
   endif
 endif
-USE_REINPLACE		= yes
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --openssldir=$(PREFIX)/lib/ssl		\
-			   shared					\
-			   no-kbr5
+			   enable-rc5					\
+			   no-asm					\
+			   shared
 MAKE_ARGS		+= INSTALL_PREFIX="$(STAGEDIR)"
 
 #

@@ -3,7 +3,7 @@
 # Whom:			Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= webp
-DISTVERSION 		= 1.1.0
+DISTVERSION 		= 1.3.0
 CATEGORIES 		= graphics
 MASTER_SITES 		= http://downloads.webmproject.org/releases/webp/ \
 			  https://storage.googleapis.com/downloads.webmproject.org/releases/webp/
@@ -14,7 +14,7 @@ COMMENT 		= Google WebP image format conversion tool
 
 LICENSE			= BSD3CLAUSE
 
-USES			= libtool:keepla
+USES			= libtool
 ifeq ($(USE_SCM),git)
 SCM_PROTOCOL		= https://
 MASTER_SITES		:= chromium.googlesource.com

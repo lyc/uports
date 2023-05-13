@@ -7,7 +7,7 @@
 ./lib/libz.dylib
 ./lib/libz.a
 ./lib/libz.1.dylib
-./lib/libz.1.2.11.dylib
+./lib/libz.1.2.13.dylib
 ./lib
 ./include/zlib.h
 ./include/zconf.h

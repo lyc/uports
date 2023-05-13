@@ -3,14 +3,15 @@
 # Whom:                 Max Lee
 
 PORTNAME		= gmp
-DISTVERSION		= 5.0.2
+DISTVERSION		= 6.2.1
 PORTREVISION		= 0
 CATEGORIES		= devel
-MASTER_SITES		= ftp://ftp.gmplib.org/pub/gmp/
+MASTER_SITES		= https://gmplib.org/download/gmp/
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= The GNU Multiple Precision Arithmetic Library
 
+LICENSE			= LGPLv3 GPLv2
 
 # FIXME: should put this setting into project template makefile.
 # Assume we are trying to build a toolchain which config as $(CONFIGURE_TARGET),
@@ -22,7 +23,7 @@ override PREFIX		:= $(PREFIX)/tools
 endif
 endif
 
-USES			+= tar:bzip2 libtool:keepla
+USES			+= tar:xz libtool
 
 GNU_CONFIGURE		= yes
 ifneq ($(CONFIGURE_TARGET),)

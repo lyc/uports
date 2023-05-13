@@ -5,10 +5,10 @@
 ./share
 ./lib/pkgconfig/expat.pc
 ./lib/pkgconfig
-./lib/libexpat.dylib
+./lib/libexpat.so.1.8.10
+./lib/libexpat.so.1
+./lib/libexpat.so
 ./lib/libexpat.a
-./lib/libexpat.1.dylib
-./lib/libexpat.1.8.10.dylib
 ./lib/cmake/expat-2.5.0/expat.cmake
 ./lib/cmake/expat-2.5.0/expat-noconfig.cmake
 ./lib/cmake/expat-2.5.0/expat-config.cmake

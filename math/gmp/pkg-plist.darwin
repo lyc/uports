@@ -4,11 +4,12 @@
 ./share/info/dir
 ./share/info
 ./share
-./lib/libgmpxx.la
+./lib/pkgconfig/gmpxx.pc
+./lib/pkgconfig/gmp.pc
+./lib/pkgconfig
 ./lib/libgmpxx.dylib
 ./lib/libgmpxx.a
 ./lib/libgmpxx.4.dylib
-./lib/libgmp.la
 ./lib/libgmp.dylib
 ./lib/libgmp.a
 ./lib/libgmp.10.dylib
