@@ -11,7 +11,7 @@ portdir			:= $(abspath $(call subdirectory,tools.mk)/..)
 include $(portdir)/Mk/linux.debug.mk
 
 # default target ...
-ports:
+all:
 
 #
 # global lists ...
@@ -196,6 +196,8 @@ ports_all_group_extra	= $(sort					\
 			    $(foreach g,$(ports_all_group),		\
 			      $(call filter-out-group-extra,$g)))
 
+# $(warning groups_all=$(groups_all))
+
 # $(call generate-groups-list, group)
 define generate-groups-lists
   groups_$1		= $(foreach p,$(filter $1$(AT)%,		\
@@ -252,6 +254,29 @@ $(foreach g,$(groups_all),						\
 #
 # generate port_ggg_xxx_env variable...
 #
+
+define add-ports-env
+PORTS_ENVS		+= $1=$($1)
+endef
+
+ENVS_OPTS		= USE_GLOBALBASE DISTDIR_SITE PACKAGES_SITE	\
+			  USE_ALTERNATIVE FORCE_ALTERNATIVE_REMOVE
+
+$(if $(PORTS_ENVS),,							\
+  $(foreach v,$(ENVS_OPTS),						\
+    $(eval								\
+      $(if $($v),							\
+        $(call add-ports-env,$v)))))
+
+PORTS_$(PORTS_GROUP_DEFAULT)_ENVS	?=				\
+			$(strip						\
+			  PREFIX=$(PREFIX) DESTDIR=$(DESTDIR)		\
+			  $(if $(USE_ALTERNATIVE),			\
+			    ALTERNATIVE_WRKDIR=$(DESTDIR)$(PREFIX)/src))
+
+# $(warning PORTS_ENVS=$(PORTS_ENVS))
+# $(warning PORTS_$(PORTS_GROUP_DEFAULT)_ENVS=$(PORTS_$(PORTS_GROUP_DEFAULT)_ENVS))
+
 
 #  Listing below are extra envs will be appended into "port_ggg_xxx_env",
 #  1. $(PORTS_ENVS)
