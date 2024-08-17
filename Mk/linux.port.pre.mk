@@ -158,6 +158,7 @@ MASTERDIR		?= $(CURDIR)
 LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
+SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 
 ifeq ($(USE_XZ),yes)
 EXTRACT_SUFX 		?= .tar.xz
@@ -191,25 +192,18 @@ PKGDIR			?= $(MASTERDIR)
 
 PREFIX			?= $(LOCALBASE)
 
-PKG_SUFX		?= .txz
-ifneq ($(OPSYS_SUFX),)
-PKGREPOSITORYSUBDIR	?= $(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
-else
-PKGREPOSITORYSUBDIR	?= $(OPSYS)-$(ARCH)
-endif
-PKGREPOSITORY		?= $(PACKAGES)/$(PKGREPOSITORYSUBDIR)
-ifneq ($(wildcard $(PACKAGES)),)
-PKGFILE			?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
-else
-PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
-endif
-
 # generate all glboal links ...
 
-distfiles_NAME		:= DISTDIR
-global_link_all		= distfiles
-
 ifeq ($(USE_GLOBALBASE),yes)
+distfiles_NAME		:= DISTDIR
+packages_NAME		:= PACKAGES
+ifneq ($(DISTDIR_SITE),)
+global_link_all		+= distfiles
+endif
+ifneq ($(PACKAGES_SITE),)
+global_link_all		+= packages
+endif
+
 $(foreach d, $(global_link_all),					\
   $(eval								\
     $(if $($($d_NAME)_SITE),						\
@@ -218,7 +212,39 @@ $(foreach d, $(global_link_all),					\
       $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
 endif
 
-# 'generate all config files ...
+#'
+
+PKG_SUFX		?= .pkg
+PKG_COMPRESSION_FORMAT	?= $(patsubst .%,%,PKG_SUFX)
+ifneq ($(OPSYS_SUFX),)
+REPO_SUFX		?= -$(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
+else
+REPO_SUFX		?= -$(OPSYS)-$(ARCH)
+endif
+PKGREPOSITORYSUBDIR	?= All$(REPO_SUFX)
+PKGREPOSITORY		?= $(PACKAGES)/$(PKGREPOSITORYSUBDIR)
+ifneq ($(wildcard $(PACKAGES)),)
+_HAVE_PACKAGES		= yes
+PKGFILE			?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
+#PKGOLDFILE		?= $(PKGREPOSITORY)/$(PKGNAME).$(PKG_COMPRESSION_FORMAT)
+else
+PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
+endif
+WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
+#REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
+
+# $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
+
+# The "latest version" link -- $(PKGNAME) minus everthing after the last '-'
+PKGLATESTREPOSITORY	?= $(PACKAGES)/Latest$(REPO_SUFX)
+PKGBASE			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)
+PKGLATESTFILE		= $(PKGLATESTREPOSITORY)/$(PKGBASE)$(PKG_SUFX)
+#PKGOLDLATESTFILE	= $(PKGLATESTREPOSITORY)/$(PKGBASE).$(PKG_COMPRESSION_FORMAT)
+# Temporary workaround to be deleted once every supported version of FreeBSD
+# have a bootstrap which handles the pkg extension.
+PKGOLDSIGFILE		= $(PKGLATESTREPOSITORY)/$(PKGBASE).$(PKG_COMPRESSION_FORMAT).sig
+
+# generate all config files ...
 
 PATCHLIST_NAME		?= series
 PLIST_NAME		?= pkg-plist

@@ -36,9 +36,9 @@ post-patch:
 do-configure:
 
 pre-install:
-	@mkdir -p $(addprefix $(DESTDIR)$(PREFIX)/,lib/pkgconfig)
+	@mkdir -p $(addprefix $(STAGEDIR)$(PREFIX)/,lib/pkgconfig)
 
 post-install:
-	@cp $(WRKDIR)/$(PORTNAME).pc $(DESTDIR)$(PREFIX)/lib/pkgconfig
+	@cp $(WRKDIR)/$(PORTNAME).pc $(STAGEDIR)$(PREFIX)/lib/pkgconfig
 
 include $(PORTSDIR)/Mk/linux.port.post.mk

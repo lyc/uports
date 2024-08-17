@@ -46,6 +46,7 @@ EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
 PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(PKGNAME)
 CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(PKGNAME)
 BUILD_COOKIE		?= $(WRKDIR)/build._done.$(PKGNAME)
+STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
@@ -538,11 +539,20 @@ MAKE_ENV		+= SHELL=$(SH) NO_LINT=YES
 MAKE_FLAGS		?= -f
 MAKEFILE		?= Makefile
 MAKE_ENV		+= 						\
+	DESTDIR=$(STAGEDIR)						\
 	PREFIX=$(PREFIX) LOCALBASE=$(LOCALBASE) LIBDIR="$(LIBDIR)"	\
 	CC="$(CC)" CFLAGS="$(CFLAGS)"					\
 	CPP="$(CPP)" CPPFLAGS="$(CPPFLAGS)"				\
 	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"				\
 	LDFLAGS="$(LDFLAGS)"
+
+# stuff for stage ...
+
+STAGEDIR		?= $(WRKDIR)/stage
+
+QA_ENV			+=						\
+	STAGEDIR=$(STAGEDIR) PREFIX=$(PREFIX)				\
+	LOCALBASE=$(LOCALBASE) "STRIP=$(STRIP)" TMPPLIST=$(TMPPLIST)
 
 # stuff for install/deinstall/uninstall ...
 
@@ -559,6 +569,24 @@ PLIST			?= $(call config.lookup,$(PLIST_NAME))
 TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 
 # stuff for package ...
+
+PLIST_EXT		= $(patsubst					\
+			    $(patsubst					\
+			      %/work,%,$(WRKDIR))/pkg-plist.%,%,$(PLIST))
+
+ORIGIN			= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
+
+PKG_ENV			+=						\
+	STAGEDIR=$(STAGEDIR)						\
+	PKGNAME=$(PKGNAME)						\
+	VERSION=$(PKGVERSION)						\
+	ORIGIN=$(call ORIGIN,$(MASTERDIR))				\
+	PREFIX=$(PREFIX)						\
+	INDEX=$(CATEGORIES)						\
+	COMPRESS=XZ							\
+	EXT=$(PLIST_EXT)						\
+	PLIST=$(PLIST)							\
+	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #
 #
@@ -1077,6 +1105,36 @@ endif
 #- check-conflicts:
 
 #
+# Stage ...
+#
+
+quiet_cmd_stagedir	?=
+      cmd_stagedir	?= set -e;					\
+	[ -d $(STAGEDIR)$(PREFIX) ] || mkdir -p $(STAGEDIR)$(PREFIX);
+
+ifeq ($(filter $(override_targets),stage-dir),)
+stage-dir:
+	$(call cmd,stagedir)
+endif
+
+quiet_cmd_stageqa	?= STAGE-QA $(PKGNAME)
+      cmd_stageqa	?= set -e;					\
+	$(SETENV) $(QA_ENV) $(SH) $(SCRIPTSDIR)/qa.sh
+
+ifeq ($(filter $(override_targets),makeplist),)
+makeplist: generate-plist
+endif
+
+ifeq ($(filter $(override_targets),check-plist),)
+check-plist: generate-plist
+endif
+
+ifeq ($(filter $(override_targets),stage-qa),)
+stage-qa:
+	$(call cmd,stageqa)
+endif
+
+#
 # Install...
 #
 
@@ -1086,49 +1144,132 @@ quiet_cmd_run-install	?=
       cmd_run-install	?= set -e;					\
 	(cd $(INSTALL_WRKSRC) &&					\
 	    $(SETENV) $(MAKE_ENV) $(MAKE) $(MAKE_FLAGS) $(MAKEFILE)	\
-	    $(MAKE_ARGS) $(INSTALL_TARGET))
+	    DESTDIR=$(STAGEDIR) $(MAKE_ARGS) $(INSTALL_TARGET))
 
 ifeq ($(filter $(override_targets),do-install),)
 do-install:
 	$(call cmd,run-install)
 endif
 
+fixup-lib-pkgconfig:
+
 #
 # Package...
 #
 
-quiet_cmd_run-package	?=
-      cmd_run-package	?= set -e;					\
-	if [ -d $(PACKAGES) ]; then					\
-	    [ -d $(PKGREPOSITORY) ] || mkdir -p $(PKGREPOSITORY);	\
-	fi;								\
-	os=`uname -s`;							\
-	if [ "$$os" = "Darwin" ]; then					\
-	    temp=`mktemp -d /tmp/tmp-$(PORTNAME).XXXXXX`;		\
-	else								\
-	    temp=`mktemp -d --suffix=$(PORTNAME)`;			\
-	fi;								\
-	$(PORTSDIR)/Tools/install-if-change				\
-	    -b $(DESTDIR)$(PREFIX) -p $(PLIST) $$temp;			\
-	(cd $$temp && tar Jcf $(PKGFILE) *);				\
-	$(kecho) "  PACKAGE $(PKGNAME)";				\
-	rm -fr $$temp
+MKDIR			?= /bin/mkdir -p
+LN			?= ln
 
-ifeq ($(filter $(override_targets),do-package),)
-do-package:
-	$(call cmd,run-package)
+#$(_PORTS_DIRECTORIES):
+$(WRKDIR)/pkg:
+	@$(MKDIR) $@
+
+$(PKGREPOSITORY):
+	@$(MKDIR) $@
+
+_PORTS_DIRECTORIES	+= $(WRKDIR)/pkg
+
+ifeq ($(_HAVE_PACKAGES),yes)
+_EXTRA_PACKAGE_TARGET_DEP	+= $(PKGFILE)
+_PORTS_DIRECTORIES	+= $(PKGREPOSITORY)
+
+quiet_cmd_copy-package	?=
+      cmd_copy-package	?= set -e;					\
+	if [ -d $(PACKAGES) ]; then					\
+	    $(kecho) "  COPY    $(PKGNAME)";				\
+	    $(LN) -f $(WRKDIR_PKGFILE) $(PKGFILE) 2>/dev/null || cp -f $(WRKDIR_PKGFILE) $(PKGFILE); \
+	fi
+
+$(PKGFILE): $(WRKDIR_PKGFILE) $(PKGREPOSITORY)
+	$(call cmd,copy-package)
 endif
 
-#- package-links: delete-package-links
-#- delete-package-links:
-#- delete-package: delete-package-links
-#- delete-package-link-list:
-#- delete-package-list: delete-package-links-list
+# from here this will become a loop for subpackages
+quiet_cmd_wrkdir-package?=
+      cmd_wrkdir-package?= set -e;					\
+	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create
+
+$(WRKDIR_PKGFILE): $(WRKDIR)/pkg
+	$(call cmd,wrkdir-package)
+
+_EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
+# This will be the end of the loop
+
+ifeq ($(filter $(override_targets),do-package),)
+do-package: $(_EXTRA_PACKAGE_TARGET_DEP) $(WRKDIR)/pkg
+endif
+
+quiet_cmd_delete-package?= DELETE  $(PKGNAME)
+      cmd_delete-package?= set -e;					\
+	rm -fr $(PACKAGE_COOKIE);					\
+	rm -fr "$(PKGFILE)" "$(WRKDIR_PKGFILE)" 2>/dev/null || :
+
+ifeq ($(filter $(override_targets),delete-package),)
+delete-package:
+	$(call cmd,delete-package)
+endif
+
+ifeq ($(filter $(override_targets),delete-package-list),)
+delete-package-list:
+	@echo "[ -f $(PKGFILE) ] && (echo deleting $(PKGFILE); rm $(PKGFILE))"
+endif
+
+ifeq ($(PORTS_VERBOSE),1)
+_INSTALL_PKG_ARGS=
+else
+_INSTALL_PKG_ARGS= -q
+endif
+
+quiet_cmd_install-package?= PKG ADD $(PKGNAME)
+      cmd_install-package?= set -e;					\
+	if [ -f "$(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)" ]; then		\
+	    _pkgfile="$(WRKDIR_PKGFILE)";				\
+	else								\
+	    _pkgfile="$(PKGFILE)";					\
+	fi;								\
+	$(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $${_pkgfile}
+
+ifneq ($(DESTDIR),)
+ifeq ($(filter $(override_targets),install-package),)
+install-package:
+	$(call cmd,install-package)
+endif
+endif
+
 
 # Utility targets follow
 
-#- install-mtree
+cai_msg0="  You may wish to \`\`make deinstall'' and install this port again"
+cai_msg1="  by \`\`make reinstall'' to upgrade it properly."
+cai_msg2="  If you really wish to overwrite the old port of ${PKGBASE}"
+cai_msg3="  without deleting it first, set the variable \"FORCE_PKG_REGISTER\""
+cai_msg4="  in your environment or the \"make install\" command line."
+
+quiet_cmd_check-already-installed?=
+      cmd_check-already-installed?= set -e;				\
+	pkgname=`$(SCRIPTSDIR)/pkg.sh info -q -O $(PKGBASE)`;		\
+	if [ -n "$$pkgname" ]; then					\
+	    v=`$(SCRIPTSDIR)/pkg.sh version -t $$pkgname $(PKGNAME)`;	\
+	    if [ "$$v" = "<" ]; then					\
+	        $(kecho) "  ===>    An older version of $(PKGBASE) is already installed ($${pkgname})"; \
+	    else							\
+	        $(kecho) "  ===>    $(PKGNAME) is already installed";	\
+	    fi;								\
+	    $(kecho) $(cai_msg0);					\
+	    $(kecho) $(cai_msg1);					\
+	    $(kecho) $(cai_msg2);					\
+	    $(kecho) $(cai_msg3);					\
+	    $(kecho) $(cai_msg4);					\
+	fi
+
+ifeq ($(filter $(override_targets),check-already-installed),)
 check-already-installed:
+ifneq ($(DESTDIR),)
+	$(call cmd,check-already-installed)
+endif
+endif
+
+#- install-mtree
 install-ldconfig-file:
 security-check:
 
@@ -1144,124 +1285,200 @@ security-check:
 # Please note that the order of the following targets is important, and
 # should not be modified.
 
-_SANITY_SEQ		= pre-everything				\
-			  check-categories check-license
+_TARGET_STAGES		= SANITY PKG FETCH EXTRACT PATCH CONFIGURE	\
+			  BUILD STAGE INSTALL PACKAGE
 
+# Define the SEQ of actions to take when each target is ran, and which targets
+# it depends on before running its SEQ.
+#
+# Main target has a priority of 500, pre-target 300, post-target 700,
+# target-depends 150.  Other targets are spaced in between those
+#
+# If you change the pre-foo and post-foo values here, go and keep them in sync
+# in _OPTIONS_TARGETS in bsd.options.mk
+
+_SANITY_SEQ		= 100:pre-everything				\
+			  250:check-categories 600:check-license
 _PKG_DEP		= check-sanity
-_PKG_SEQ		= pkg-depends
-
+_PKG_SEQ		= 500:pkg-depends
 _FETCH_DEP		= pkg
-_FETCH_SEQ		= fetch-depends					\
-			  pre-fetch pre-fetch-script			\
-			  do-fetch					\
-			  post-fetch post-fetch-script
-
+_FETCH_SEQ		= 100:fetch-depends				\
+			  300:pre-fetch 450:pre-fetch-script		\
+			  500:do-fetch					\
+			  700:post-fetch 850:post-fetch-script
 _EXTRACT_DEP		= fetch
-_EXTRACT_SEQ		= extract-message				\
-			  checksum					\
-			  extract-depends				\
-			  pre-extract pre-extract-script		\
-			  do-extract					\
-			  post-extract post-extract-script
-_EXTRACT_LINK		= post-extract-script
-_EXTRACT_NEXT		= ask-license
-
+_EXTRACT_SEQ		= 050:extract-message				\
+			  100:checksum					\
+			  150:extract-depends				\
+			  300:pre-extract 450:pre-extract-script	\
+			  500:do-extract				\
+			  700:post-extract 850:post-extract-script
 _PATCH_DEP		= extract
-_PATCH_SEQ		= ask-license					\
-			  patch-message					\
-			  patch-depends					\
-			  pre-patch pre-patch-script			\
-			  do-patch					\
-			  post-patch post-patch-script
-_PATCH_LINK		= post-patch-script
-_PATCH_NEXT		= build-depends
-
+_PATCH_SEQ		= 050:ask-license				\
+			  100:patch-message				\
+			  150:patch-depends				\
+			  300:pre-patch 450:pre-patch-script		\
+			  500:do-patch					\
+			  700:post-patch 850:post-patch-script
 _CONFIGURE_DEP 		= patch
-_CONFIGURE_SEQ		= build-depends lib-depends			\
-			  configure-message				\
-			  run-autotools-fixup configure-autotools	\
-			  pre-configure pre-configure-script		\
-			  run-autotools					\
-			  do-configure					\
-			  post-configure post-configure-script
-_CONFIGURE_LINK		= post-configure-script
-_CONFIGURE_NEXT		= build-message
-
+_CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\
+			  200:configure-message				\
+			  300:pre-configure 450:pre-configure-script	\
+			  490:run-autotools-fixup			\
+			  491:configure-autotools 492:run-autotools	\
+			  500:do-configure				\
+			  700:post-configure 850:post-configure-script
 _BUILD_DEP		= configure
-_BUILD_SEQ		= build-message					\
-			  pre-build pre-build-script			\
-			  do-build					\
-			  post-build post-build-script
-_BUILD_LINK		= post-build-script
-_BUILD_NEXT		= install-message
-
-_INSTALL_DEP		= build
-_INSTALL_SEQ		= install-message				\
-			  run-depends lib-depends			\
-			  pre-install pre-install-script		\
-			  check-already-installed			\
-			  do-install					\
-			  install-license				\
-			  post-install post-install-script		\
-			  install-ldconfig-file				\
-			  security-check
-_INSTALL_LINK		= security-check
-_INSTALL_NEXT		= package-message
-
-_PACKAGE_DEP		= install
-_PACKAGE_SEQ		= package-message				\
-			  pre-package pre-package-script		\
-			  do-package					\
-			  post-package post-package-script
-_PACKAGE_LINK		= post-package-script
-_PACKAGE_NEXT		=
-
-cookie_targets		:=						\
-	extract patch configure build install package
-
-embellish_targets	:=						\
-	$(patsubst %,pre-%,fetch $(cookie_targets))			\
-	$(patsubst %,post-%,fetch $(cookie_targets))
-
-embellish_script_targets:=						\
-	$(patsubst %,%-script,$(embellish_targets))
-
-ifeq ($(filter $(override_targets),check-sanity),)
-check-sanity: $(_SANITY_SEQ)
+_BUILD_SEQ		= 100:build-message				\
+			  300:pre-build 450:pre-build-script		\
+			  500:do-build					\
+			  700:post-build 850:post-build-script
+_STAGE_DEP		= build
+# STAGE is special in its numbering as it has install and stage, so install is
+# the main, and stage goes after.
+_STAGE_SEQ		= 50:stage-message 100:stage-dir 150:run-depends\
+			  300:pre-install 450:pre-install-script	\
+			  500:do-install				\
+			  600:fixup-lib-pkgconfig			\
+			  700:post-install 750:post-install-script	\
+			  800:post-stage				\
+			  870:install-ldconfig-file			\
+			  880:install-license
+ifdef DEVELOPER
+_STAGE_SEQ		+= 995:stage-qa
+else
+stage-qa: stage
 endif
+_INSTALL_DEP		= stage
+_INSTALL_SEQ		= 100:install-message				\
+			  200:check-already-installed			\
+			  500:security-check
+_PACKAGE_DEP		= stage
+_PACKAGE_SEQ		= 100:package-message				\
+			  300:pre-package 450:pre-package-script	\
+			  500:do-package				\
+			  700:post-package 850:post-package-script
 
-ifeq ($(filter $(override_targets),pkg),)
-pkg: $(_PKG_DEP) $(_PKG_SEQ)
-endif
+# Enforce order for -jN builds
 
-ifeq ($(filter $(override_targets),fetch),)
-fetch: $(_FETCH_DEP) $(_FETCH_SEQ)
-endif
+# step 1.
+#              +---------> TARGET_ORDER_OVERRIDES --------->+
+#              | (replace directly if existed, didn't sort) |
+#  _XXX_SEQ ----------------------------------------------------> _XXX_REAL_SEQ
 
-# Main logick. The loop gererates 6 main targets and using cookies
-# ensures that those already completed are skipped.
+# $(call rm-order, order:target)
+rm-order		= $(lastword $(subst :, ,$1))
+# $(call rm-seq-order, _XXX_SEQ)
+rm-seq-order		= $(foreach t,$1,$(call rm-order,$t))
 
-# $(call uppercase-target target)
+# $(call init-setup-depend, STAGE)
+define init-setup-depend-1
+_$1_REAL_SEQ		:=
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(eval								\
+    $(call init-setup-depend-1,$s)))
+
+#(call filter-overrides, order:target, TARGET_ORDER_OVERRIDES)
+filter-overrides	= $(if						\
+			    $(filter					\
+			      $(call rm-order,$1),			\
+			      $(call rm-seq-order,$2)),			\
+			    $(filter %:$(call rm-order,$1),$2),		\
+			    $1)
+
+# $(call regenerate-order-seq, STAGE, override-checked-order:target)
+define regenerate-order-seq
+_$1_REAL_SEQ		:= $(_$1_REAL_SEQ) $2
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(foreach t,$(_$s_SEQ),						\
+    $(eval								\
+      $(call regenerate-order-seq,$s,					\
+        $(call filter-overrides,$t,$(TARGET_ORDER_OVERRIDES))))))
+
+# setp 2.
+#
+# sort(_XXX_REAL_SEQS) ===> seq[0..n]
+#
+#  *) _PHONY_TARGETS += seq[0..n]
+#  *) make seq[0..n] dependence      seq[1]: seq[0]
+#   )                        seq[2]: seq[1]
+#   )                seq[3]: seq[2]
+#   )          ...
+#   )      seq[n]: seq[n-1]
+
+# $(call get-real-seqs, STAGE)
+get-real-seqs		= $(call rm-seq-order,$(sort $(_$1_REAL_SEQ)))
+# $(call first-seq, STAGE)
+first-seq		= $(firstword $(call get-real-seqs,$1))
+# $(call other-seqs, STAGE)
+other-seqs		= $(filter-out					\
+			    $(call first-seq,$1),$(call get-real-seqs,$1))
+
+# $(call init-setup-depend, STAGE, seq[0])
+define init-setup-depend-2
+_PHONY_TARGETS		+= $2
+_$1_IDX			:= $2
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(eval								\
+    $(call init-setup-depend-2,$s,$(call first-seq,$s))))
+
+
+# $(call setup-dependence, STAGE, seq[1..n])
+define setup-dependence
+_PHONY_TARGETS		+= $2
+$2: | $($1_IDX)
+
+_$1_IDX			:= $2
+endef
+
+$(foreach s,$(_TARGET_STAGES),						\
+  $(foreach t,$(call other-seqs,$s),					\
+    $(eval								\
+      $(call setup-dependence,$s,$t))))
+
+# Define all of the main targets which depend on a sequence of other targets.
+# See above *_SEQ and *_DEP. The _DEP will run before this defined target is
+# ran. The _SEQ will run as this target once _DEP is satisfied.
+
+_TARGET_TARGETS		= extract patch configure build stage install package
+
+# $(call uppercase-target, target)
 define uppercase-target
 $(strip									\
   $(if $(filter $1,extract),EXTRACT,					\
     $(if $(filter $1,patch),PATCH,					\
       $(if $(filter $1,configure),CONFIGURE,				\
         $(if $(filter $1,build),BUILD,					\
-          $(if $(filter $1,install),INSTALL,				\
-            $(if $(filter $1,package),PACKAGE)))))))
+          $(if $(filter $1,stage),STAGE,				\
+            $(if $(filter $1,install),INSTALL,				\
+              $(if $(filter $1,package),PACKAGE))))))))
 endef
 
-# $(call generate-cookie-targets, target, uppercase_target)
+#$(warning _EXTRACT_REAL_SEQ=$(call get-real-seqs,EXTRACT))
+#$(warning _PATCH_REAL_SEQ=$(_PATCH_REAL_SEQ))
+#$(warning _PATCH_REAL_SEQ=$(call get-real-seqs,PATCH))
+#$(warning _CONFIGURE_REAL_SEQ=$(call get-real-seqs,CONFIGURE))
+#$(warning _BUILD_REAL_SEQ=$(call get-real-seqs,BUILD))
+#$(warning _INSTALL_REAL_SEQ=$(call get-real-seqs,INSTALL))
+#$(warning _PACKAGE_REAL_SEQ=$(call get-real-seqs,PACKAGE))
+
+# $(call generate-cookie-targets, target, TARGET)
 define generate-cookie-targets
+_PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
 ifeq ($(wildcard $($2_COOKIE)),)
-ifneq ($($(patsubst %,_%_NEXT,$2)),)
-$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
-endif
-$($2_COOKIE): $($(patsubst %,_%_DEP,$2)) $($(patsubst %,_%_SEQ,$2))
+#ifneq ($($(patsubst %,_%_NEXT,$2)),)
+#$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
+#endif
+$($2_COOKIE): $(_$2_DEP) $(call get-real-seqs,$2)
 	@touch $($2_COOKIE)
 ifneq ($($2_LISTS),)
 	@echo $($2_LISTS) >> $($2_COOKIE)
@@ -1272,55 +1489,30 @@ $($2_COOKIE):
 endif
 endef
 
-$(foreach t,$(cookie_targets),						\
+$(foreach t,$(_TARGET_TARGETS),						\
   $(eval 								\
     $(call generate-cookie-targets,$t,$(call uppercase-target,$t))))
 
+#$(warning _SANITY_REAL_SEQ=$(SANITY_REAL_SEQ))
+#$(warning _SANITY_REAL_SEQ=$(call get-real-seqs,SANITY))
+#$(warning _PKG_REAL_SEQ=$(call get-real-seqs,PKG))
+#$(warning _FETCH_REAL_SEQ=$(call get-real-seqs,FETCH))
 
-# Enforce order for -jN builds
+.PHONY: $(_PHONY_TARGETS) check-sanity pkg fetch
 
-check-categories : pre-everything
-check-license : check-categories
-pkg-depends: check-license
-fetch-depends: pkg-depends
-pre-fetch: fetch-depends
-extract-message: post-fetch-script
-checksum: extract-message
-extract-depends: checksum
-pre-extract: extract-depends
-patch-message: ask-license
-patch-depends: patch-message
-pre-patch: patch-depends
-lib-depends: build-depends
-configure-message: lib-depends
-run-autotools-fixup: configure-message
-configure-autotools: run-autotools-fixup
-pre-configure: configure-autotools
-run-autotools: pre-configure-script
-do-configure: run-autotools
-pre-build: build-message
-run-depends: install-message
-pre-install: run-depends
-check-already-installed: pre-install-script
-do-install: check-already-installed
-install-license: do-install
-post-install: install-license
-install-ldconfig-file: post-install-script
-security-check: install-ldconfig-file
-pre-package: package-message
+ifeq ($(filter $(override_targets),check-sanity),)
+check-sanity: $(call get-real-seqs,SANITY)
+endif
 
-# $(call generate-cookie-targets-depends, target)
-define generate-cookie-targets-depends
-pre-$1-script: pre-$1
-do-$1: pre-$1-script
-post-$1: do-$1
-post-$1-script: post-$1
-endef
+ifeq ($(filter $(override_targets),pkg),)
+pkg: $(_PKG_DEP) $(call get-real-seqs,PKG)
+endif
 
-$(foreach t, fetch $(cookie_targets),					\
-  $(eval 								\
-    $(call generate-cookie-targets-depends,$t)))
+ifeq ($(filter $(override_targets),fetch),)
+fetch: $(_FETCH_DEP) $(call get-real-seqs,FETCH)
+endif
 
+#
 
 ifeq ($(USE_ALTERNATIVE),yes)
 ifeq ($(USE_STICKY),yes)
@@ -1343,12 +1535,18 @@ configure-message:
 	@$(kecho) "  CONFIGURE $(PKGNAME)"
 build-message:
 	@$(kecho) "  BUILD   $(PKGNAME)"
+stage-message:
+	@$(kecho) "  STAGE   $(PKGNAME)"
 install-message:
 	@$(kecho) "  INSTALL $(PKGNAME)"
 package-message:
 	@$(kecho) "  PACKAGE $(PKGNAME)"
 
 # Empty pre-* and post-* targets
+
+embellish_targets	:=						\
+	$(patsubst %,pre-%,fetch $(_TARGET_TARGETS))			\
+	$(patsubst %,post-%,fetch $(_TARGET_TARGETS))
 
 # $(call generate-embellish-targets target)
 define generate-embellish-targets
@@ -1361,6 +1559,9 @@ endef
 $(foreach t,$(embellish_targets),					\
   $(eval								\
     $(call generate-embellish-targets,$t)))
+
+embellish_script_targets:=						\
+	$(patsubst %,%-script,$(embellish_targets))
 
 # $(call generate-embellish-script-targets target)
 define generate-embellish-script-targets
@@ -1386,8 +1587,15 @@ $(foreach t,$(embellish_script_targets),				\
 
 ifeq ($(filter $(override_targets),reinstall),)
 reinstall:
-	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@rm -f $(INSTALL_COOKIE)
 	@cd $(CURDIR) && make install
+endif
+
+ifeq ($(filter $(override_targets),restage),)
+restage:
+	@rm -fr $(STAGEDIR) $(WRKDIR)/pkg
+	@rm -f $(STAGE_COOKIE) $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+	@cd $(CURDIR) && make stage
 endif
 
 # deinstall/uninstall
@@ -1397,29 +1605,23 @@ pre-deinstall:
 	@$(DO_NADA)
 endif
 
+quiet_cmd_deinstall?= UNINSTALL $(PKGBASE)
+      cmd_deinstall?= set -e;						\
+	if $(SCRIPTSDIR)/pkg.sh info -e $(PKGBASE); then		\
+	    p=`$(SCRIPTSDIR)/pkg.sh info -qO $(PKGBASE)`;		\
+	    $(kecho) "  UNINSTALL $$p";					\
+	    $(SCRIPTSDIR)/pkg.sh delete -fq $(PKGBASE);			\
+	else								\
+	    $(kecho) "  $(PKGBASE) not installed, skipping";		\
+	fi
+
 ifeq ($(filter $(override_targets),deinstall uninstall),)
 deinstall uninstall: pre-deinstall
-	@if [ -f $(PLIST) ]; then					\
-	    $(kecho) "  UNINSTALL $(PKGNAME)";				\
-	    for f in `cat $(PLIST)`; do					\
-	        case $$f in						\
-		.*)							\
-		    prefix=$(DESTDIR)$(PREFIX);				\
-		    realname=$$f;;					\
-	        @rmdir*)						\
-	            ;;							\
-		esac;							\
-	        if [ -f $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-		elif [ -h $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-		elif [ -c $$prefix/$$realname ]; then			\
-	            rm -fr $$prefix/$$realname;				\
-	        fi;							\
-	    done;							\
-	fi
-	@rm -f $(INSTALL_COOKIE) $(PACKAGE_COOKIE)
+ifneq ($(DESTDIR),)
+	$(call cmd,deinstall)
+	@rm -f $(INSTALL_COOKIE)
 #	@cd $(MASTERDIR) && $(MAKE) $(__softMAKEFLAGS) run-ldconfig
+endif
 endif
 
 # clean
@@ -1556,15 +1758,11 @@ endif
 quiet_cmd_generate-plist?= GEN     $(TMPPLIST)
       cmd_generate-plist?= set -e;					\
 	if [ -f $(BUILD_COOKIE) ]; then					\
-	    tmpdir=/tmp/$(PKGNAME);					\
-	    if [ -d $$tmpdir ]; then rm -fr $$tmpdir; fi; 		\
-	    cd $(CURDIR) &&						\
-                $(MAKE) DESTDIR=$$tmpdir PREFIX=$(PREFIX) post-install >/dev/null; \
-	    cd $$tmpdir$(PREFIX) &&					\
+	    cd $(STAGEDIR)/$(PREFIX) &&					\
                 find . | sort -r | $(SED) -e '/^\.$$/d' > $(TMPPLIST);	\
 	fi
 
-generate-plist:
+generate-plist: stage
 	$(call cmd,generate-plist)
 
 $(TMPPLIST): generate-plist
