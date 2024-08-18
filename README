@@ -7,3 +7,48 @@ What's uPorts
 - Target to clone this simple package manager from FreeBSD Ports system
 - We call this simple package manager as "uPorts" (mirco Ports) because
   it will be kept as simple as possible
+
+
+
+Branches History
+
+I. infra
+
+- first implementation of six Ports main targets:
+
+  (fetch)
+  extract patch configure build install package
+
+II. infra2
+
+- Align main targets to recent FreeBSD Ports system, including:
+
+  1. add new STAGE related targets
+  2. add new simple package utility
+  3. re-implement PACKAGE and INSTALL related targets
+
+- Suggest test sequence
+
+  make stage; make check-plist; make stage-qa; make package
+  env DESTDIR=~/local make install-package
+  env DESTDIR=~/local make install
+  env DESTDIR=~/local make deinstall
+  env DESTDIR=~/local make install
+  make distclean
+  make delete-package
+
+- Note
+
+  1. At this moment, package actually install by "install-package"
+     target, not by "install" target.
+  2. "install" target only check package already installed or not.
+
+III. tools
+
+Compare with "Flavors" are a way to have multiple variations of a port,
+tools.mk try to add "Groups" support, which
+
+- Allow group multiple uports package into many groups
+- Each uports group able to set its own DESTDIR and PREFIX, etc...
+- A wrapping make targets, which form like "group@uports.build", are
+  provided for easy usage
