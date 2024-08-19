@@ -1765,7 +1765,17 @@ _STAGE_SEQ		+= 995:stage-qa
 else
 stage-qa: stage
 endif
+
+# $(warning PKGFILE=$(wildcard $(PKGFILE)))
+ifneq (,$(wildcard $(PKGFILE)))
+ifneq ($(FORCE_REBUILD),yes)
+_INSTALL_DEP		= patch
+else
 _INSTALL_DEP		= package
+endif
+else
+_INSTALL_DEP		= package
+endif
 _INSTALL_SEQ		= 100:install-message				\
 			  200:check-already-installed			\
 			  500:security-check
