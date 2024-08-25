@@ -916,7 +916,9 @@ TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 # $(call config.ext,$(WRKDIR),$(PLIST))
 config.ext		= $(patsubst					\
 			    $(patsubst					\
-			      %/work$(TYPE_SUFFIX),%,$1)/pkg-plist.%,%,$2)
+			      %/work$(TYPE_SUFFIX),%,$1)/pkg-plist%,%,$2)
+ext			= $(call config.ext,$(WRKDIR),$(PLIST))
+# $(warning ext=$(ext))
 
 # $(call get-port-origin,$(MASTERDIR))
 get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
@@ -929,7 +931,7 @@ PKG_ENV			+=						\
 	PREFIX=$(PREFIX)						\
 	INDEX=$(CATEGORIES)						\
 	COMPRESS=XZ							\
-	EXT=$(call config.ext,$(WRKDIR),$(PLIST))			\
+	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
