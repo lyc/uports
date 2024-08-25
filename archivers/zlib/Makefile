@@ -3,7 +3,7 @@
 # Whom:                 Max Lee <yowching.lee@gmail.com>
 
 PORTNAME 		= zlib
-DISTVERSION 		= 1.2.13
+DISTVERSION 		= 1.3.1
 CATEGORIES 		= archivers
 MASTER_SITES		= http://www.gzip.org/%SUBDIR%/			\
 			  http://www.zlib.net/
