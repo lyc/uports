@@ -1,0 +1,25 @@
+From cc96d6e141088c4b4c9057c7cb8db2e025e18d48 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Tue, 11 Feb 2025 18:53:02 +0800
+Subject: [PATCH] hardcode $(DESTDIR) patch
+
+---
+ Makefile.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index a919544..1b7547d 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -694,7 +694,7 @@ nodist_noinst_SCRIPTS = pre-inst-env bin/aclocal-$(APIVERSION) \
+ # configure substitutions in our text.
+ do_subst = ( sed \
+   -e "s,[@]configure_input[@],Generated from $$in; do not edit by hand.,g" \
+-  -e 's,[@]datadir[@],$(datadir),g' \
++  -e 's,[@]datadir[@],$(DESTDIR)$(datadir),g' \
+   -e 's,[@]amdir[@],$(amdir),g' \
+   -e 's,[@]bindir[@],$(bindir),g' \
+   -e 's,[@]docdir[@],$(docdir),g' \
+-- 
+2.30.2
+

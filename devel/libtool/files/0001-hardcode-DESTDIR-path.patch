@@ -1,0 +1,46 @@
+From b7e081c0ff6325e7c833a2da471f36cdb8c6ab6d Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Wed, 12 Feb 2025 18:21:30 +0800
+Subject: [PATCH] hardcode $(DESTDIR) path
+
+---
+ Makefile.in | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index c305f2d..8752394 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -720,9 +720,9 @@ LTDL_BOOTSTRAP_DEPS = \
+ ltdl_ac_aux_dir = `$(SCRIPT_ENV) $(extract_trace) AC_CONFIG_AUX_DIR $(srcdir)/libltdl/configure.ac`
+ configure_edit = $(bootstrap_edit) \
+ 	-e '/^\. /s|@auxscriptsdir\@|'$(abs_aux_dir)'|g' \
+-	-e 's|@aclocaldir\@|$(aclocaldir)|g' \
++	-e 's|@aclocaldir\@|$(DESTDIR)$(aclocaldir)|g' \
+ 	-e 's|@aux_dir\@|$(aux_dir)|g' \
+-	-e 's|@datadir\@|$(datadir)|g' \
++	-e 's|@datadir\@|$(DESTDIR)$(datadir)|g' \
+ 	-e 's|@EGREP\@|$(EGREP)|g' \
+ 	-e 's|@FGREP\@|$(FGREP)|g' \
+ 	-e 's|@GREP\@|$(GREP)|g' \
+@@ -730,14 +730,14 @@ configure_edit = $(bootstrap_edit) \
+ 	-e 's|@LN_S\@|$(LN_S)|g' \
+ 	-e "s|@ltdl_ac_aux_dir\@|$(ltdl_ac_aux_dir)|g" \
+ 	-e 's|@macro_dir\@|$(macro_dir)|g' \
+-	-e 's|@pkgauxdir\@|$(pkgauxdir)|g' \
++	-e 's|@pkgauxdir\@|$(DESTDIR)$(pkgauxdir)|g' \
+ 	-e 's|@pkgaux_files\@|$(pkgaux_scripts) $(pkgaux_data_files)|g' \
+ 	-e 's|@pkgaux_install_files\@|$(pkgaux_install_files)|g' \
+ 	-e 's|@pkgaux_parent_files\@|$(pkgaux_parent_files)|g' \
+-	-e 's|@pkgdatadir\@|$(pkgdatadir)|g' \
++	-e 's|@pkgdatadir\@|$(DESTDIR)$(pkgdatadir)|g' \
+ 	-e 's|@pkgltdl_files\@|$(pkgltdl_files)|g' \
+ 	-e 's|@pkgmacro_files\@|$(pkgmacro_files)|g' \
+-	-e 's|@prefix\@|$(prefix)|g' \
++	-e 's|@prefix\@|$(DESTDIR)$(prefix)|g' \
+ 	-e 's|@SED\@|$(SED)|g' \
+ 	-e 's|@srcdir\@|$(srcdir)|g'
+ 
+-- 
+2.30.2
+

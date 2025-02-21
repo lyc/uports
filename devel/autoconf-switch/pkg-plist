@@ -1,0 +1,8 @@
+./bin/ifnames
+./bin/autoupdate
+./bin/autoscan
+./bin/autoreconf
+./bin/autom4te
+./bin/autoheader
+./bin/autoconf
+./bin

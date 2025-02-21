@@ -1,0 +1,25 @@
+From 5f078ecf947936e695febe32d19bc76d5b3db823 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Fri, 7 Feb 2025 23:35:14 +0800
+Subject: [PATCH 1/2] change datadir location
+
+---
+ Makefile.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index c8d6425..8a1562f 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -195,7 +195,7 @@ am__make_running_with_option = \
+   test $$has_opt = yes
+ am__make_dryrun = (target_option=n; $(am__make_running_with_option))
+ am__make_keepgoing = (target_option=k; $(am__make_running_with_option))
+-pkgdatadir = $(datadir)/@PACKAGE@
++pkgdatadir = $(datadir)/@PACKAGE@@VERSION@
+ pkgincludedir = $(includedir)/@PACKAGE@
+ pkglibdir = $(libdir)/@PACKAGE@
+ pkglibexecdir = $(libexecdir)/@PACKAGE@
+-- 
+2.30.2
+

@@ -1,0 +1,27 @@
+From 803414556e1e0b791c1afecce3078b33b9308f01 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Tue, 11 Feb 2025 18:12:37 +0800
+Subject: [PATCH 2/2] hardcode $(DESTDIR) path
+
+---
+ Makefile.in | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index 8a1562f..f7c175d 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -554,8 +554,8 @@ edit = sed \
+ 	-e 's|@SHELL[@]|$(SHELL)|g' \
+ 	-e 's|@PERL[@]|$(PERL)|g' \
+ 	-e 's|@PERL_FLOCK[@]|$(PERL_FLOCK)|g' \
+-	-e 's|@bindir[@]|$(bindir)|g' \
+-	-e 's|@pkgdatadir[@]|$(pkgdatadir)|g' \
++	-e 's|@bindir[@]|$(DESTDIR)$(bindir)|g' \
++	-e 's|@pkgdatadir[@]|$(DESTDIR)$(pkgdatadir)|g' \
+ 	-e 's|@prefix[@]|$(prefix)|g' \
+ 	-e 's|@autoconf-name[@]|'`echo autoconf | sed '$(transform)'`'|g' \
+ 	-e 's|@autoheader-name[@]|'`echo autoheader | sed '$(transform)'`'|g' \
+-- 
+2.30.2
+
