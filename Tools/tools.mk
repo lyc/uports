@@ -613,6 +613,8 @@ merge			= $(shell echo					\
 
 PC_BASE			:= $($(PORTS_GROUP_DEFAULT)_DESTDIR)$($(PORTS_GROUP_DEFAULT)_PREFIX)
 
+export PKG_CONFIG_LIBDIR:= $(call merge,$(PC_BASE)/,/pkgconfig,$(pkgs))
+
 PKGCONFIG_ENVS			+=					\
 	PKG_CONFIG_LIBDIR=$(call merge,$(PC_BASE)/,/pkgconfig,$(pkgs))	\
 	PKG_CONFIG_SYSROOT_DIR=$($(PORTS_GROUP_DEFAULT)_DESTDIR)	\
