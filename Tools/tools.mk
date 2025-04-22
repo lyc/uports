@@ -37,12 +37,12 @@ generate-ports-lists	= $(shell find $1				\
 			                     -e '/^\.git.*/d')
 
 # find all port package inside $(feeds) folder, if provided...
-feeds_lists		= $(strip					\
-			    $(if $(feeds),				\
-			      $(call generate-ports-lists,$(feeds)),))
+feeds_lists		:= $(strip					\
+			     $(if $(feeds),				\
+			       $(call generate-ports-lists,$(feeds)),))
 
 # find all port packages inside $(portdir), override by $(feeds)...
-ports_lists		= $(filter-out					\
+ports_lists		:= $(filter-out					\
 			     $(feeds_lists),				\
 			     $(call generate-ports-lists,$(portdir)))
 
@@ -515,8 +515,8 @@ endif # USE_HOSTTOOLS
 tmpname			= tmp
 tmpdir			= $(portdir)/Tools/$(tmpname)
 
-echo			= $(shell which echo)
-pecho			= $(tmpdir)/pecho.$(shell uname -s)
+echo			:= $(shell which echo)
+pecho			:= $(tmpdir)/pecho.$(shell uname -s)
 
 $(pecho): $(portdir)/Tools/pecho.c
 	@mkdir -p $(@D)
