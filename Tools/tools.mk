@@ -10,6 +10,10 @@ portdir			:= $(abspath $(call subdirectory,tools.mk)/..)
 feeds			:= $(abspath $(FEEDS))
 
 include $(portdir)/Mk/linux.debug.mk
+include $(portdir)/Tools/group.mk
+ifneq ($(wildcard $(feeds)/group.mk),)
+include $(feeds)/group.mk
+endif
 
 # default target ...
 all:
@@ -36,15 +40,23 @@ generate-ports-lists	= $(shell find $1				\
 			                     -e '/^Tools.*/d'		\
 			                     -e '/^\.git.*/d')
 
+#$(call check-if-empty-folder, folder, list)
+check-if-empty-folder	= $(foreach p,$2,				\
+			    $(if $(wildcard $1/$p/Makefile),$p))
+
 # find all port package inside $(feeds) folder, if provided...
 feeds_lists		:= $(strip					\
 			     $(if $(feeds),				\
-			       $(call generate-ports-lists,$(feeds)),))
+			       $(call check-if-empty-folder,$(feeds),	\
+			         $(filter-out $(ignore_lists),		\
+			           $(call generate-ports-lists,$(feeds))))))
 
 # find all port packages inside $(portdir), override by $(feeds)...
 ports_lists		:= $(filter-out					\
 			     $(feeds_lists),				\
-			     $(call generate-ports-lists,$(portdir)))
+			     $(call check-if-empty-folder,$(portdir),	\
+			       $(filter-out $(default_ignore_lists),	\
+			         $(call generate-ports-lists,$(portdir)))))
 
 ports_all_raw_lists	= $(ports_lists) $(feeds_lists)
 
@@ -99,6 +111,14 @@ get-groups		= $(call rm-category,$(call rm-port,$1))
 
 # $(call rm-groups, [[group@]group@]category/port)
 rm-groups		= $(patsubst $(call get-groups,$1)%,%,$1)
+
+# $(call set-special-groups, group_lists, ports_list)
+set-special-groups	= $(strip					\
+			    $(foreach g,$1,				\
+			      $(foreach p,$($(g)_lists),		\
+			        $(if $(filter $p,$2),$(g)@$(p))))	\
+			    $(filter-out				\
+			      $(sort $(foreach g,$1,$($(g)_lists))),$2))
 
 # $(call complete-group-default, [group@[group@]]category/port, group)
 complete-group-default	= $(strip					\
@@ -205,10 +225,13 @@ $(foreach c,$(ports_all),						\
 
 PORTS_GROUP_DEFAULT	?= host
 
-ports_all_group		= $(foreach p,					\
-			    $(if $(PORTS_LISTS),$(PORTS_LISTS),		\
-			     $(ports_all_raw)),$(call complete-group-default,\
-			       $p,$(PORTS_GROUP_DEFAULT)))
+ports_all_group		= $(strip					\
+			    $(foreach p,				\
+			      $(if $(PORTS_LISTS),$(PORTS_LISTS),	\
+			        $(call set-special-groups,		\
+			          $(special_groups_all),$(ports_all_raw))),\
+			      $(call complete-group-default,		\
+			        $p,$(PORTS_GROUP_DEFAULT))))
 
 groups_all		= $(sort					\
 			    $(foreach p,$(ports_all_group),		\
@@ -281,8 +304,7 @@ define add-ports-env
 PORTS_ENVS		+= $1=$($1)
 endef
 
-ENVS_OPTS		= USE_GLOBALBASE DISTDIR_SITE PACKAGES_SITE	\
-			  USE_ALTERNATIVE FORCE_ALTERNATIVE_REMOVE
+ENVS_OPTS		= USE_GLOBALBASE DISTDIR_SITE PACKAGES_SITE
 
 $(if $(PORTS_ENVS),,							\
   $(foreach v,$(ENVS_OPTS),						\
@@ -290,16 +312,34 @@ $(if $(PORTS_ENVS),,							\
       $(if $($v),							\
         $(call add-ports-env,$v)))))
 
-PORTS_$(PORTS_GROUP_DEFAULT)_ENVS	?=				\
-			$(strip						\
-			  PORTSDIR=$(portdir)				\
-			  PREFIX=$(PREFIX) DESTDIR=$(DESTDIR)		\
-			  $(if $(USE_ALTERNATIVE),			\
-			    ALTERNATIVE_WRKDIR=$(DESTDIR)$(PREFIX)/src))
+PORTS_host_ENVS		:= $(strip					\
+			     PORTSDIR=$(portdir)			\
+			     PREFIX=$(PREFIX) DESTDIR=$(DESTDIR))
+PORTS_bs_ENVS		:= $(PORTS_host_ENVS) FORCE_REBUILD=yes
+
+ifneq ($(PORTS_GROUP_DEFAULT),host)
+PORTS_$(PORTS_GROUP_DEFAULT)_ENVS	+=				\
+			   $(strip					\
+			     PORTSDIR=$(portdir)			\
+			     PREFIX=$(PREFIX)				\
+			     DESTDIR=$(DESTDIR)/$(PORTS_GROUP_DEFAULT)	\
+			     $(if $(USE_ALTERNATIVE),			\
+			       USE_ALTERNATIVE=$(USE_ALTERNATIVE),	\
+			       USE_ALTERNATIVE=yes)			\
+			     $(if $(ALTERNATIVE_WRKDIR),		\
+			       ALTERNATIVE_WRKDIR=$(ALTERNATIVE_WRKDIR),\
+			       ALTERNATIVE_WRKDIR=$(DESTDIR)/$(PORTS_GROUP_DEFAULT)/src))
+else
+PORTS_host_ENVS		+= ALTERNATIVE=yes				\
+			   ALTERNATIVE_WRKDIR=$(DESTDIR)/src
+endif
 
 # $(warning PORTS_ENVS=$(PORTS_ENVS))
+# $(warning PORTS_host_ENVS=$(PORTS_host_ENVS))
+# $(warning PORTS_bs_ENVS=$(PORTS_bs_ENVS))
+# ifneq ($(PORTS_GROUP_DEFAULT),host)
 # $(warning PORTS_$(PORTS_GROUP_DEFAULT)_ENVS=$(PORTS_$(PORTS_GROUP_DEFAULT)_ENVS))
-
+# endif
 
 #  Listing below are extra envs will be appended into "port_ggg_xxx_env",
 #  1. $(PORTS_ENVS)
@@ -461,7 +501,7 @@ ports: $(addsuffix .install,$(ports_all))
 # Host utilities check...
 #
 
-USE_HOSTTOOLS		?= $(PORTS_GROUP_DEFAULT)
+USE_HOSTTOOLS		?= host
 $(USE_HOSTTOOLS)_PREFIX	?= $(PREFIX)
 
 # extract every group's PREFIX and DESTDIR
@@ -677,6 +717,7 @@ endef
 $(foreach p,$(ports_all),$(eval $(call show-port-categories,$p)))
 
 info.debug.group:
+	@$(echo) "special_groups_all = $(special_groups_all)"
 	@$(echo) "PORTS_GROUP_DEFAULT = $(PORTS_GROUP_DEFAULT)"
 	@$(echo) "groups_all = $(groups_all)"
 	@$(echo) "ports_all_group = $(ports_all_group)"
