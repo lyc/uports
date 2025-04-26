@@ -3,17 +3,14 @@
 # Whom:			Max Lee <yowching.lee@gmail.com>
 
 PORTNAME		= libtool
-DISTVERSION		= 2.5.4
-CATEGORIES		= devel
-MASTER_SITES		= $(MASTER_SITE_GNU)
-MASTER_SITE_SUBDIR	= $(PORTNAME)
+PORTREVISION		= 0
 
-MAINTAINER		= yowching.lee@gmail.com
-COMMENT			= GNU Standard-compliant Makefile generator
+COMMENT			= Generic shared library support script
+
+include                 $(CURDIR)/../libtool/Makefile.common
 
 LICENSE			= GPLv2+
-
-USES			= tar:xz
+LICENSE_FILE		= $(WRKSRC)/COPYING
 
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		= --disable-ltdl-install

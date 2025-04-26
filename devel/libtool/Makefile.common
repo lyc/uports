@@ -1,0 +1,10 @@
+DISTVERSION		= 2.5.4
+CATEGORIES		= devel
+MASTER_SITES		= $(MASTER_SITE_GNU)
+MASTER_SITE_SUBDIR	= $(PORTNAME)
+
+MAINTAINER		= yowching.lee@gmail.com
+
+USES			= cpe tar:xz
+
+CPE_VENDOR              = gnu
