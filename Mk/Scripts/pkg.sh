@@ -68,7 +68,7 @@ do_create() {
 
 do_add() {
     local rc destdir db
-    local quiet pkgname
+    local quiet strip pkgname
     local pver name ver path prefix index compress ext sep p_start plist txz
 
     rc=0
@@ -80,17 +80,20 @@ do_add() {
 #    echo db=$db
 
     quiet=
+    strip=
     pkgname=
 
-    while getopts oq OPT
+    while getopts pq OPT
     do
         case "$OPT" in
             q) eval quiet=1 ;;
-            *) echo >&2 "Usage: pkg add [ -q ] pkgname"; exit 1 ;;
+            p) eval strip=1 ;;
+            *) echo >&2 "Usage: pkg add [ -pq ] pkgname"; exit 1 ;;
         esac
     done
 
 #    echo quiet=$quiet
+#    echo strip=$strip
 
 #    echo OPTIND=$OPTIND
     if [ $OPTIND -gt 1 ]; then
@@ -101,7 +104,7 @@ do_add() {
 #    echo 0=$0
     pkgname=$1
     if [ -z "$pkgname" ]; then
-	echo "Usage: $0 add [ -q ] {pkgname} " ; exit 1
+	echo "Usage: $0 add [ -pq ] {pkgname} " ; exit 1
     fi
 #    echo pkgname=$pkgname
 
@@ -119,6 +122,11 @@ do_add() {
     else
 	echo >&2 "Unsupported pkg format" ; exit 1
     fi
+
+    if [ ! -z "$strip" ]; then
+        prefix=/
+    fi
+
 #    echo pver=$pver
 #    echo name=$name
 #    echo ver=$ver
