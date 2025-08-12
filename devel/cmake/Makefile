@@ -29,7 +29,7 @@ pre-build:
 pre-install:
 	@cd $(WRKSRC) &&						\
 	mv cmake_install.cmake cmake_install.cmake.bak &&		\
-	sed -e 's|$(DESTDIR)$(PREFIX)|$(PREFIX)|'			\
+	sed -e '/set(CMAKE_INSTALL_PREFIX/s|$(DESTDIR)||'		\
 		< cmake_install.cmake.bak > cmake_install.cmake
 
 post-install:
