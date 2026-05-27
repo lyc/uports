@@ -12,6 +12,7 @@ include $(PORTSDIR)/Mk/linux.debug.mk
 LOCALBASE		?= /usr/local
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
+SCMDIR			?= $(PORTSDIR)/scm
 USESDIR			?= ${PORTSDIR}/Mk/Uses
 SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 STAGEDIR		?= $(WRKDIR)/stage
@@ -247,11 +248,15 @@ endef
 ifeq ($(USE_GLOBALBASE),yes)
 distfiles_NAME		:= DISTDIR
 packages_NAME		:= PACKAGES
+scm_NAME		:= SCMDIR
 ifneq ($(DISTDIR_SITE),)
 global_link_all		+= distfiles
 endif
 ifneq ($(PACKAGES_SITE),)
 global_link_all		+= packages
+endif
+ifneq ($(SCMDIR_SITE),)
+global_link_all		+= scm
 endif
 
 $(foreach d, $(global_link_all),					\
@@ -688,6 +693,17 @@ $(error Oops, you set multiple MASTER_SITES while using USE_SCM is set)
 endif
 
 SCM_REPO_URL		?= $(SCM_PROTOCOL)$(if $(SCM_USER),$(SCM_USER)@)$(MASTER_SITES)$(if $(SCM_PROTOCOL),,:)$(MASTER_SITE_SUBDIR)/$(SCM_REPO_PREFIX)$(PORTNAME)$(SCM_REPO_SUFFIX)
+
+SCM_CACHE		?= yes
+SCM_CACHE_UPDATE	?= yes
+SCM_CACHE_UPDATE_REQUIRED ?= no
+SCM_CACHE_NAME		?= $(shell printf '%s\n' '$(SCM_REPO_URL)' | $(SED) -e 's|^[A-Za-z][A-Za-z0-9+.-]*://||' -e 's|\.git$$||' -e 's|[:/@]|_|g' -e 's|[^A-Za-z0-9._-]|_|g')
+SCM_CACHE_REPO		?= $(SCMDIR)/git/$(SCM_CACHE_NAME).git
+SCM_RETRIEVE_TIMEOUT	?= 0
+SCM_TIMEOUT		?= $(SCM_RETRIEVE_TIMEOUT)
+SCM_TIMEOUT_BIN		?= $(shell command -v timeout 2>/dev/null)
+SCM_TIMEOUT_CMD		= $(if $(filter 0 no,$(SCM_TIMEOUT)),,$(if $(SCM_TIMEOUT_BIN),$(SCM_TIMEOUT_BIN) $(SCM_TIMEOUT),))
+SCM_FETCH_ENV		?= GIT_TERMINAL_PROMPT=0
 
 # $(warning SCM_REPO_URL=$(SCM_REPO_URL))
 endif
@@ -1152,6 +1168,21 @@ endif
 endif
 endif
 
+ifeq ($(filter $(override_targets),do-fetch),)
+ifneq ($(USE_SCM),)
+ifeq ($(USE_SCM),git)
+ifeq ($(SCM_CACHE),no)
+do-fetch:
+else
+do-fetch:
+	$(call cmd,git-cache-fetch)
+endif
+else
+do-fetch:
+endif
+endif
+endif
+
 #
 # Extract...
 #
@@ -1236,37 +1267,85 @@ else
 	$(call cmd,extract-only)
 endif
 
-#(call lookup-branch branches(ls-remote),branch)
-lookup-branch		= $(word 1,					\
-			    $(filter %$(2) $(2)%,			\
-			      $(patsubst refs/heads/%,%,$(1))))
-branches		:= $(shell $(SCM_LS_CMD) $(SCM_REPO_URL)	\
-			     2>/dev/null | grep "refs/heads")
-
 ifeq ($(USE_SCM),git)
+quiet_cmd_git-cache-fetch	?= GIT     $(DISTNAME)(mirror)
+      cmd_git-cache-fetch	?= set -e;				\
+	$(MKDIR) `dirname $(SCM_CACHE_REPO)`;				\
+	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
+	    $(kecho) "  GIT     $(DISTNAME)(mirror clone)";		\
+	    $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
+	        $(SCM_CMD) --mirror $(SCM_REPO_URL) $(SCM_CACHE_REPO);	\
+	else								\
+	    if [ "$(SCM_CACHE_UPDATE)" = "yes" ]; then			\
+	        $(kecho) "  GIT     $(DISTNAME)(mirror update)";	\
+	        if ! $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
+	            git -C $(SCM_CACHE_REPO) remote update --prune; then \
+	            if [ "$(SCM_CACHE_UPDATE_REQUIRED)" = "yes" ]; then \
+	                false;						\
+	            else						\
+	                $(kecho) "  WRN     $(DISTNAME) mirror update failed; using cached repository"; \
+	            fi;							\
+	        fi;							\
+	    fi;								\
+	fi
+
+quiet_cmd_git-check-cache-ref	?=
+      cmd_git-check-cache-ref	?= set -e;				\
+	if [ "$(SCM_CACHE)" = "no" ]; then				\
+	    exit 0;							\
+	fi;								\
+	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
+	    $(kecho) "  ERR     missing git cache: $(SCM_CACHE_REPO)";	\
+	    false;							\
+	fi;								\
+	if [ ! -z "$(SCM_DETACH)" ]; then				\
+	    if ! git -C $(SCM_CACHE_REPO) cat-file -e "$(SCM_DETACH)^{commit}" 2>/dev/null; then \
+	        $(kecho) "  ERR     cached repository does not contain $(SCM_DETACH)"; \
+	        false;							\
+	    fi;								\
+	fi
+
 quiet_cmd_git-clone	?=
       cmd_git-clone	?= set -e;					\
 	if [ ! -z "$(SCM_BRANCH)" ]; then				\
-	    if [ -z "$(branches)" ]; then				\
+	    if [ "$(SCM_CACHE)" = "no" ]; then				\
+	        branches=`$(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
+	            $(SCM_LS_CMD) $(SCM_REPO_URL) 2>/dev/null		\
+	            | grep "refs/heads" || true`;			\
+	    else							\
+	        branches=`git -C $(SCM_CACHE_REPO) for-each-ref	\
+	            --format='%(refname)' refs/heads 2>/dev/null	\
+	            | $(SED) -e 's|^|0000000000000000000000000000000000000000	|' || true`; \
+	    fi;								\
+	    if [ -z "$$branches" ]; then				\
 	        $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
 	        false;							\
 	    fi;								\
-	    if [ -z "$(SCM_BRANCH)" ]; then				\
-	        branch=$(call lookup-branch,$(branches),$(PORTVERSION),heads); \
-	    else							\
-	        branch=$(call lookup-branch,$(branches),$(SCM_BRANCH),heads); \
-	    fi;								\
+	    branch=`printf '%s\n' "$$branches"				\
+	        | awk -v want="$(SCM_BRANCH)"				\
+	            '{ name=$$2; sub("^refs/heads/", "", name);		\
+	               if (name == want || index(name, want)) { print name; exit } }'`; \
 	    if [ -z "$$branch" ]; then					\
 	        $(kecho) "  ERR     Can't find specific branch($$branch)"; \
 	        false;							\
 	    fi;								\
 	    cd $(WRKDIR);						\
 	    $(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
-	    $(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME);		\
+	    if [ "$(SCM_CACHE)" = "no" ]; then				\
+	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
+	            $(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME);	\
+	    else							\
+	        $(SCM_CMD) -b $$branch $(SCM_CACHE_REPO) $(DISTNAME);	\
+	    fi;								\
 	else								\
 	    cd $(WRKDIR);						\
 	    $(kecho) "  GIT     $(DISTNAME)";				\
-	    $(SCM_CMD) $(SCM_CMD_OPTS) $(SCM_REPO_URL) $(SCM_DEST);	\
+	    if [ "$(SCM_CACHE)" = "no" ]; then				\
+	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
+	            $(SCM_CMD) $(SCM_CMD_OPTS) $(SCM_REPO_URL) $(SCM_DEST); \
+	    else							\
+	        $(SCM_CMD) $(SCM_CACHE_REPO) $(SCM_DEST);		\
+	    fi;								\
 	    if [ ! -z "$(SCM_DETACH)" ]; then				\
 	        cd $(WRKSRC);						\
 	        git checkout --detach $(SCM_DETACH);			\
@@ -1280,6 +1359,7 @@ do-extract: $(EXTRACT_ONLY)
 else
 do-extract:
 ifeq ($(USE_SCM),git)
+	$(call cmd,git-check-cache-ref)
 	$(call cmd,git-clone)
 endif
 endif
