@@ -47,7 +47,8 @@ endif
 # If the user is running make -s (silent mode), suppress echoing of
 # commands
 
-ifneq ($(findstring s,$(MAKEFLAGS)),)
+makeflags_short := $(firstword $(filter-out --% %=%,$(MAKEFLAGS)))
+ifneq ($(findstring s,$(makeflags_short)),)
   quiet=silent_
 endif
 

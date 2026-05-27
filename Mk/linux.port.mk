@@ -595,9 +595,8 @@ FETCH_CMD		?= $(shell $(WHICH) wget 2>/dev/null)
 $(if $(FETCH_CMD),,							\
   $(error Ports need \"wget\" utility to get distfiles))
 
-# TODO: get the wget arguments to show progress without any verbose...
-       fetch_opts	=
- quiet_fetch_opts	= -q --progress=bar:force
+       fetch_opts	= --verbose --progress=bar:force
+ quiet_fetch_opts	= -q --show-progress --progress=bar:force
 silent_fetch_opts	= -q
 
 FETCH_REGET		?= 1
