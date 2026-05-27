@@ -797,16 +797,27 @@ endif
 
 # $(warning triplet=$(triplet))
 
+ifneq ($(LIB_DEPENDS),)
+CFLAGS			+= -I$(DESTDIR)$(PREFIX)/include
+LDFLAGS			+= $(addprefix -L$(DESTDIR)$(PREFIX)/,$(libdirs))
+endif
+
+ifeq ($(OPSYS),darwin)
+RPATH_DIRS		?= $(addprefix $(DESTDIR)$(PREFIX)/,$(libdirs))
+RPATH_LDFLAGS		= $(foreach d,$(RPATH_DIRS),-Wl,-rpath,$d)
+DARWIN_RPATH_LDFLAGS	?= -Wl,-not_for_dyld_shared_cache
+ifneq ($(USE_RPATH),no)
+LDFLAGS			+= $(DARWIN_RPATH_LDFLAGS)
+ifneq ($(LIB_DEPENDS),)
+LDFLAGS			+= $(RPATH_LDFLAGS)
+endif
+endif
+endif
+
 ifeq ($(GNU_CONFIGURE),yes)
 GUN_CONFIGURE_PREFIX	?= $(PREFIX)
 CONFIGURE_ARGS		+=						\
 	--prefix=$(GUN_CONFIGURE_PREFIX) $$_late_configure_args
-ifeq ($(LIB_DEPENDS),)
-CONFIGURE_ENV		+=
-else
-CONFIGURE_ENV		+= CFLAGS="-I$(DESTDIR)$(PREFIX)/include"	\
-			   LDFLAGS="$(addprefix -L$(DESTDIR)$(PREFIX)/,$(libdirs))"
-endif
 HAS_CONFIGURE		= yes
 
 # FIXME...
@@ -1550,6 +1561,42 @@ endif
 
 fixup-lib-pkgconfig:
 
+quiet_cmd_fixup-darwin-rpath	?= RPATH   $(PKGNAME)
+      cmd_fixup-darwin-rpath	?= set -e;				\
+	if [ "$(OPSYS)" != "darwin" ] || [ "$(USE_RPATH)" = "no" ]; then \
+	    exit 0;							\
+	fi;								\
+	dylibs="";							\
+	for d in $(addprefix $(STAGEDIR)$(PREFIX)/,$(libdirs)); do	\
+	    [ -d "$$d" ] || continue;					\
+	    for f in "$$d"/*.dylib; do					\
+	        [ -f "$$f" ] || continue;				\
+	        [ ! -L "$$f" ] || continue;				\
+	        otool -D "$$f" >/dev/null 2>&1 || continue;		\
+	        b=`basename "$$f"`;					\
+	        dylibs="$$dylibs $$b";				\
+	        install_name_tool -id "@rpath/$$b" "$$f";		\
+	    done;							\
+	done;								\
+	[ -n "$$dylibs" ] || exit 0;					\
+	for f in `find $(STAGEDIR)$(PREFIX) -type f`; do		\
+	    otool -L "$$f" >/dev/null 2>&1 || continue;			\
+	    for dep in `otool -L "$$f" |				\
+	        $(SED) -e '1d' -e 's/^[[:space:]]*//' -e 's/[[:space:]].*//'`; do \
+	        [ -n "$$dep" ] || continue;				\
+	        b=`basename "$$dep"`;					\
+	        case " $$dylibs " in *" $$b "*) ;; *) continue ;; esac; \
+	        new="@rpath/$$b";					\
+	        [ "$$dep" = "$$new" ] && continue;			\
+	        install_name_tool -change "$$dep" "$$new" "$$f";	\
+	    done;							\
+	done
+
+ifeq ($(filter $(override_targets),fixup-darwin-rpath),)
+fixup-darwin-rpath:
+	$(call cmd,fixup-darwin-rpath)
+endif
+
 #
 # Package...
 #
@@ -1759,6 +1806,7 @@ _STAGE_SEQ		= 50:stage-message 100:stage-dir 150:run-depends\
 			  500:do-install				\
 			  600:fixup-lib-pkgconfig			\
 			  700:post-install 750:post-install-script	\
+			  780:fixup-darwin-rpath			\
 			  800:post-stage				\
 			  870:install-ldconfig-file			\
 			  880:install-license $(_USES_install) $(_USES_stage)
