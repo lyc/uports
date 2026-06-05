@@ -357,7 +357,7 @@ do_delete()
     fi
 
     if [ -f ${db}/pkg ]; then
-        local info plist prefix fname size
+        local info plist prefix fname size dirs dir root
 
         # prepare pkgname for delete...
         if [ $all -eq 1 ]; then
@@ -374,22 +374,59 @@ do_delete()
                 if [ -f $plist ]; then
 #                    echo plist=$plist
 #                    echo prefix=$prefix
+                    root=$destdir$prefix
+                    dirs=
                     if [ $quiet -ne 1 ]; then
                         echo "delete $p ..."
                     fi
                     for f in `cat $plist`; do
                         case $f in
                             .*)
-                                fname=$destdir$prefix/$f
+                                fname=$destdir$prefix/${f#./}
+                                if [ -d $fname ] && [ ! -h $fname ]; then
+                                    dirs="$fname $dirs"
+                                else
+                                    dir=`dirname $fname`
+                                    while [ "$dir" != "$root" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
+                                        dirs="$dir
+$dirs"
+                                        dir=`dirname $dir`
+                                    done
+                                fi
                                 ;;
                             @rmdir*)
+                                fname=`echo $f | sed -e 's/^@rmdir[[:space:]]*//'`
+                                case $fname in
+                                    /*) ;;
+                                    ./*) fname=$destdir$prefix/${fname#./} ;;
+                                    *) fname=$destdir$prefix/$fname ;;
+                                esac
+                                dirs="$fname $dirs"
+                                fname=
+                                ;;
+                            *)
+                                fname=
                                 ;;
                         esac
-                        if [ -f $fname ] || [ -h $fname ] || [ -c $fname ]; then
+                        if [ -n "$fname" ] && { [ -f $fname ] || [ -h $fname ] || [ -c $fname ]; }; then
                             if [ $dryrun -eq 1 ]; then
                                 echo rm -fr $fname
                             else
                                 rm -fr $fname
+                            fi
+                        fi
+                    done
+                    for dir in `printf '%s\n' "$dirs" | awk 'length($0) > 0 { print length($0) " " $0 }' | sort -rn | cut -d' ' -f2- | awk '!seen[$0]++'`; do
+                        case $dir in
+                            "$root"|"$root"/|/)
+                                continue
+                                ;;
+                        esac
+                        if [ -d $dir ] && [ ! -h $dir ]; then
+                            if [ $dryrun -eq 1 ]; then
+                                echo rmdir $dir
+                            else
+                                rmdir $dir 2>/dev/null || :
                             fi
                         fi
                     done
@@ -401,7 +438,7 @@ do_delete()
                 fi
                 if [ $dryrun -eq 1 ]; then
 #                    echo sed -i -e "/^$p/d" ${db}/pkg
-                    echo sed -e "/^$p/d" ${db}/pkg > ${tmp}
+                    echo sed -e "/^$p/d" ${db}/pkg
                 else
 #                    sed -i -e "/^$p/d" ${db}/pkg
                     tmp=`mktemp`
