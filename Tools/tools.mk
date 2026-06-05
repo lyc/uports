@@ -71,7 +71,7 @@ categories_all_lists	=						\
 	www x11 x11-clocks x11-drivers x11-fm x11-fonts x11-servers	\
 	x11-themes x11-toolkits x11-wm xfce zope base
 
-suffix_special_all	= package-source
+suffix_special_all	= package-source makesum
 suffix_all_lists	=						\
 	fetch extract patch configure build stage package install	\
 	clean distclean deinstall uninstall rebuild restage reinstall	\

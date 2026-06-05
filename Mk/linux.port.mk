@@ -463,6 +463,9 @@ endef
 _DISTFILES		= $(call get-all-files,$(DISTFILES))
 _PATCHFILES		= $(call get-all-files,$(PATCHFILES))
 ALLFILES		?= $(_DISTFILES) $(_PATCHFILES)
+DISTINFO_FILE		?= $(MASTERDIR)/distinfo
+DISTINFO_REQUIRED	?= no
+NO_CHECKSUM		?= no
 
 # $(call patch-sites-DEFAULT, lists)
 define patch-sites-DEFAULT
@@ -2242,6 +2245,28 @@ endif
 #- makesum:
 
 checksum:
+ifeq ($(USE_SCM),)
+ifneq ($(NO_CHECKSUM),yes)
+	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
+	DISTINFO_REQUIRED="$(DISTINFO_REQUIRED)"			\
+	_DISTDIR="$(_DISTDIR)"					\
+	ALLFILES="$(ALLFILES)"					\
+	DIST_SUBDIR="$(DIST_SUBDIR)"				\
+	$(SH) $(SCRIPTSDIR)/checksum.sh
+endif
+endif
+
+.PHONY: makesum
+makesum: fetch
+ifeq ($(USE_SCM),)
+	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
+	_DISTDIR="$(_DISTDIR)"					\
+	ALLFILES="$(ALLFILES)"					\
+	DIST_SUBDIR="$(DIST_SUBDIR)"				\
+	$(SH) $(SCRIPTSDIR)/makesum.sh
+else
+	@echo "  SKIP    makesum is not used with USE_SCM=$(USE_SCM)"
+endif
 
 ################################################################
 # The special package-building targets:
