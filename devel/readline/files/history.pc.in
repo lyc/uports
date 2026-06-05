@@ -1,0 +1,11 @@
+prefix=%PREFIX%
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: history
+Description: Library for editing command lines as they are typed
+Version: %VERSION%
+Libs: -L${libdir} -lhistory -l ncurses
+Libs.private: -lncurses 
+Cflags: -I${includedir} 
