@@ -1,0 +1,30 @@
+From bb0fe4c0a81d35a12b8f24a35f762474fa442a58 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Sat, 6 Jun 2026 15:10:00 +0800
+Subject: [PATCH] cmcppdap: include cstdint for uint32_t
+
+Utilities/cmcppdap/include/dap/network.h declares a uint32_t parameter,
+but does not include the standard header that defines it. Some toolchains
+do not make uint32_t visible through the other included headers, causing
+the cmcppdap build to fail.
+
+Include <cstdint> directly in the header that uses uint32_t.
+---
+ Utilities/cmcppdap/include/dap/network.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Utilities/cmcppdap/include/dap/network.h b/Utilities/cmcppdap/include/dap/network.h
+index 34b09281..b3ba987f 100644
+--- a/Utilities/cmcppdap/include/dap/network.h
++++ b/Utilities/cmcppdap/include/dap/network.h
+@@ -16,6 +16,7 @@
+ #define dap_network_h
+ 
+ #include <functional>
++#include <cstdint>
+ #include <memory>
+ 
+ namespace dap {
+-- 
+2.47.1
+

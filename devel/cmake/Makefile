@@ -24,7 +24,9 @@ override_targets	+= pre-build pre-install post-install
 
 pre-build:
 	@cd $(WRKSRC) &&						\
-	./bootstrap --prefix=$(DESTDIR)$(PREFIX) -- -DCMAKE_USE_OPENSSL=OFF
+	./bootstrap --prefix=$(DESTDIR)$(PREFIX) --			\
+		-DCMAKE_USE_OPENSSL=OFF				\
+		-DBUILD_CursesDialog=OFF
 
 pre-install:
 	@cd $(WRKSRC) &&						\

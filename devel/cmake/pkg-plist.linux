@@ -3490,5 +3490,4 @@
 ./bin/ctest
 ./bin/cpack
 ./bin/cmake
-./bin/ccmake
 ./bin
