@@ -1,0 +1,40 @@
+From 2c5dd0b3c4b54ff0d842b3cfb9d1d939ec3fb6a4 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Sat, 6 Jun 2026 11:20:00 +0800
+Subject: [PATCH] avoid c23 nodiscard spelling
+
+GCC on newer Debian testing systems accepts the C23-style
+[[__nodiscard__]] spelling, but GNU m4 1.4.19's bundled gnulib places
+_GL_ATTRIBUTE_NODISCARD before the return type in several inline
+definitions. That placement is valid for GCC's warn_unused_result
+attribute form, but not for [[__nodiscard__]], causing builds to fail in
+gl_oset.h.
+
+Prefer the GNU attribute spelling when it is available and only fall back
+to the C23-style spelling otherwise. Patch only the release tarball's
+generated config header template so bootstrap builds do not need
+maintainer tools such as aclocal.
+---
+ lib/config.hin | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/config.hin b/lib/config.hin
+index 8d7b24c..75171de 100644
+--- a/lib/config.hin
++++ b/lib/config.hin
+@@ -2586,10 +2586,10 @@
+ # define _GL_ATTRIBUTE_MALLOC
+ #endif
+ 
+-#if 201710L < __STDC_VERSION__
+-# define _GL_ATTRIBUTE_NODISCARD [[__nodiscard__]]
+-#elif _GL_HAS_ATTRIBUTE (warn_unused_result)
++#if _GL_HAS_ATTRIBUTE (warn_unused_result)
+ # define _GL_ATTRIBUTE_NODISCARD __attribute__ ((__warn_unused_result__))
++#elif 201710L < __STDC_VERSION__
++# define _GL_ATTRIBUTE_NODISCARD [[__nodiscard__]]
+ #else
+ # define _GL_ATTRIBUTE_NODISCARD
+ #endif
+-- 
+2.47.1
