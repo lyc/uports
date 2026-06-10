@@ -17,6 +17,7 @@ MASTER_SITE_GITHUB		+=					\
 	https://github.com/%SUBDIR%/archive/refs/tags/
 
 MASTER_SITE_GNU			+=					\
+	https://ftp.gnu.org/gnu/%SUBDIR%/				\
 	http://ftp.gnu.org/gnu/%SUBDIR%/				\
 	ftp://ftp.gnu.org/gnu/%SUBDIR%/					\
 	http://www.gtlib.cc.gatech.edu/pub/gnu/gnu/%SUBDIR%/		\
@@ -28,8 +29,7 @@ MASTER_SITE_GNU			+=					\
 	ftp://ftp.sunsite.org.uk/package/gnu/%SUBDIR%/			\
 	ftp://ftp.informatik.hu-berlin.de/pub/gnu/%SUBDIR%/		\
 	ftp://ftp.informatik.rwth-aachen.de/pub/mirror/ftp.gnu.org/pub/gnu/%SUBDIR%/ \
-	ftp://ftp.rediris.es/sites/ftp.gnu.org/ftp/gnu/%SUBDIR%/	\
-	ftp://ftp.chg.ru/pub/gnu/%SUBDIR%/
+	ftp://ftp.rediris.es/sites/ftp.gnu.org/ftp/gnu/%SUBDIR%/
 
 MASTER_SITE_GNOME		+=					\
 	http://ftp.gnome.org/pub/GNOME/sources/%SUBDIR%/

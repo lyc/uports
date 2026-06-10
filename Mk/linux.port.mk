@@ -564,12 +564,11 @@ endef
 define generate-sites-by-group
 $(strip									\
 $(__master_site_override)						\
-  $(sort								\
-    $(foreach s,							\
-      $(call filter-sites-by-group,$2,$1),				\
-        $(foreach g,							\
-          $(call find-groups-by-site,$2,$s),				\
-            $(call transform-subdirs,$s,$g,$3))))			\
+  $(foreach s,								\
+    $(call filter-sites-by-group,$2,$1),				\
+      $(foreach g,							\
+        $(call find-groups-by-site,$2,$s),				\
+          $(call transform-subdirs,$s,$g,$3)))				\
 $(__master_site_backup))
 endef
 
@@ -599,7 +598,7 @@ $(if $(patch_sites),							\
       $(call export-variable,__patch,$g,$(patch_sites),$(patch_site_subdir))), \
         $(call export-variable,__patch,DEFAULT,$(patch_sites),$(patch_site_subdir)))
 
-FETCH_CMD		?= $(shell $(WHICH) wget 2>/dev/null)
+FETCH_CMD		?= $(firstword $(wildcard /usr/bin/wget /bin/wget) $(shell $(WHICH) wget 2>/dev/null))
 $(if $(FETCH_CMD),,							\
   $(error Ports need \"wget\" utility to get distfiles))
 
@@ -609,7 +608,7 @@ silent_fetch_opts	= -q
 
 FETCH_REGET		?= 1
 FETCH_CMD		+=						\
-	-nd -N --connect-timeout=3 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
+	-nd -N --connect-timeout=3 --read-timeout=10 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
 
 ifeq ($(NO_CHECK_CERTIFICATE),yes)
 FETCH_CMD		+= --no-check-certificate
@@ -676,8 +675,9 @@ SCM_BRANCH		?=
 SCM_REPO_PREINIT_CMD	?= autogen.sh
 
 ifeq ($(USE_SCM),git)
-SCM_LS_CMD		?= git ls-remote
-SCM_CMD			?= git clone
+GIT_CMD			?= $(firstword $(wildcard /usr/bin/git /bin/git) $(shell $(WHICH) git 2>/dev/null))
+SCM_LS_CMD		?= $(GIT_CMD) ls-remote
+SCM_CMD			?= $(GIT_CMD) clone
 SCM_CMD_OPTS		?=
 SCM_PROTOCOL		?=
 SCM_DEST		?= $(DISTNAME)
@@ -1276,13 +1276,22 @@ quiet_cmd_git-cache-fetch	?= GIT     $(DISTNAME)(mirror)
 	$(MKDIR) `dirname $(SCM_CACHE_REPO)`;				\
 	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
 	    $(kecho) "  GIT     $(DISTNAME)(mirror clone)";		\
-	    $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	        $(SCM_CMD) --mirror $(SCM_REPO_URL) $(SCM_CACHE_REPO);	\
+	    _scm_tmp="$(SCM_CACHE_REPO).tmp.$$PPID";			\
+	    rm -rf "$$_scm_tmp";					\
+	    if $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
+	        $(SCM_CMD) --mirror $(SCM_REPO_URL) "$$_scm_tmp"; then	\
+	        mv "$$_scm_tmp" $(SCM_CACHE_REPO);			\
+	    else							\
+	        _scm_status=$$?;					\
+	        rm -rf "$$_scm_tmp";					\
+	        $(kecho) "  ERR     $(DISTNAME) mirror clone failed or timed out"; \
+	        exit $$_scm_status;					\
+	    fi;								\
 	else								\
 	    if [ "$(SCM_CACHE_UPDATE)" = "yes" ]; then			\
 	        $(kecho) "  GIT     $(DISTNAME)(mirror update)";	\
 	        if ! $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
-	            git -C $(SCM_CACHE_REPO) remote update --prune; then \
+	            $(GIT_CMD) -C $(SCM_CACHE_REPO) remote update --prune; then \
 	            if [ "$(SCM_CACHE_UPDATE_REQUIRED)" = "yes" ]; then \
 	                false;						\
 	            else						\
@@ -1302,7 +1311,7 @@ quiet_cmd_git-check-cache-ref	?=
 	    false;							\
 	fi;								\
 	if [ ! -z "$(SCM_DETACH)" ]; then				\
-	    if ! git -C $(SCM_CACHE_REPO) cat-file -e "$(SCM_DETACH)^{commit}" 2>/dev/null; then \
+	    if ! $(GIT_CMD) -C $(SCM_CACHE_REPO) cat-file -e "$(SCM_DETACH)^{commit}" 2>/dev/null; then \
 	        $(kecho) "  ERR     cached repository does not contain $(SCM_DETACH)"; \
 	        false;							\
 	    fi;								\
@@ -1316,7 +1325,7 @@ quiet_cmd_git-clone	?=
 	            $(SCM_LS_CMD) $(SCM_REPO_URL) 2>/dev/null		\
 	            | grep "refs/heads" || true`;			\
 	    else							\
-	        branches=`git -C $(SCM_CACHE_REPO) for-each-ref	\
+	        branches=`$(GIT_CMD) -C $(SCM_CACHE_REPO) for-each-ref	\
 	            --format='%(refname)' refs/heads 2>/dev/null	\
 	            | $(SED) -e 's|^|0000000000000000000000000000000000000000	|' || true`; \
 	    fi;								\
@@ -1351,7 +1360,7 @@ quiet_cmd_git-clone	?=
 	    fi;								\
 	    if [ ! -z "$(SCM_DETACH)" ]; then				\
 	        cd $(WRKSRC);						\
-	        git checkout --detach $(SCM_DETACH);			\
+	        $(GIT_CMD) checkout --detach $(SCM_DETACH);		\
 	    fi;                                                         \
 	fi
 endif
