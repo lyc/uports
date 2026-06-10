@@ -1,0 +1,64 @@
+From 50626f8075ef93d203662796ee7fa2a2d6415a64 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Sat, 6 Jun 2026 15:35:00 +0800
+Subject: [PATCH] keep cxx bool with c23 c compiler
+
+ncurses 6.5 configure treats a C compiler-provided bool as a reason to
+disable the C++ bool branch in generated curses.h. With GCC 15 using a
+C23-capable default, the C compiler has bool, so curses.h is generated
+with:
+
+  #if 0
+
+When building the C++ bindings, that path lets curses.h define bool as
+NCURSES_BOOL, which rewrites libstdc++ declarations such as
+std::__is_integer<bool> into unsigned-char specializations and breaks the
+build.
+
+If the C++ compiler has bool, keep using the C++ bool branch for C++
+translation units even when the C compiler also has bool.
+---
+ configure    | 5 +----
+ configure.in | 5 +----
+ 2 files changed, 2 insertions(+), 8 deletions(-)
+
+diff --git a/configure b/configure
+index c5f92b8..3c62368 100755
+--- a/configure
++++ b/configure
+@@ -27448,13 +27448,9 @@ fi
+ # specify the type of bool in a configure-script option and postpone
+ # integration with the C++ compiler provided that the types are compatible.
+ USE_CXX_BOOL=1
+-if test "$cf_cv_cc_bool_type" = 1
++if test "$cf_cv_builtin_bool" = 0
+ then
+-	# oops: C has a bool.  Unlikely, but C++ could differ.
+-	USE_CXX_BOOL=0
+-elif test "$cf_cv_builtin_bool" = 0
+-then
+ 	# C++ has no bool
+ 	USE_CXX_BOOL=0
+ else
+ 	# this is the normal case
+diff --git a/configure.in b/configure.in
+index b4d3282..2342762 100644
+--- a/configure.in
++++ b/configure.in
+@@ -1986,13 +1986,9 @@
+ # specify the type of bool in a configure-script option and postpone
+ # integration with the C++ compiler provided that the types are compatible.
+ USE_CXX_BOOL=1
+-if test "$cf_cv_cc_bool_type" = 1
++if test "$cf_cv_builtin_bool" = 0
+ then
+-	# oops: C has a bool.  Unlikely, but C++ could differ.
+-	USE_CXX_BOOL=0
+-elif test "$cf_cv_builtin_bool" = 0
+-then
+ 	# C++ has no bool
+ 	USE_CXX_BOOL=0
+ else
+ 	# this is the normal case
+-- 
+2.47.1
