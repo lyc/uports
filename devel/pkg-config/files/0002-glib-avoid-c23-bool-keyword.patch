@@ -1,0 +1,43 @@
+From 6b069c13ad34d5a3149dd79f135c4bd0b56b0c19 Mon Sep 17 00:00:00 2001
+From: Max Lee <yowching.lee@gmail.com>
+Date: Sat, 6 Jun 2026 14:20:00 +0800
+Subject: [PATCH] glib: avoid c23 bool keyword
+
+C23 reserves bool as a keyword through stdbool handling. pkg-config
+0.29.2 builds with its bundled old GLib, whose goption.c uses bool as an
+internal union member name. Newer compilers reject that spelling with:
+
+  error: two or more data types in declaration specifiers
+
+Rename the private union member to boolean. This is not an ABI or public
+API field, and it keeps the release tarball buildable without forcing an
+older C dialect globally.
+---
+ glib/glib/goption.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/glib/glib/goption.c b/glib/glib/goption.c
+index e4d8c03..57afa7f 100644
+--- a/glib/glib/goption.c
++++ b/glib/glib/goption.c
+@@ -166,7 +166,7 @@ typedef struct
+   gpointer arg_data;
+   union
+   {
+-    gboolean bool;
++    gboolean boolean;
+     gint integer;
+     gchar *str;
+     gchar **array;
+@@ -1600,7 +1600,7 @@ free_changes_list (GOptionContext *context,
+           switch (change->arg_type)
+             {
+             case G_OPTION_ARG_NONE:
+-              *(gboolean *)change->arg_data = change->prev.bool;
++              *(gboolean *)change->arg_data = change->prev.boolean;
+               break;
+             case G_OPTION_ARG_INT:
+               *(gint *)change->arg_data = change->prev.integer;
+-- 
+2.47.1
+
