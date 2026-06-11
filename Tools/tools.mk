@@ -560,6 +560,7 @@ pecho			:= $(tmpdir)/pecho.$(shell uname -s)
 port_info_awk		:= $(portdir)/Tools/port-info.awk
 info_ports_opsys	:= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 info_ports_arch		:= $(shell uname -m)
+info_ports_cols		:= $(or $(COLUMNS),$(shell (stty size < /dev/tty) 2>/dev/null | awk '{print $$2}'),$(shell tput cols 2>/dev/null || echo 80))
 
 $(pecho): $(portdir)/Tools/pecho.c
 	@mkdir -p $(@D)
@@ -583,23 +584,70 @@ info:
 #
 
 info.ports.groups-header:
-	@$(echo) -n "available PORTS_GROUP(PG): ";			\
-	for g in $(groups_all); do 					\
+	@cols=$(info_ports_cols);					\
+	[ "$$cols" -gt 32 ] 2>/dev/null || cols=80;			\
+	header_cols=$$((cols - 15));					\
+	[ "$$header_cols" -gt 32 ] 2>/dev/null || header_cols=$$cols;	\
+	{								\
+	  for g in $(groups_all); do 					\
 	    if [ $$g = $(PORTS_GROUP_DEFAULT) ]; then			\
-	        $(echo) -n "[*]$$g "; 					\
+	      printf '%s\n' "[*]$$g";					\
 	    else							\
-	        $(echo) -n "$$g "; 					\
-	    fi; 							\
-	done; $(echo);							\
-	$(echo) "                   ------  ---------------"
+	      printf '%s\n' "$$g";					\
+	    fi;								\
+	  done;								\
+	} | awk -v cols="$$header_cols" -v label="available PORTS_GROUP(PG): " ' \
+	  BEGIN {							\
+	    prefix = label;						\
+	    cont = sprintf("%*s", length(label), "");			\
+	    line = prefix;						\
+	  }								\
+	  {								\
+	    sep = (line == prefix || line == cont) ? "" : " ";		\
+	    if (length(line sep $$0) > cols && line != prefix && line != cont) { \
+	      print line;						\
+	      line = cont $$0;						\
+	    } else {							\
+	      line = line sep $$0;					\
+	    }								\
+	  }								\
+	  END { print line }';						\
+	cols=$(info_ports_cols);					\
+	[ "$$cols" -gt 21 ] 2>/dev/null || cols=80;			\
+	cols=$$((cols - 15));						\
+	[ "$$cols" -gt 21 ] 2>/dev/null || cols=80;			\
+	printf "%21s" "";						\
+	printf "%*s\n" "$$((cols - 21))" "" | tr ' ' '-'
 
 # $(show-group-lists, group)
 define show-group-lists
 show_groups_$1:
 	@flag=`if [ $(PORTS_GROUP_DEFAULT) = $1 ]; then			\
 	  $(echo) '[*]$1: '; else $(echo) '$1: '; fi`;			\
-	$(pecho) -n -o 27 -r "$$$$flag";				\
-	$(echo) $(groups_$1)
+	cols=$(info_ports_cols);					\
+	[ "$$$$cols" -gt 32 ] 2>/dev/null || cols=80;			\
+	group_cols=$$$$((cols - 15));					\
+	[ "$$$$group_cols" -gt 32 ] 2>/dev/null || group_cols=$$$$cols;	\
+	printf '%s\n' "$(groups_$1)" | awk -v cols="$$$$group_cols"	\
+	  -v label="$$$$flag" '					\
+	    BEGIN {							\
+	      label_width = (cols < 60) ? length(label) : 27;		\
+	      prefix = sprintf("%*s", label_width, label);		\
+	      cont = sprintf("%*s", label_width, "");			\
+	      line = prefix;						\
+	    }								\
+	    {								\
+	      for (i = 1; i <= NF; i++) {				\
+	        sep = (line == prefix || line == cont) ? "" : " ";	\
+	        if (length(line sep $$$$i) > cols && line != prefix && line != cont) { \
+	          print line;						\
+	          line = cont $$$$i;					\
+	        } else {						\
+	          line = line sep $$$$i;				\
+	        }							\
+	      }								\
+	    }								\
+	    END { print line }'
 
 info.ports.groups-lists: show_groups_$1
 endef
@@ -609,7 +657,12 @@ $(foreach g,$(groups_all), 						\
     $(call show-group-lists,$g)))
 
 info.ports.sep:
-	@$(echo) "                     ----  -----------------------------------------------"
+	@cols=$(info_ports_cols);					\
+	[ "$$cols" -gt 21 ] 2>/dev/null || cols=80;			\
+	cols=$$((cols - 15));						\
+	[ "$$cols" -gt 21 ] 2>/dev/null || cols=80;			\
+	printf "%21s" "";						\
+	printf "%*s\n" "$$((cols - 21))" "" | tr ' ' '-'
 
 info_ports_status = $(strip						\
   $(if $(wildcard $1/install._done.*),I,				\

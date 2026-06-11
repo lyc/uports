@@ -24,8 +24,22 @@ mode == "info-ports" {
 	init_port(base "/" port)
 	parse_file(base "/" port "/Makefile")
 
-	printf "                     [%s%s]: %s%s \t\t %s\n",
-	    flag, status, port, suffix, package_info()
+	row_count++
+	row_flag[row_count] = flag
+	row_status[row_count] = status
+	row_port[row_count] = port suffix
+	row_version[row_count] = package_version()
+	row_license[row_count] = vars["LICENSE"]
+
+	if (length(row_port[row_count]) > port_width)
+		port_width = length(row_port[row_count])
+	if (length(row_version[row_count]) > version_width)
+		version_width = length(row_version[row_count])
+}
+
+END {
+	if (mode == "info-ports")
+		print_info_ports()
 }
 
 function init_port(port_curdir,    i) {
@@ -47,13 +61,25 @@ function init_port(port_curdir,    i) {
 	if_depth = 0
 }
 
-function package_info(    distversion) {
+function package_version(    distversion) {
 	distversion = vars["DISTVERSION"]
 	if (distversion == "" && vars["PORTVERSION"] != "")
 		distversion = portversion_to_distversion(vars["PORTVERSION"])
 
 	return vars["DISTVERSIONPREFIX"] distversion_to_full(distversion) \
-	    vars["DISTVERSIONSUFFIX"] " " vars["LICENSE"]
+	    vars["DISTVERSIONSUFFIX"]
+}
+
+function package_info() {
+	return package_version() " " vars["LICENSE"]
+}
+
+function print_info_ports(    i) {
+	for (i = 1; i <= row_count; i++) {
+		printf "                     [%s%s]: %-*s  %-*s  %s\n",
+		    row_flag[i], row_status[i], port_width, row_port[i],
+		    version_width, row_version[i], row_license[i]
+	}
 }
 
 function trim(s) {
