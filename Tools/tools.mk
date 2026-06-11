@@ -611,40 +611,30 @@ $(foreach g,$(groups_all), 						\
 info.ports.sep:
 	@$(echo) "                     ----  -----------------------------------------------"
 
-define show-port-lists
-  show-port-list-$(subst @,-,$(subst /,-,$1)):
-	@g=$(call get-group,$1);					\
-	p=$(call rm-groups,$1);						\
-	flag=`if [ "$$$$g" = "$(PORTS_GROUP_DEFAULT)" ]; then		\
-	  $(echo) '*'; else $(echo) ' '; fi`;				\
-	base=$(call get-dir,$(call rm-groups,$1));			\
-	work=$$$$base/$$$$p/work$($(call get-group,$1)_SUFFIX);		\
-	status=`if [ ! -d $$$$work ]; then $(echo) ' ';			\
-	  elif [ -f $$$$work/install._done.* ]; then $(echo) I;		\
-	  elif [ -f $$$$work/package._done.* ]; then $(echo) K;		\
-	  elif [ -f $$$$work/stage._done.* ]; then $(echo) S;		\
-	  elif [ -f $$$$work/build._done.* ]; then $(echo) B;		\
-	  elif [ -f $$$$work/configure._done.* ]; then $(echo) C;	\
-	  elif [ -f $$$$work/patch._done.* ]; then $(echo) P;		\
-	  elif [ -f $$$$work/extract._done.* ]; then $(echo) E;		\
-	fi`;								\
-	extra=$(filter $1,$(ports_all_group_extra));			\
-	suffix=`if [ -z "$$$$extra" ]; then				\
-	  $(echo) " [$$$$g$(AT)]"; fi`;					\
-	info=$$$$(awk -v portdir="$(portdir)"				\
-	  -v curdir="$$$$base/$$$$p"					\
-	  -v makefile="$$$$base/$$$$p/Makefile"				\
-	  -v opsys="$(info_ports_opsys)"					\
-	  -v arch="$(info_ports_arch)"					\
-	  -f "$(port_info_awk)");					\
-	printf "                     [%s%s]: %s%s \t\t %s\n" "$$$$flag" "$$$$status" "$$$$p" "$$$$suffix" "$$$$info"
+info_ports_status = $(strip						\
+  $(if $(wildcard $1/install._done.*),I,				\
+    $(if $(wildcard $1/package._done.*),K,			\
+      $(if $(wildcard $1/stage._done.*),S,			\
+        $(if $(wildcard $1/build._done.*),B,			\
+          $(if $(wildcard $1/configure._done.*),C,		\
+            $(if $(wildcard $1/patch._done.*),P,		\
+              $(if $(wildcard $1/extract._done.*),E,))))))))
 
-  info.ports.ports: show-port-list-$(subst @,-,$(subst /,-,$1))
-endef
+info_ports_work = $(call get-dir,$(call rm-groups,$1))/$(call rm-groups,$1)/work$($(call get-group,$1)_SUFFIX)
 
-$(foreach p,$(ports_all_group),						\
-  $(eval								\
-    $(call show-port-lists,$p)))
+info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\n'		\
+  '$(call get-group,$1)'						\
+  '$(call rm-groups,$1)'						\
+  '$(call get-dir,$(call rm-groups,$1))'				\
+  '$(call info_ports_status,$(call info_ports_work,$1))'		\
+  '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )' \
+  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])';
+
+info.ports.ports:
+	@{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } | \
+	  awk -F '	' -v mode=info-ports -v portdir="$(portdir)"	\
+	    -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"	\
+	    -f "$(port_info_awk)"
 
 depends_exclude_targets	+= $(addsuffix .ports,i info)
 $(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)

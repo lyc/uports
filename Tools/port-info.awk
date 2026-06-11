@@ -2,22 +2,58 @@
 # ports framework for every port.
 
 BEGIN {
+	if (makefile != "") {
+		init_port(curdir)
+		parse_file(makefile)
+
+		print package_info()
+		exit
+	}
+}
+
+mode == "info-ports" {
+	group = $1
+	port = $2
+	base = $3
+	status = $4
+	flag = $5
+	suffix = $6
+	if (status == "")
+		status = " "
+
+	init_port(base "/" port)
+	parse_file(base "/" port "/Makefile")
+
+	printf "                     [%s%s]: %s%s \t\t %s\n",
+	    flag, status, port, suffix, package_info()
+}
+
+function init_port(port_curdir,    i) {
+	for (i in vars)
+		delete vars[i]
+	for (i in seen)
+		delete seen[i]
+	for (i in parent_active)
+		delete parent_active[i]
+	for (i in active)
+		delete active[i]
+	for (i in matched)
+		delete matched[i]
+
 	vars["PORTSDIR"] = portdir
-	vars["CURDIR"] = curdir
+	vars["CURDIR"] = port_curdir
 	vars["OPSYS"] = opsys
 	vars["ARCH"] = arch
 	if_depth = 0
-	parse_file(makefile)
+}
 
+function package_info(    distversion) {
 	distversion = vars["DISTVERSION"]
 	if (distversion == "" && vars["PORTVERSION"] != "")
 		distversion = portversion_to_distversion(vars["PORTVERSION"])
 
-	printf "%s%s%s %s\n",
-	    vars["DISTVERSIONPREFIX"],
-	    distversion_to_full(distversion),
-	    vars["DISTVERSIONSUFFIX"],
-	    vars["LICENSE"]
+	return vars["DISTVERSIONPREFIX"] distversion_to_full(distversion) \
+	    vars["DISTVERSIONSUFFIX"] " " vars["LICENSE"]
 }
 
 function trim(s) {
