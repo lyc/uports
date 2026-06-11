@@ -557,6 +557,9 @@ tmpdir			= $(portdir)/Tools/$(tmpname)
 
 echo			:= $(shell which echo)
 pecho			:= $(tmpdir)/pecho.$(shell uname -s)
+port_info_awk		:= $(portdir)/Tools/port-info.awk
+info_ports_opsys	:= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+info_ports_arch		:= $(shell uname -m)
 
 $(pecho): $(portdir)/Tools/pecho.c
 	@mkdir -p $(@D)
@@ -628,8 +631,12 @@ define show-port-lists
 	extra=$(filter $1,$(ports_all_group_extra));			\
 	suffix=`if [ -z "$$$$extra" ]; then				\
 	  $(echo) " [$$$$g$(AT)]"; fi`;					\
-	args="--no-print-directory BEFOREPORTMK=yes PORTSDIR=$(portdir)";\
-	info=$$$$(make -C $$$$base/$$$$p $$$$args package-info);	\
+	info=$$$$(awk -v portdir="$(portdir)"				\
+	  -v curdir="$$$$base/$$$$p"					\
+	  -v makefile="$$$$base/$$$$p/Makefile"				\
+	  -v opsys="$(info_ports_opsys)"					\
+	  -v arch="$(info_ports_arch)"					\
+	  -f "$(port_info_awk)");					\
 	printf "                     [%s%s]: %s%s \t\t %s\n" "$$$$flag" "$$$$status" "$$$$p" "$$$$suffix" "$$$$info"
 
   info.ports.ports: show-port-list-$(subst @,-,$(subst /,-,$1))
