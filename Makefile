@@ -5,7 +5,7 @@
 #
 
 DESTDIR			?= $(shell cd && pwd)/local
-PREFIX			?= /usr
+PREFIX			?= /usr/local
 
 include Tools/tools.mk
 
@@ -19,3 +19,4 @@ clean:
 	@find . -type f -name \*~ -o -name .DS_Store | xargs rm -fr
 
 distclean: ports.distclean clean
+	@rm -fr $(addprefix $(portdir)/,distfiles packages scm)
