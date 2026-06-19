@@ -25,6 +25,26 @@ stty/awk and tput/echo for terminal width
 path composition now uses make string functions rather than `echo | sed`.
 `which pkg-config` remains target-specific to `info.debug.targets`.
 
+## Phase 2C Update
+
+Built-in and feed discovery now share one make `$(shell ...)` expansion while
+retaining separate ordered `find` traversals. This preserves existing list and
+aggregate ordering.
+
+Persistent discovery caching was evaluated and rejected for the current phase:
+
+- automatic cache refresh would write during otherwise read-only planner
+  commands;
+- reliable invalidation must detect additions, removals, renames, overrides,
+  ignore-policy changes, and external feed changes;
+- a stale cache would be a correctness failure;
+- GNU make wildcard discovery detects changes without a cache but sorts paths,
+  changing current default build order.
+
+Fresh discovery therefore remains the safer behavior. Regression tests verify
+that a newly added port appears on the next invocation and a removed port
+disappears without an explicit invalidation step.
+
 ## Ordinary Planner Invocation
 
 Expected `$(shell ...)` evaluations:

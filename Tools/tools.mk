@@ -29,16 +29,29 @@ all:
 #   suffix_all_lists:
 #
 
-# $(call generate-ports-lists, folder)
-generate-ports-lists	= $(shell find $1				\
-			               -mindepth 2 -maxdepth 2	-type d	\
-			               | sed -e 's|^$1/||'		\
-			                     -e '/^Mk.*/d'		\
-			                     -e '/^distfiles.*/d'	\
-			                     -e '/^packages.*/d'	\
-			                     -e '/^Templates.*/d'	\
-			                     -e '/^Tools.*/d'		\
-			                     -e '/^\.git.*/d')
+# Discover built-in and feed definitions in one make shell expansion. Keep
+# each find traversal separate so existing filesystem order remains unchanged.
+generate-ports-command	= find . -mindepth 2 -maxdepth 2 -type d	\
+			    | sed -e '/^\.\/Mk.*/d'			\
+			          -e '/^\.\/distfiles.*/d'		\
+			          -e '/^\.\/packages.*/d'		\
+			          -e '/^\.\/Templates.*/d'		\
+			          -e '/^\.\/Tools.*/d'			\
+			          -e '/^\.\/\.git.*/d'
+
+ports_discovery_raw	:= $(shell					\
+			     (cd "$(portdir)" 2>/dev/null &&		\
+			       $(generate-ports-command)			\
+			         | sed -e 's|^\./|uports@|');		\
+			     $(if $(feeds),				\
+			       (cd "$(feeds)" 2>/dev/null &&		\
+			         $(generate-ports-command)		\
+			           | sed -e 's|^\./|feeds@|')))
+
+ports_discovered_raw	:= $(patsubst uports@%,%,			\
+			     $(filter uports@%,$(ports_discovery_raw)))
+feeds_discovered_raw	:= $(patsubst feeds@%,%,			\
+			     $(filter feeds@%,$(ports_discovery_raw)))
 
 #$(call check-if-empty-folder, folder, list)
 check-if-empty-folder	= $(foreach p,$2,				\
@@ -49,12 +62,12 @@ feeds_lists		:= $(strip					\
 			     $(if $(feeds),				\
 			       $(call check-if-empty-folder,$(feeds),	\
 			         $(filter-out $(ignore_lists),		\
-			           $(call generate-ports-lists,$(feeds))))))
+			           $(feeds_discovered_raw)))))
 
 # find all built-in port packages, then apply feed override precedence...
 ports_discovered_lists	:= $(call check-if-empty-folder,$(portdir),	\
 			     $(filter-out $(default_ignore_lists),	\
-			       $(call generate-ports-lists,$(portdir))))
+			       $(ports_discovered_raw)))
 
 ports_lists		:= $(filter-out $(feeds_lists),$(ports_discovered_lists))
 

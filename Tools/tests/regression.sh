@@ -194,6 +194,21 @@ assert_contains "synthetic generated target counts" "$synthetic_stats" \
 	"canonical_targets=374
 alias_targets=340
 aggregate_targets=154"
+
+mkdir -p "$synthetic_dir/feeds/devel/synthetic-added"
+printf '# discovery invalidation fixture\n' \
+	>"$synthetic_dir/feeds/devel/synthetic-added/Makefile"
+synthetic_added=$(make --no-print-directory -s -C "$synthetic_dir" \
+	USE_HOSTTOOLS= planner-stats)
+assert_contains "new port is discovered without cache invalidation" \
+	"$synthetic_added" "discovered_definitions=32
+resolved_logical_ports=32"
+rm -rf "$synthetic_dir/feeds/devel/synthetic-added"
+synthetic_removed=$(make --no-print-directory -s -C "$synthetic_dir" \
+	USE_HOSTTOOLS= planner-stats)
+assert_contains "removed port is dropped without cache invalidation" \
+	"$synthetic_removed" "discovered_definitions=31
+resolved_logical_ports=31"
 rm -rf "$synthetic_dir"
 trap - EXIT HUP INT TERM
 
