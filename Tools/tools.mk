@@ -849,19 +849,19 @@ info.debug.port:
 info.debug.category:
 	@$(echo) "categories_all = $(categories_all)"
 
-define show-categories-all
-show-categories-$1:
-	@echo "categories_$1 = $(categories_$1)"
-info.debug.category-all: show-categories-$1
-endef
-$(foreach c,$(categories_all),$(eval $(call show-categories-all,$c)))
+info.debug.category-all:
+	@$(foreach c,$(categories_all),				\
+	  echo "categories_$c = $(categories_$c)";)
 
-define show-port-categories
-show-$1-categories:
-	@echo "$1_categories = $($1_categories)"
-info.debug.port-categories: show-$1-categories
-endef
-$(foreach p,$(ports_all),$(eval $(call show-port-categories,$p)))
+show-categories-%:
+	@echo "categories_$* = $(categories_$*)"
+
+info.debug.port-categories:
+	@$(foreach p,$(ports_all),					\
+	  echo "$p_categories = $($p_categories)";)
+
+show-%-categories:
+	@echo "$*_categories = $($*_categories)"
 
 info.debug.group:
 	@$(echo) "special_groups_all = $(special_groups_all)"
@@ -870,26 +870,26 @@ info.debug.group:
 	@$(echo) "ports_all_group = $(ports_all_group)"
 	@$(echo) "ports_all_group_extra = $(ports_all_group_extra)"
 
-define show-groups-all
-show-groups-$1:
-	@echo "groups_$1 = $(groups_$1)"
-info.debug.group-all: show-groups-$1
-endef
-$(foreach g,$(groups_all),$(eval $(call show-groups-all,$g)))
+info.debug.group-all:
+	@$(foreach g,$(groups_all),					\
+	  echo "groups_$g = $(groups_$g)";)
 
-define show-groups-suffix
-show-groups-suffix-$1:
-	@echo "$1_SUFFIX = $($1_SUFFIX)"
-info.debug.group-suffix: show-groups-suffix-$1
-endef
-$(foreach g,$(groups_all),$(eval $(call show-groups-suffix,$g)))
+show-groups-%:
+	@echo "groups_$* = $(groups_$*)"
 
-define show-port-groups
-show-$1-groups:
-	@echo "$1_groups = $($1_groups)"
-info.debug.port-groups: show-$1-groups
-endef
-$(foreach p,$(ports_all),$(eval $(call show-port-groups,$p)))
+info.debug.group-suffix:
+	@$(foreach g,$(groups_all),					\
+	  echo "$g_SUFFIX = $($g_SUFFIX)";)
+
+show-groups-suffix-%:
+	@echo "$*_SUFFIX = $($*_SUFFIX)"
+
+info.debug.port-groups:
+	@$(foreach p,$(ports_all),					\
+	  echo "$p_groups = $($p_groups)";)
+
+show-%-groups:
+	@echo "$*_groups = $($*_groups)"
 
 info.debug.targets:
 	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"

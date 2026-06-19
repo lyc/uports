@@ -124,6 +124,27 @@ assert_contains "planner aggregate target count" "$planner_stats" \
 assert_contains "planner diagnostic target count" "$planner_stats" \
 	"diagnostic_targets=8"
 
+debug_categories=$(run_make info.debug.category-all)
+assert_contains "aggregate category diagnostics" "$debug_categories" \
+	"categories_devel = pkg-config libffi"
+show_category=$(run_make show-categories-devel)
+assert_contains "direct category diagnostic alias" "$show_category" \
+	"categories_devel = pkg-config libffi"
+
+debug_port_groups=$(run_make info.debug.port-groups)
+assert_contains "aggregate port-group diagnostics" "$debug_port_groups" \
+	"openssl_groups = host target"
+show_port_groups=$(run_make show-openssl-groups)
+assert_contains "direct port-group diagnostic alias" "$show_port_groups" \
+	"openssl_groups = host target"
+
+show_group=$(run_make show-groups-target)
+assert_contains "direct group diagnostic alias" "$show_group" \
+	"groups_target = expat2 openssl libffi"
+show_suffix=$(run_make show-groups-suffix-target)
+assert_contains "direct group-suffix diagnostic alias" "$show_suffix" \
+	"target_SUFFIX = -pj.target"
+
 benchmark=$("$testdir/../benchmark-tools.sh" -C "$testdir" -n 1 \
 	-l regression)
 assert_contains "benchmark output format" "$benchmark" \
