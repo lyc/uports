@@ -102,6 +102,24 @@ assert_contains "planner aggregate target count" "$planner_stats" \
 assert_contains "planner diagnostic target count" "$planner_stats" \
 	"diagnostic_targets=8"
 
+benchmark=$("$testdir/../benchmark-tools.sh" -C "$testdir" -n 1 \
+	-l regression)
+assert_contains "benchmark output format" "$benchmark" \
+	"benchmark_format=1"
+assert_contains "benchmark label" "$benchmark" \
+	"label=regression"
+assert_contains "benchmark run count" "$benchmark" \
+	"runs=1"
+assert_contains "benchmark includes planner statistics" "$benchmark" \
+	"selected_ports=5
+groups=3"
+assert_contains "benchmark includes timing" "$benchmark" \
+	"median_real_seconds="
+assert_contains "benchmark includes make database counts" "$benchmark" \
+	"make_database_bytes="
+assert_contains "benchmark reports optional memory state" "$benchmark" \
+	"memory_max_rss_kb=unavailable"
+
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \
