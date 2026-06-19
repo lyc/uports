@@ -131,6 +131,10 @@ regression.snapshot:
 	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
 	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
 	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
+	  'merge.paths=$(call merge,/prefix/,/pkgconfig,lib lib64)'		\
+	  'flavor.info_ports_opsys=$(flavor info_ports_opsys)'		\
+	  'flavor.info_ports_arch=$(flavor info_ports_arch)'			\
+	  'flavor.info_ports_cols=$(flavor info_ports_cols)'			\
 	  'host_SUFFIX=$(host_SUFFIX)'					\
 	  'target_SUFFIX=$(target_SUFFIX)'				\
 	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\

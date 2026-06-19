@@ -84,6 +84,12 @@ assert_contains "normalized instance origin" "$snapshot" \
 instance.target_libffi.root=$feeds"
 assert_contains "normalized instance environment" "$snapshot" \
 	"instance.target_libffi.env="
+assert_contains "shell-free path merge" "$snapshot" \
+	"merge.paths=/prefix/lib/pkgconfig:/prefix/lib64/pkgconfig"
+assert_contains "presentation probes are deferred" "$snapshot" \
+	"flavor.info_ports_opsys=recursive
+flavor.info_ports_arch=recursive
+flavor.info_ports_cols=recursive"
 assert_contains "group suffix composition" "$snapshot" \
 	"target_SUFFIX=-pj.target"
 assert_contains "instance environment overlay" "$snapshot" \

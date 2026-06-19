@@ -3,6 +3,28 @@
 This is a static inventory of shell-function work in `Tools/tools.mk` before
 optimization.
 
+## Phase 2A Update
+
+After Phase 2A, an ordinary planner invocation requires only collection
+discovery:
+
+```text
+generate-ports-lists for built-in uports
+generate-ports-lists for FEEDS when configured
+```
+
+The following work is deferred until `info.ports` is requested:
+
+```text
+uname -s and tr for operating-system identity
+uname -m for architecture identity
+stty/awk and tput/echo for terminal width
+```
+
+`which echo` and the platform-suffixed `pecho` probe were removed. Pkg-config
+path composition now uses make string functions rather than `echo | sed`.
+`which pkg-config` remains target-specific to `info.debug.targets`.
+
 ## Ordinary Planner Invocation
 
 Expected `$(shell ...)` evaluations:
@@ -31,6 +53,8 @@ whether a feed exists, `COLUMNS` is set, and terminal probing succeeds.
 Pipelines may create more operating-system processes than the number of make
 shell-function evaluations.
 
+The count above is the original pre-Phase-2A baseline.
+
 ## Deferred Or Target-Specific Sites
 
 The following sites are not required for an ordinary planner invocation:
@@ -44,4 +68,3 @@ commented PKGCONFIG_LIST discovery
 This inventory is intentionally separate from per-port framework parsing.
 `Tools/benchmark-tools.sh` invokes only `planner-stats`; it does not enter port
 Makefiles or run package lifecycle recipes.
-

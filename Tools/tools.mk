@@ -646,12 +646,14 @@ endif # USE_HOSTTOOLS
 tmpname			= tmp
 tmpdir			= $(portdir)/Tools/$(tmpname)
 
-echo			:= $(shell which echo)
-pecho			:= $(tmpdir)/pecho.$(shell uname -s)
+echo			:= echo
+pecho			:= $(tmpdir)/pecho
 port_info_awk		:= $(portdir)/Tools/port-info.awk
-info_ports_opsys	:= $(shell uname -s | tr '[:upper:]' '[:lower:]')
-info_ports_arch		:= $(shell uname -m)
-info_ports_cols		:= $(or $(COLUMNS),$(shell (stty size < /dev/tty) 2>/dev/null | awk '{print $$2}'),$(shell tput cols 2>/dev/null || echo 80))
+info_ports_opsys	= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+info_ports_arch		= $(shell uname -m)
+info_ports_cols		= $(or $(COLUMNS),$(shell (stty size < /dev/tty)	\
+			    2>/dev/null | awk '{print $$2}'),		\
+			    $(shell tput cols 2>/dev/null || echo 80))
 
 $(pecho): $(portdir)/Tools/pecho.c
 	@mkdir -p $(@D)
@@ -791,9 +793,10 @@ $(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header group
 #
 
 pkgs			= lib lib64
-merge			= $(shell echo					\
-			    $(addprefix $1,$(addsuffix $2,$3))		\
-			      | sed -e 's/ /:/g')
+empty			:=
+space			:= $(empty) $(empty)
+merge			= $(subst $(space),:,$(strip			\
+			    $(addprefix $1,$(addsuffix $2,$3))))
 
 PC_BASE			:= $($(PORTS_GROUP_DEFAULT)_DESTDIR)$($(PORTS_GROUP_DEFAULT)_PREFIX)
 
