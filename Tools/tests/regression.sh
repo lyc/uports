@@ -128,6 +128,31 @@ for baseline in full cpython host-group multi-group; do
 	assert_contains "baseline label: $baseline" "$baseline_data" \
 		"label=$baseline"
 done
+synthetic_baseline=$(cat "$baseline_dir/synthetic-200.baseline")
+assert_contains "baseline format: synthetic-200" "$synthetic_baseline" \
+	"benchmark_format=1"
+assert_contains "baseline label: synthetic-200" "$synthetic_baseline" \
+	"label=synthetic-200"
+
+synthetic_dir=${TMPDIR:-/tmp}/uports-tools-synthetic.$$
+trap 'rm -rf "$synthetic_dir"' EXIT HUP INT TERM
+"$testdir/../generate-synthetic-plan.sh" "$synthetic_dir" 20
+synthetic_stats=$(make --no-print-directory -s -C "$synthetic_dir" \
+	USE_HOSTTOOLS= planner-stats)
+assert_contains "synthetic discovered and selected ports" "$synthetic_stats" \
+	"discovered_definitions=31
+resolved_logical_ports=31
+selected_ports=20"
+assert_contains "synthetic groups categories and instances" "$synthetic_stats" \
+	"groups=4
+categories=4
+build_instances=22"
+assert_contains "synthetic generated target counts" "$synthetic_stats" \
+	"canonical_targets=374
+alias_targets=340
+aggregate_targets=154"
+rm -rf "$synthetic_dir"
+trap - EXIT HUP INT TERM
 
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	target@libffi.build)
