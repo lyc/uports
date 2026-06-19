@@ -1,8 +1,12 @@
 #
 # Makefile
 #
-#   demonstration of how to ues tools.mk
+#   regression fixture and demonstration of how to use tools.mk
 #
+
+testdir			:= $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+topdir			:= $(abspath $(testdir)/../../../..)
+FEEDS			?= $(topdir)/feeds
 
 # STEP 1: Create PORTS_LISTS
 #
@@ -37,7 +41,7 @@ PORTS_LISTS		= host@devel/pkg-config				\
 			  textproc/expat2				\
 			  toolchain@math/gmp				\
 			  host@target@security/openssl			\
-			  graphics/webp
+			  target@devel/libffi
 
 # STEP 2: Setup Environment Variables
 #
@@ -74,7 +78,7 @@ PORTS_LISTS		= host@devel/pkg-config				\
 # are using to combine together to form final TYPE_SUFFIX ENVs, and then
 # remove from environment variable list.
 
-wrkdir			= $(shell cd && pwd)/local
+wrkdir			= $(testdir)/local
 PREFIX			= /usr
 DESTDIR			= $(wrkdir)/target
 USE_HOSTTOOLS		= host
@@ -98,7 +102,8 @@ PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  PREFIX=/opt					\
 			  DESTDIR=$(wrkdir)/host
 
-PORTS_target_webp_EXTRA_ENVS	= WITH_GL=yes
+PORTS_target_libffi_EXTRA_ENVS	= WITH_TESTS=yes
+PORTS_target_libffi_EXCLUDE_ENVS= USE_GLOBALBASE=%
 
 # include ports package at here...
 include ../tools.mk
@@ -106,6 +111,25 @@ include ../tools.mk
 #
 # define your own targets...
 #
+
+.PHONY: regression.snapshot
+regression.snapshot:
+	@printf '%s\n'							\
+	  'ports_all_raw=$(ports_all_raw)'				\
+	  'ports_all=$(ports_all)'					\
+	  'groups_all=$(groups_all)'					\
+	  'ports_all_group=$(ports_all_group)'				\
+	  'ports_all_group_extra=$(ports_all_group_extra)'		\
+	  'host_SUFFIX=$(host_SUFFIX)'					\
+	  'target_SUFFIX=$(target_SUFFIX)'				\
+	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\
+	  'origin.pkg-config=$(call get-dir,devel/pkg-config)'		\
+	  'origin.openssl=$(call get-dir,security/openssl)'			\
+	  'env.target.libffi=$(port_target_libffi_env)'
+
+.PHONY: check
+check:
+	@./regression.sh
 
 clean:
 	@find . -type f -name \*~ -o -name .DS_Store | xargs rm -fr
