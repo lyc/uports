@@ -120,6 +120,15 @@ assert_contains "benchmark includes make database counts" "$benchmark" \
 assert_contains "benchmark reports optional memory state" "$benchmark" \
 	"memory_max_rss_kb=unavailable"
 
+baseline_dir=$testdir/../baselines/2026-06-19-darwin-arm64
+for baseline in full cpython host-group multi-group; do
+	baseline_data=$(cat "$baseline_dir/$baseline.baseline")
+	assert_contains "baseline format: $baseline" "$baseline_data" \
+		"benchmark_format=1"
+	assert_contains "baseline label: $baseline" "$baseline_data" \
+		"label=$baseline"
+done
+
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \
