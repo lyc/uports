@@ -58,9 +58,9 @@ ports_discovered_lists	:= $(call check-if-empty-folder,$(portdir),	\
 
 ports_lists		:= $(filter-out $(feeds_lists),$(ports_discovered_lists))
 
-ports_all_raw_lists	= $(ports_lists) $(feeds_lists)
+ports_all_raw_lists	:= $(ports_lists) $(feeds_lists)
 
-categories_all_lists	=						\
+categories_all_lists	:=						\
 	accessibility archivers astro audio benchmarks biology cad	\
 	comms converters databases deskutils devel dns docs editors	\
 	elisp emulators ftp games geography graphics hamradio haskell	\
@@ -71,8 +71,8 @@ categories_all_lists	=						\
 	www x11 x11-clocks x11-drivers x11-fm x11-fonts x11-servers	\
 	x11-themes x11-toolkits x11-wm xfce zope base
 
-suffix_special_all	= package-source makesum
-suffix_all_lists	=						\
+suffix_special_all	:= package-source makesum
+suffix_all_lists	:=						\
 	fetch extract patch configure build stage package install	\
 	clean distclean deinstall uninstall rebuild restage reinstall	\
 	$(suffix_special_all)
@@ -164,20 +164,20 @@ get-dir			= $(if $(filter $(feeds_lists),$1),$(feeds),$(portdir))
 #
 
 ifneq ($(PORTS_LISTS),)
-ports_all_raw		= $(foreach p,					\
+ports_all_raw		:= $(foreach p,					\
 			    $(PORTS_LISTS),$(call purify_ports_raw,$p))
 endif
 
-ports_all_raw_unknown	= $(filter-out $(ports_all_raw_lists),$(ports_all_raw))
+ports_all_raw_unknown	:= $(filter-out $(ports_all_raw_lists),$(ports_all_raw))
 ifneq ($(ports_all_raw_unknown),)
 $(error assign unknown packages: $(ports_all_raw_unknown))
 endif
 
 ifeq ($(ports_all_raw),)
-ports_all_raw		= $(ports_all_raw_lists)
+ports_all_raw		:= $(ports_all_raw_lists)
 endif
 
-ports_all		= $(filter-out $(categories_all_lists),		\
+ports_all		:= $(filter-out $(categories_all_lists),		\
 			    $(call rm-slash,$(ports_all_raw)))
 
 #
@@ -188,13 +188,13 @@ ports_all		= $(filter-out $(categories_all_lists),		\
 #   xxx_categories:
 #
 
-categories_all		= $(sort					\
+categories_all		:= $(sort					\
 			    $(filter-out $(ports_all),			\
 			      $(call rm-slash,$(ports_all_raw))))
 
 # $(call generate-categories-list, category)
 define generate-categories-lists
-  categories_$1		= $(filter-out $(categories_all_lists),		\
+  categories_$1		:= $(filter-out $(categories_all_lists),		\
 			    $(call rm-slash,				\
 			      $(filter $1/%,$(ports_all_raw))))
 endef
@@ -205,7 +205,7 @@ $(foreach c,$(categories_all),						\
 
 # $(call generate-port-categories-list, category)
 define generate-port-categories-lists
-  $1_categories		= $(patsubst %/$1,%,$(filter %/$1,$(ports_all_raw)))
+  $1_categories		:= $(patsubst %/$1,%,$(filter %/$1,$(ports_all_raw)))
 endef
 
 $(foreach c,$(ports_all),						\
@@ -225,7 +225,7 @@ $(foreach c,$(ports_all),						\
 
 PORTS_GROUP_DEFAULT	?= host
 
-ports_all_group		= $(strip					\
+ports_all_group		:= $(strip					\
 			    $(foreach p,				\
 			      $(if $(PORTS_LISTS),$(PORTS_LISTS),	\
 			        $(call set-special-groups,		\
@@ -233,19 +233,15 @@ ports_all_group		= $(strip					\
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
 
-groups_all		= $(sort					\
+groups_all		:= $(sort					\
 			    $(foreach p,$(ports_all_group),		\
 			      $(call rm-at,$(call get-groups,$p))))
-
-ports_all_group_extra	= $(sort					\
-			    $(foreach g,$(ports_all_group),		\
-			      $(call filter-out-group-extra,$g)))
 
 # $(warning groups_all=$(groups_all))
 
 # $(call generate-groups-list, group)
 define generate-groups-lists
-  groups_$1		= $(foreach p,$(filter $1$(AT)%,		\
+  groups_$1		:= $(foreach p,$(filter $1$(AT)%,		\
 			    $(ports_all_group)),$(lastword $(call rm-slash,$p)))
 endef
 
@@ -255,13 +251,17 @@ $(foreach g,$(groups_all),						\
 
 # $(call generate-port-groups-lists, port)
 define generate-port-groups-lists
-  $1_groups		= $(foreach g,$(filter %/$1,			\
+  $1_groups		:= $(foreach g,$(filter %/$1,			\
 			    $(ports_all_group)),$(subst $(AT),,$(call get-groups,$g)))
 endef
 
 $(foreach p,$(ports_all),						\
   $(eval								\
     $(call generate-port-groups-lists,$p)))
+
+ports_all_group_extra	:= $(sort					\
+			    $(foreach g,$(ports_all_group),		\
+			      $(call filter-out-group-extra,$g)))
 
 #
 #   ggg_SUFFIX:
@@ -390,7 +390,7 @@ $(foreach g,$(groups_all),						\
 # generate group@port.suffix target...
 #
 
-ports_target_all	= $(foreach g,$(groups_all),			\
+ports_target_all	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
 
@@ -502,16 +502,16 @@ ports: $(addsuffix .install,$(ports_all))
 #
 
 planner_collections	:= $(sort $(portdir) $(if $(feeds),$(feeds)))
-planner_discovered_definitions = $(ports_discovered_lists) $(feeds_lists)
-planner_alias_targets	= $(foreach p,$(ports_all_group_extra),		\
+planner_discovered_definitions := $(ports_discovered_lists) $(feeds_lists)
+planner_alias_targets	:= $(foreach p,$(ports_all_group_extra),		\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(call get-port,$p).$s))
-planner_category_targets= $(foreach c,$(categories_all),			\
+planner_category_targets:= $(foreach c,$(categories_all),			\
 			    $(foreach s,$(suffix_all_lists),$c.$s))
-planner_group_targets	= $(foreach g,$(groups_all),			\
+planner_group_targets	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),$g.$s))
-planner_global_targets	= $(addprefix ports.,$(suffix_all_lists)) ports
-planner_diagnostic_targets =						\
+planner_global_targets	:= $(addprefix ports.,$(suffix_all_lists)) ports
+planner_diagnostic_targets :=						\
 	info i.ports info.ports i.pc info.pc i.debug info.debug planner-stats
 
 .PHONY: planner-stats

@@ -64,6 +64,12 @@ assert_contains "multiple group membership" "$snapshot" \
 	"host@security/openssl target@security/openssl"
 assert_contains "default-group assignment" "$snapshot" \
 	"target@textproc/expat2"
+assert_contains "normalized planning records are immediate" "$snapshot" \
+	"flavor.ports_all_raw=simple
+flavor.categories_all=simple
+flavor.ports_all_group=simple
+flavor.groups_all=simple
+flavor.ports_all_group_extra=simple"
 assert_contains "built-in port origin" "$snapshot" \
 	"origin.pkg-config=$portdir"
 assert_contains "feed override origin" "$snapshot" \

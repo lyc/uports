@@ -120,6 +120,11 @@ regression.snapshot:
 	  'groups_all=$(groups_all)'					\
 	  'ports_all_group=$(ports_all_group)'				\
 	  'ports_all_group_extra=$(ports_all_group_extra)'		\
+	  'flavor.ports_all_raw=$(flavor ports_all_raw)'			\
+	  'flavor.categories_all=$(flavor categories_all)'			\
+	  'flavor.ports_all_group=$(flavor ports_all_group)'		\
+	  'flavor.groups_all=$(flavor groups_all)'				\
+	  'flavor.ports_all_group_extra=$(flavor ports_all_group_extra)'	\
 	  'host_SUFFIX=$(host_SUFFIX)'					\
 	  'target_SUFFIX=$(target_SUFFIX)'				\
 	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\
