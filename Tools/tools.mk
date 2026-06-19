@@ -98,7 +98,7 @@ extract-port		= $(patsubst %$(suffix $1),%,$1)
 extract-suffix		= $(patsubst .%,%,$(suffix $1))
 
 # $(call get-category, port.suffix)
-get-category		= $($(call extract-port,$1)_categories)
+get-category		= $(port_$(call extract-port,$1)_category)
 
 # $(call rm-port, [[group@]group@]category/port)
 rm-port			= $(firstword $(call rm-slash,$1))
@@ -152,8 +152,8 @@ transform-port-string	= $(subst ., ,					\
 # $(call transform-port, port.suffix)
 transform-port		= $(call get-category,$1)$(SLASH)$(call extract-port,$1)
 
-# $(call get-dir, category/suffix)
-get-dir			= $(if $(filter $(feeds_lists),$1),$(feeds),$(portdir))
+# $(call get-dir, category/port)
+get-dir			= $(port_$(call get-port,$1)_root)
 
 #
 # port ...
@@ -211,6 +211,17 @@ endef
 $(foreach c,$(ports_all),						\
   $(eval								\
     $(call generate-port-categories-lists,$c)))
+
+# $(call generate-port-record, category/port)
+define generate-port-record
+  port_$(call get-port,$1)_category := $(firstword $(call rm-slash,$1))
+  port_$(call get-port,$1)_origin := $1
+  port_$(call get-port,$1)_root := $(if $(filter $(feeds_lists),$1),$(feeds),$(portdir))
+endef
+
+$(foreach p,$(ports_all_raw_lists),					\
+  $(eval								\
+    $(call generate-port-record,$p)))
 
 #
 # group ...
@@ -387,6 +398,41 @@ $(foreach g,$(groups_all),						\
       $(call generate-port-env,$g,$p))))
 
 #
+# normalized build-instance lookup records...
+#
+
+# $(call instance-key, group, port)
+instance-key		= $(strip $1)_$(strip $2)
+
+# $(call generate-instance-record, group@category/port)
+define generate-instance-record
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_group := $(call get-group,$1)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_port := $(call get-port,$1)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_category := $(port_$(call get-port,$1)_category)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_origin := $(port_$(call get-port,$1)_origin)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_root := $(port_$(call get-port,$1)_root)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_env := $(port_$(call get-group,$1)_$(call get-port,$1)_env)
+endef
+
+$(foreach p,$(ports_all_group),					\
+  $(eval								\
+    $(call generate-instance-record,$p)))
+
+# $(call target-instance-key, group@port.suffix)
+target-instance-key	= $(call instance-key,				\
+			    $(strip $(firstword $(call rm-at,$1))),	\
+			    $(strip $(call extract-port,		\
+			      $(call rm-group,$1))))
+
+# $(call instance-field, instance-key, field)
+instance-field		= $(instance_$(strip $1)_$(strip $2))
+
+# $(call target-instance-field, group@port.suffix, field)
+target-instance-field	= $(call instance-field,			\
+			    $(strip $(call target-instance-key,$1)),	\
+			    $(strip $2))
+
+#
 # generate group@port.suffix target...
 #
 
@@ -394,14 +440,13 @@ ports_target_all	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
 
-get-envs		= $(port_$(firstword $(call rm-at,		\
-			    $1))_$(call extract-port,$(call rm-group,$1))_env)
+get-envs		= $(call target-instance-field,$1,env)
 
-quiet_cmd_generate-port-target	?= PORT    $(call transform-port-string,$@)
+quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$@,group)$(AT)$(call target-instance-field,$@,origin) $(call extract-suffix,$(call rm-group,$@))
       cmd_generate-port-target	?= set -e;				\
-	dir=$(call get-dir,$(call transform-port,$(call rm-group,$@)));	\
-	category=$(call get-category,$(call rm-group,$@));		\
-	port=$(call extract-port,$(call rm-group,$@));			\
+	dir=$(call target-instance-field,$@,root);			\
+	category=$(call target-instance-field,$@,category);		\
+	port=$(call target-instance-field,$@,port);			\
 	suffix=$(call extract-suffix,$(call rm-group,$@));		\
 	envs="$(call get-envs,$@)";					\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
@@ -413,9 +458,9 @@ $(filter-out $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
 	$(call cmd,generate-port-target)
 
 $(filter $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
-	@dir=$(call get-dir,$(call transform-port,$(call rm-group,$@)));\
-	category=$(call get-category,$(call rm-group,$@));		\
-	port=$(call extract-port,$(call rm-group,$@));			\
+	@dir=$(call target-instance-field,$@,root);			\
+	category=$(call target-instance-field,$@,category);		\
+	port=$(call target-instance-field,$@,port);			\
 	suffix=$(call extract-suffix,$(call rm-group,$@));		\
 	envs="$(call get-envs,$@)";					\
 	make -C $$dir/$$category/$$port _INNERMKINCLUDE=no --no-print-directory $$envs $$suffix
@@ -719,12 +764,15 @@ info_ports_status = $(strip						\
             $(if $(wildcard $1/patch._done.*),P,		\
               $(if $(wildcard $1/extract._done.*),E,))))))))
 
-info_ports_work = $(call get-dir,$(call rm-groups,$1))/$(call rm-groups,$1)/work$($(call get-group,$1)_SUFFIX)
+info_ports_work = $(call instance-field,				\
+  $(call instance-key,$(call get-group,$1),$(call get-port,$1)),root)/	\
+  $(call instance-field,						\
+    $(call instance-key,$(call get-group,$1),$(call get-port,$1)),origin)/work$($(call get-group,$1)_SUFFIX)
 
 info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\n'		\
-  '$(call get-group,$1)'						\
-  '$(call rm-groups,$1)'						\
-  '$(call get-dir,$(call rm-groups,$1))'				\
+  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),group)' \
+  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),origin)' \
+  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),root)' \
   '$(call info_ports_status,$(call info_ports_work,$1))'		\
   '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )' \
   '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])';

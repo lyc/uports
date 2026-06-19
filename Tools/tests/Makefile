@@ -125,6 +125,12 @@ regression.snapshot:
 	  'flavor.ports_all_group=$(flavor ports_all_group)'		\
 	  'flavor.groups_all=$(flavor groups_all)'				\
 	  'flavor.ports_all_group_extra=$(flavor ports_all_group_extra)'	\
+	  'record.openssl.origin=$(port_openssl_origin)'			\
+	  'record.openssl.root=$(port_openssl_root)'				\
+	  'record.cpython.root=$(port_cpython_root)'				\
+	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
+	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
+	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
 	  'host_SUFFIX=$(host_SUFFIX)'					\
 	  'target_SUFFIX=$(target_SUFFIX)'				\
 	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\

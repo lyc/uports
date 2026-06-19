@@ -74,6 +74,16 @@ assert_contains "built-in port origin" "$snapshot" \
 	"origin.pkg-config=$portdir"
 assert_contains "feed override origin" "$snapshot" \
 	"origin.openssl=$feeds"
+assert_contains "normalized logical port origin" "$snapshot" \
+	"record.openssl.origin=security/openssl
+record.openssl.root=$feeds"
+assert_contains "unselected logical port lookup" "$snapshot" \
+	"record.cpython.root=$feeds"
+assert_contains "normalized instance origin" "$snapshot" \
+	"instance.target_libffi.origin=devel/libffi
+instance.target_libffi.root=$feeds"
+assert_contains "normalized instance environment" "$snapshot" \
+	"instance.target_libffi.env="
 assert_contains "group suffix composition" "$snapshot" \
 	"target_SUFFIX=-pj.target"
 assert_contains "instance environment overlay" "$snapshot" \
@@ -168,6 +178,15 @@ assert_contains "canonical dispatch identity" "$dispatch" \
 	"category=devel; port=libffi; suffix=build"
 assert_contains "canonical dispatch environment" "$dispatch" \
 	"WITH_TESTS=yes TYPE_SUFFIX=-pj.target"
+
+special_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	target@libffi.makesum)
+special_dispatch=$(printf '%s\n' "$special_dispatch" | tr '\\\n\t' '   ' | \
+	awk '{$1=$1; print}')
+assert_contains "special dispatch directory and identity" "$special_dispatch" \
+	"dir=$feeds; category=devel; port=libffi; suffix=makesum"
+assert_contains "special dispatch inner make mode" "$special_dispatch" \
+	"_INNERMKINCLUDE=no --no-print-directory"
 
 alias_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	openssl.build)
