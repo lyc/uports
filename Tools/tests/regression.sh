@@ -76,6 +76,32 @@ assert_not_contains "instance environment exclusion" \
 	"$(printf '%s\n' "$snapshot" | sed -n 's/^env.target.libffi=//p')" \
 	"USE_GLOBALBASE=yes"
 
+planner_stats=$(run_make planner-stats)
+assert_contains "planner collection count" "$planner_stats" \
+	"collections=2"
+assert_contains "planner discovered definition count" "$planner_stats" \
+	"discovered_definitions=43"
+assert_contains "planner resolved logical port count" "$planner_stats" \
+	"resolved_logical_ports=42"
+assert_contains "planner selected port count" "$planner_stats" \
+	"selected_ports=5"
+assert_contains "planner group and category counts" "$planner_stats" \
+	"groups=3
+categories=4"
+assert_contains "planner build instance count" "$planner_stats" \
+	"build_instances=6"
+assert_contains "planner current variant count" "$planner_stats" \
+	"selected_variants=0"
+assert_contains "planner lifecycle and canonical target counts" "$planner_stats" \
+	"lifecycle_suffixes=17
+canonical_targets=102"
+assert_contains "planner alias target count" "$planner_stats" \
+	"alias_targets=85"
+assert_contains "planner aggregate target count" "$planner_stats" \
+	"aggregate_targets=137"
+assert_contains "planner diagnostic target count" "$planner_stats" \
+	"diagnostic_targets=8"
+
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \

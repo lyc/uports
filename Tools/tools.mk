@@ -51,12 +51,12 @@ feeds_lists		:= $(strip					\
 			         $(filter-out $(ignore_lists),		\
 			           $(call generate-ports-lists,$(feeds))))))
 
-# find all port packages inside $(portdir), override by $(feeds)...
-ports_lists		:= $(filter-out					\
-			     $(feeds_lists),				\
-			     $(call check-if-empty-folder,$(portdir),	\
-			       $(filter-out $(default_ignore_lists),	\
-			         $(call generate-ports-lists,$(portdir)))))
+# find all built-in port packages, then apply feed override precedence...
+ports_discovered_lists	:= $(call check-if-empty-folder,$(portdir),	\
+			     $(filter-out $(default_ignore_lists),	\
+			       $(call generate-ports-lists,$(portdir))))
+
+ports_lists		:= $(filter-out $(feeds_lists),$(ports_discovered_lists))
 
 ports_all_raw_lists	= $(ports_lists) $(feeds_lists)
 
@@ -496,6 +496,42 @@ $(foreach s,$(suffix_all_lists),					\
 .PHONY: ports
 depends_exclude_targets	+= ports
 ports: $(addsuffix .install,$(ports_all))
+
+#
+# planner statistics...
+#
+
+planner_collections	:= $(sort $(portdir) $(if $(feeds),$(feeds)))
+planner_discovered_definitions = $(ports_discovered_lists) $(feeds_lists)
+planner_alias_targets	= $(foreach p,$(ports_all_group_extra),		\
+			    $(foreach s,$(suffix_all_lists),		\
+			      $(call get-port,$p).$s))
+planner_category_targets= $(foreach c,$(categories_all),			\
+			    $(foreach s,$(suffix_all_lists),$c.$s))
+planner_group_targets	= $(foreach g,$(groups_all),			\
+			    $(foreach s,$(suffix_all_lists),$g.$s))
+planner_global_targets	= $(addprefix ports.,$(suffix_all_lists)) ports
+planner_diagnostic_targets =						\
+	info i.ports info.ports i.pc info.pc i.debug info.debug planner-stats
+
+.PHONY: planner-stats
+depends_exclude_targets	+= planner-stats
+planner-stats:
+	@printf '%s\n'							\
+	  'collections=$(words $(planner_collections))'			\
+	  'discovered_definitions=$(words $(planner_discovered_definitions))' \
+	  'resolved_logical_ports=$(words $(ports_all_raw_lists))'	\
+	  'selected_ports=$(words $(ports_all_raw))'			\
+	  'groups=$(words $(groups_all))'				\
+	  'categories=$(words $(categories_all))'			\
+	  'build_instances=$(words $(ports_all_group))'			\
+	  'selected_variants=0'					\
+	  'lifecycle_suffixes=$(words $(suffix_all_lists))'		\
+	  'canonical_targets=$(words $(ports_target_all))'		\
+	  'alias_targets=$(words $(planner_alias_targets))'		\
+	  'aggregate_targets=$(words $(planner_category_targets)		\
+	    $(planner_group_targets) $(planner_global_targets))'		\
+	  'diagnostic_targets=$(words $(planner_diagnostic_targets))'
 
 #
 # Host utilities check...
