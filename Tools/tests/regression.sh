@@ -230,6 +230,37 @@ assert_contains "special dispatch directory and identity" "$special_dispatch" \
 assert_contains "special dispatch inner make mode" "$special_dispatch" \
 	"_INNERMKINCLUDE=no --no-print-directory"
 
+unknown_target_file=${TMPDIR:-/tmp}/uports-tools-unknown-target.$$.err
+if make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	unknown@libffi.build >"$unknown_target_file" 2>&1; then
+	fail "unknown canonical target is rejected" "make unexpectedly succeeded"
+else
+	unknown_target_output=$(cat "$unknown_target_file")
+	assert_contains "unknown canonical target is rejected" \
+		"$unknown_target_output" \
+		"Unknown uports lifecycle target: unknown@libffi.build"
+fi
+rm -f "$unknown_target_file"
+
+unknown_suffix_file=${TMPDIR:-/tmp}/uports-tools-unknown-suffix.$$.err
+if make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	target@libffi.unknown >"$unknown_suffix_file" 2>&1; then
+	fail "unknown lifecycle suffix is rejected" "make unexpectedly succeeded"
+else
+	unknown_suffix_output=$(cat "$unknown_suffix_file")
+	assert_contains "unknown lifecycle suffix is rejected" \
+		"$unknown_suffix_output" \
+		"No rule to make target 'target@libffi.unknown'"
+fi
+rm -f "$unknown_suffix_file"
+
+touch "$testdir/target@libffi.build"
+forced_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	target@libffi.build)
+rm -f "$testdir/target@libffi.build"
+assert_contains "canonical dispatch ignores matching filesystem file" \
+	"$forced_dispatch" "target@devel/libffi build"
+
 alias_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	openssl.build)
 assert_contains "default alias selects default group" "$alias_dispatch" \

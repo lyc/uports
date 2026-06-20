@@ -464,19 +464,43 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$@,group)
 	envs="$(call get-envs,$@)";					\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
-.PHONY: $(ports_target_all)
 depends_exclude_targets	+= $(ports_target_all)
 
-$(filter-out $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
-	$(call cmd,generate-port-target)
+.PHONY: uports-force
+uports-force:
 
-$(filter $(addprefix %.,$(suffix_special_all)),$(ports_target_all)):
-	@dir=$(call target-instance-field,$@,root);			\
-	category=$(call target-instance-field,$@,category);		\
-	port=$(call target-instance-field,$@,port);			\
-	suffix=$(call extract-suffix,$(call rm-group,$@));		\
-	envs="$(call get-envs,$@)";					\
-	make -C $$dir/$$category/$$port _INNERMKINCLUDE=no --no-print-directory $$envs $$suffix
+# Validate pattern-matched lifecycle targets before dispatch. Shared patterns
+# must not turn unknown group-port combinations into accepted targets.
+validate-port-target	= $(if $(filter $@,$(ports_target_all)),,	\
+			    $(error Unknown uports lifecycle target: $@))
+
+# $(call generate-port-lifecycle-pattern, suffix)
+define generate-port-lifecycle-pattern
+%.$1: uports-force
+	$$(validate-port-target)
+	$$(call cmd,generate-port-target)
+endef
+
+$(foreach s,$(filter-out $(suffix_special_all),$(suffix_all_lists)),	\
+  $(eval								\
+    $(call generate-port-lifecycle-pattern,$s)))
+
+# $(call generate-port-special-pattern, suffix)
+define generate-port-special-pattern
+%.$1: uports-force
+	$$(validate-port-target)
+	@dir=$$(call target-instance-field,$$@,root);			\
+	category=$$(call target-instance-field,$$@,category);		\
+	port=$$(call target-instance-field,$$@,port);			\
+	suffix=$$(call extract-suffix,$$(call rm-group,$$@));		\
+	envs="$$(call get-envs,$$@)";					\
+	make -C $$$$dir/$$$$category/$$$$port _INNERMKINCLUDE=no	\
+	  --no-print-directory $$$$envs $$$$suffix
+endef
+
+$(foreach s,$(suffix_special_all),					\
+  $(eval								\
+    $(call generate-port-special-pattern,$s)))
 
 #
 # generate port.suffix target...
