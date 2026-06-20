@@ -348,6 +348,26 @@ assert_contains "category aggregate includes built-in port" "$category_dispatch"
 assert_contains "category aggregate includes feed port" "$category_dispatch" \
 	"target@devel/libffi build"
 
+touch "$testdir/target.build" "$testdir/devel.build"
+forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	target.build)
+forced_category=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	devel.build)
+rm -f "$testdir/target.build" "$testdir/devel.build"
+assert_contains "group aggregate ignores matching filesystem file" \
+	"$forced_group" "target@devel/libffi build"
+assert_contains "category aggregate ignores matching filesystem file" \
+	"$forced_category" "target@devel/libffi build"
+
+collision_dispatch=$(make --no-print-directory -n -C "$testdir" \
+	USE_HOSTTOOLS= \
+	PORTS_LISTS='textproc@textproc/expat2 textproc@devel/libffi' \
+	textproc.build)
+assert_contains "aggregate name collision includes category members" \
+	"$collision_dispatch" "textproc@textproc/expat2 build"
+assert_contains "aggregate name collision includes group members" \
+	"$collision_dispatch" "textproc@devel/libffi build"
+
 error_file=${TMPDIR:-/tmp}/uports-tools-regression.$$.err
 trap 'rm -f "$error_file"' EXIT HUP INT TERM
 if run_make PORTS_LISTS=devel/does-not-exist info.debug >"$error_file" 2>&1; then

@@ -461,6 +461,15 @@ ports_target_all	:= $(foreach g,$(groups_all),			\
 ports_alias_target_all	:= $(foreach p,$(ports_all_group_extra),		\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(call get-port,$p).$s))
+ports_category_target_all := $(foreach c,$(categories_all),		\
+			    $(foreach s,$(suffix_all_lists),$c.$s))
+ports_group_target_all	:= $(foreach g,$(groups_all),			\
+			    $(foreach s,$(suffix_all_lists),$g.$s))
+ports_global_target_all	:= $(addprefix ports.,$(suffix_all_lists))
+ports_aggregate_target_all := $(ports_category_target_all)		\
+			      $(ports_group_target_all)			\
+			      $(ports_global_target_all)
+ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 
 # $(call resolve-port-target, [group@]port.suffix)
 resolve-port-target	= $(strip					\
@@ -470,6 +479,45 @@ resolve-port-target	= $(strip					\
 			          $(call target-alias-instance,$1))$(AT)	\
 			        $(call target-alias-port,$1)$(suffix $1))))
 resolved-port-target	= $(call resolve-port-target,$@)
+
+# $(call aggregate-target-name, aggregate.suffix)
+aggregate-target-name	= $(call extract-port,$1)
+
+# $(call aggregate-target-suffix, aggregate.suffix)
+aggregate-target-suffix	= $(call extract-suffix,$1)
+
+# $(call aggregate-category-prerequisites, category.suffix)
+aggregate-category-prerequisites = $(foreach c,			\
+			    $(filter $(call aggregate-target-name,$1),	\
+			      $(categories_all)),				\
+			    $(addsuffix					\
+			      .$(call aggregate-target-suffix,$1),	\
+			      $(call transform_category,$c)))
+
+# $(call aggregate-group-prerequisites, group.suffix)
+aggregate-group-prerequisites = $(if				\
+			    $(filter $(call aggregate-target-name,$1),	\
+			      $(groups_all)),				\
+			    $(addprefix					\
+			      $(call aggregate-target-name,$1)$(AT),	\
+			      $(addsuffix					\
+			        .$(call aggregate-target-suffix,$1),	\
+			        $(groups_$(call aggregate-target-name,$1)))))
+
+# $(call aggregate-global-prerequisites, ports.suffix)
+aggregate-global-prerequisites = $(if				\
+			    $(filter ports,				\
+			      $(call aggregate-target-name,$1)),		\
+			    $(addsuffix					\
+			      .$(call aggregate-target-suffix,$1),	\
+			      $(call transform_all_group,		\
+			        $(ports_all_group))))
+
+# $(call aggregate-prerequisites, aggregate.suffix)
+aggregate-prerequisites = $(strip					\
+			    $(call aggregate-category-prerequisites,$1)	\
+			    $(call aggregate-group-prerequisites,$1)	\
+			    $(call aggregate-global-prerequisites,$1))
 
 get-envs		= $(call target-instance-field,$1,env)
 
@@ -484,7 +532,8 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolve
 	envs="$(call get-envs,$(resolved-port-target))";			\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
-depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all)
+depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all) \
+			    $(ports_aggregate_target_all)
 
 .PHONY: uports-force
 uports-force:
@@ -493,6 +542,12 @@ uports-force:
 # must not turn unknown canonical or short aliases into accepted targets.
 validate-port-target	= $(if $(resolved-port-target),,		\
 			    $(error Unknown uports lifecycle target: $@))
+
+.SECONDEXPANSION:
+
+# Aggregate targets are explicit so their canonical prerequisites can resolve
+# through the shared lifecycle patterns without implicit-rule recursion.
+$(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
 
 # $(call generate-port-lifecycle-pattern, suffix)
 define generate-port-lifecycle-pattern
@@ -524,58 +579,11 @@ $(foreach s,$(suffix_special_all),					\
   $(eval								\
     $(call generate-port-special-pattern,$s)))
 
-#
-# generate ports catagory.suffix targets...
-#
-
 transform_category	= $(foreach p,$(categories_$1),			\
 			    $(foreach g,$($p_groups),$g$(AT)$p))
 
-# $(call generate-all-category-target, category, suffix)
-define generate-all-categories-target
-.PHONY: $1.$2
-depends_exclude_targets	+= $1.$2
-$1.$2: $(addsuffix .$2,$(call transform_category,$1))
-endef
-
-$(foreach c,$(categories_all),						\
-  $(foreach s,$(suffix_all_lists),					\
-    $(eval								\
-      $(call generate-all-categories-target,$c,$s))))
-
-#
-# generate ports group.suffix targets...
-#
-
-# $(call generate-all-groups-target, group, suffix)
-define generate-all-groups-target
-.PHONY: $1.$2
-depends_exclude_targets	+= $1.$2
-$1.$2: $(addprefix $1$(AT),$(addsuffix .$2,$(groups_$1)))
-endef
-
-$(foreach g,$(groups_all),						\
-  $(foreach s,$(suffix_all_lists),					\
-    $(eval								\
-      $(call generate-all-groups-target,$g,$s))))
-
-#
-# generate ports.suffix targets...
-#
-
 transform_all_group	= $(foreach p,$1,				\
 			    $(call get-group,$p)@$(call get-port,$p))
-
-# $(call generate-all-ports-target, suffix)
-define generate-all-ports-target
-.PHONY: ports.$1
-depends_exclude_targets	+= ports.$1
-ports.$1: $(addsuffix .$1,$(call transform_all_group,$(ports_all_group)))
-endef
-
-$(foreach s,$(suffix_all_lists),					\
-  $(eval								\
-    $(call generate-all-ports-target,$s)))
 
 #
 # finally, ports target...
@@ -592,11 +600,9 @@ ports: $(addsuffix .install,$(ports_all))
 planner_collections	:= $(sort $(portdir) $(if $(feeds),$(feeds)))
 planner_discovered_definitions := $(ports_discovered_lists) $(feeds_lists)
 planner_alias_targets	:= $(ports_alias_target_all)
-planner_category_targets:= $(foreach c,$(categories_all),			\
-			    $(foreach s,$(suffix_all_lists),$c.$s))
-planner_group_targets	:= $(foreach g,$(groups_all),			\
-			    $(foreach s,$(suffix_all_lists),$g.$s))
-planner_global_targets	:= $(addprefix ports.,$(suffix_all_lists)) ports
+planner_category_targets:= $(ports_category_target_all)
+planner_group_targets	:= $(ports_group_target_all)
+planner_global_targets	:= $(ports_global_target_all) ports
 planner_diagnostic_targets :=						\
 	info i.ports info.ports i.pc info.pc i.debug info.debug planner-stats
 
