@@ -131,6 +131,10 @@ regression.snapshot:
 	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
 	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
 	  'instance.target_libffi.variant=$(instance_target_libffi_variant)' \
+	  'instance.key.default=$(call instance-key,target,libffi)'		\
+	  'instance.key.explicit-default=$(call instance-key,target,libffi,default)' \
+	  'instance.key.nondefault=$(call instance-key,target,libffi,shared)' \
+	  'instance.nondefault.origin=$(call instance-field,$(call instance-key,target,libffi,shared),origin)' \
 	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
 	  'work.target_libffi=$(call info_ports_work,target@devel/libffi)' \
 	  'flavor.env.target.libffi=$(flavor port_target_libffi_env)'	\

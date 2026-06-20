@@ -84,6 +84,13 @@ assert_contains "normalized instance origin" "$snapshot" \
 instance.target_libffi.root=$feeds"
 assert_contains "normalized instance default variant" "$snapshot" \
 	"instance.target_libffi.variant=default"
+assert_contains "default variant preserves instance key" "$snapshot" \
+	"instance.key.default=target_libffi
+instance.key.explicit-default=target_libffi"
+assert_contains "nondefault variant has distinct instance key" "$snapshot" \
+	"instance.key.nondefault=target_libffi_shared"
+assert_contains "unselected variant has no instance record" "$snapshot" \
+	"instance.nondefault.origin="
 assert_contains "normalized instance environment" "$snapshot" \
 	"instance.target_libffi.env="
 assert_contains "status work path has no embedded whitespace" "$snapshot" \

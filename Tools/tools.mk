@@ -414,18 +414,23 @@ $(foreach g,$(groups_all),						\
 
 instance-default-variant := default
 
-# $(call instance-key, group, port)
-instance-key		= $(strip $1)_$(strip $2)
+# $(call normalize-instance-variant, [variant])
+normalize-instance-variant = $(or $(strip $1),$(instance-default-variant))
+
+# $(call instance-key, group, port, [variant])
+# Preserve the historical default key while reserving a collision-free suffix
+# for future explicitly selected variants.
+instance-key		= $(strip $1)_$(strip $2)$(if $(filter-out $(instance-default-variant),$(call normalize-instance-variant,$3)),_$(call normalize-instance-variant,$3))
 
 # $(call generate-instance-record, group@category/port)
 define generate-instance-record
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_group := $(call get-group,$1)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_port := $(call get-port,$1)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_variant := $(instance-default-variant)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_category := $(port_$(call get-port,$1)_category)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_origin := $(port_$(call get-port,$1)_origin)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_root := $(port_$(call get-port,$1)_root)
-  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_env := $(port_$(call get-group,$1)_$(call get-port,$1)_env)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_group := $(call get-group,$1)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_port := $(call get-port,$1)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_variant := $(instance-default-variant)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_category := $(port_$(call get-port,$1)_category)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_origin := $(port_$(call get-port,$1)_origin)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_root := $(port_$(call get-port,$1)_root)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_env := $(port_$(call get-group,$1)_$(call get-port,$1)_env)
 endef
 
 $(foreach p,$(ports_all_group),					\
