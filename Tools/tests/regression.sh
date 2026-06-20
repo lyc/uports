@@ -295,6 +295,43 @@ assert_contains "default alias selects default group" "$alias_dispatch" \
 assert_not_contains "default alias excludes nondefault group" "$alias_dispatch" \
 	"host@security/openssl build"
 
+unknown_alias_file=${TMPDIR:-/tmp}/uports-tools-unknown-alias.$$.err
+if make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	does-not-exist.build >"$unknown_alias_file" 2>&1; then
+	fail "unknown short alias is rejected" "make unexpectedly succeeded"
+else
+	unknown_alias_output=$(cat "$unknown_alias_file")
+	assert_contains "unknown short alias is rejected" "$unknown_alias_output" \
+		"Unknown uports lifecycle target: does-not-exist.build"
+fi
+rm -f "$unknown_alias_file"
+
+touch "$testdir/libffi.build"
+forced_alias=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	libffi.build)
+rm -f "$testdir/libffi.build"
+assert_contains "short alias ignores matching filesystem file" \
+	"$forced_alias" "target@devel/libffi build"
+
+ambiguous_dir=${TMPDIR:-/tmp}/uports-tools-ambiguous.$$
+"$testdir/../generate-synthetic-plan.sh" "$ambiguous_dir" 2
+mkdir -p "$ambiguous_dir/feeds/devel/duplicate" \
+	"$ambiguous_dir/feeds/lang/duplicate"
+printf '# ambiguous fixture\n' >"$ambiguous_dir/feeds/devel/duplicate/Makefile"
+printf '# ambiguous fixture\n' >"$ambiguous_dir/feeds/lang/duplicate/Makefile"
+ambiguous_file=${TMPDIR:-/tmp}/uports-tools-ambiguous.$$.err
+if make --no-print-directory -s -C "$ambiguous_dir" USE_HOSTTOOLS= \
+	PORTS_LISTS='g1@devel/duplicate g2@lang/duplicate' planner-stats \
+	>"$ambiguous_file" 2>&1; then
+	fail "ambiguous short port names fail early" "make unexpectedly succeeded"
+else
+	ambiguous_output=$(cat "$ambiguous_file")
+	assert_contains "ambiguous short port names fail early" \
+		"$ambiguous_output" "ambiguous short port names: duplicate"
+fi
+rm -rf "$ambiguous_dir"
+rm -f "$ambiguous_file"
+
 group_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	target.build)
 assert_contains "group aggregate includes expat2" "$group_dispatch" \

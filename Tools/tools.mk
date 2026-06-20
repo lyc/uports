@@ -193,6 +193,13 @@ endif
 ports_all		:= $(filter-out $(categories_all_lists),		\
 			    $(call rm-slash,$(ports_all_raw)))
 
+ports_all_ambiguous	:= $(strip					\
+			    $(foreach p,$(sort $(ports_all)),		\
+			      $(if $(word 2,$(filter $p,$(ports_all))),$p)))
+ifneq ($(ports_all_ambiguous),)
+$(error ambiguous short port names: $(ports_all_ambiguous))
+endif
+
 #
 # category ...
 #
@@ -436,6 +443,14 @@ target-instance-field	= $(call instance-field,			\
 			    $(strip $(call target-instance-key,$1)),	\
 			    $(strip $2))
 
+# $(call target-alias-port, port.suffix)
+target-alias-port	= $(call extract-port,$(call rm-group,$1))
+
+# $(call target-alias-instance, port.suffix)
+target-alias-instance	= $(firstword $(filter				\
+			    %/$(call target-alias-port,$1),		\
+			    $(ports_all_group_extra)))
+
 #
 # generate group@port.suffix target...
 #
@@ -443,26 +458,40 @@ target-instance-field	= $(call instance-field,			\
 ports_target_all	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
+ports_alias_target_all	:= $(foreach p,$(ports_all_group_extra),		\
+			    $(foreach s,$(suffix_all_lists),		\
+			      $(call get-port,$p).$s))
+
+# $(call resolve-port-target, [group@]port.suffix)
+resolve-port-target	= $(strip					\
+			    $(if $(filter $1,$(ports_target_all)),$1,	\
+			      $(if $(filter $1,$(ports_alias_target_all)),	\
+			        $(call get-group,				\
+			          $(call target-alias-instance,$1))$(AT)	\
+			        $(call target-alias-port,$1)$(suffix $1))))
+resolved-port-target	= $(call resolve-port-target,$@)
 
 get-envs		= $(call target-instance-field,$1,env)
 
-quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$@,group)$(AT)$(call target-instance-field,$@,origin) $(call extract-suffix,$(call rm-group,$@))
+quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin) $(call extract-suffix,$(call rm-group,$(resolved-port-target)))
       cmd_generate-port-target	?= set -e;				\
-	dir=$(call target-instance-field,$@,root);			\
-	category=$(call target-instance-field,$@,category);		\
-	port=$(call target-instance-field,$@,port);			\
-	suffix=$(call extract-suffix,$(call rm-group,$@));		\
-	envs="$(call get-envs,$@)";					\
+	dir=$(call target-instance-field,$(resolved-port-target),root);	\
+	category=$(call target-instance-field,				\
+	  $(resolved-port-target),category);				\
+	port=$(call target-instance-field,$(resolved-port-target),port);	\
+	suffix=$(call extract-suffix,				\
+	  $(call rm-group,$(resolved-port-target)));			\
+	envs="$(call get-envs,$(resolved-port-target))";			\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
-depends_exclude_targets	+= $(ports_target_all)
+depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all)
 
 .PHONY: uports-force
 uports-force:
 
 # Validate pattern-matched lifecycle targets before dispatch. Shared patterns
-# must not turn unknown group-port combinations into accepted targets.
-validate-port-target	= $(if $(filter $@,$(ports_target_all)),,	\
+# must not turn unknown canonical or short aliases into accepted targets.
+validate-port-target	= $(if $(resolved-port-target),,		\
 			    $(error Unknown uports lifecycle target: $@))
 
 # $(call generate-port-lifecycle-pattern, suffix)
@@ -480,11 +509,13 @@ $(foreach s,$(filter-out $(suffix_special_all),$(suffix_all_lists)),	\
 define generate-port-special-pattern
 %.$1: uports-force
 	$$(validate-port-target)
-	@dir=$$(call target-instance-field,$$@,root);			\
-	category=$$(call target-instance-field,$$@,category);		\
-	port=$$(call target-instance-field,$$@,port);			\
-	suffix=$$(call extract-suffix,$$(call rm-group,$$@));		\
-	envs="$$(call get-envs,$$@)";					\
+	@dir=$$(call target-instance-field,$$(resolved-port-target),root); \
+	category=$$(call target-instance-field,			\
+	  $$(resolved-port-target),category);				\
+	port=$$(call target-instance-field,$$(resolved-port-target),port); \
+	suffix=$$(call extract-suffix,				\
+	  $$(call rm-group,$$(resolved-port-target)));			\
+	envs="$$(call get-envs,$$(resolved-port-target))";		\
 	make -C $$$$dir/$$$$category/$$$$port _INNERMKINCLUDE=no	\
 	  --no-print-directory $$$$envs $$$$suffix
 endef
@@ -492,22 +523,6 @@ endef
 $(foreach s,$(suffix_special_all),					\
   $(eval								\
     $(call generate-port-special-pattern,$s)))
-
-#
-# generate port.suffix target...
-#
-
-# $(call generate-all-ports-default-target, group@category/port, suffix)
-define generate-all-ports-default-target
-.PHONY: $(call get-port,$1).$2
-depends_exclude_targets	+= $(call get-port,$1).$2
-$(call get-port,$1).$2: $(call get-group,$1)@$(call get-port,$1).$2
-endef
-
-$(foreach p,$(ports_all_group_extra),					\
-  $(foreach s,$(suffix_all_lists),					\
-    $(eval								\
-      $(call generate-all-ports-default-target,$p,$s))))
 
 #
 # generate ports catagory.suffix targets...
@@ -576,9 +591,7 @@ ports: $(addsuffix .install,$(ports_all))
 
 planner_collections	:= $(sort $(portdir) $(if $(feeds),$(feeds)))
 planner_discovered_definitions := $(ports_discovered_lists) $(feeds_lists)
-planner_alias_targets	:= $(foreach p,$(ports_all_group_extra),		\
-			    $(foreach s,$(suffix_all_lists),		\
-			      $(call get-port,$p).$s))
+planner_alias_targets	:= $(ports_alias_target_all)
 planner_category_targets:= $(foreach c,$(categories_all),			\
 			    $(foreach s,$(suffix_all_lists),$c.$s))
 planner_group_targets	:= $(foreach g,$(groups_all),			\
