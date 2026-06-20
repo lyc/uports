@@ -803,10 +803,9 @@ info_ports_status = $(strip						\
             $(if $(wildcard $1/patch._done.*),P,		\
               $(if $(wildcard $1/extract._done.*),E,))))))))
 
-info_ports_work = $(call instance-field,				\
-  $(call instance-key,$(call get-group,$1),$(call get-port,$1)),root)/	\
-  $(call instance-field,						\
-    $(call instance-key,$(call get-group,$1),$(call get-port,$1)),origin)/work$($(call get-group,$1)_SUFFIX)
+info_ports_instance_key = $(call instance-key,$(call get-group,$1),	\
+			    $(call get-port,$1))
+info_ports_work = $(call instance-field,$(call info_ports_instance_key,$1),root)/$(call instance-field,$(call info_ports_instance_key,$1),origin)/work$($(call get-group,$1)_SUFFIX)
 
 info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\n'		\
   '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),group)' \

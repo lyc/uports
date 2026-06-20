@@ -84,6 +84,8 @@ assert_contains "normalized instance origin" "$snapshot" \
 instance.target_libffi.root=$feeds"
 assert_contains "normalized instance environment" "$snapshot" \
 	"instance.target_libffi.env="
+assert_contains "status work path has no embedded whitespace" "$snapshot" \
+	"work.target_libffi=$feeds/devel/libffi/work-pj.target"
 assert_contains "shell-free path merge" "$snapshot" \
 	"merge.paths=/prefix/lib/pkgconfig:/prefix/lib64/pkgconfig"
 assert_contains "presentation probes are deferred" "$snapshot" \
@@ -123,6 +125,29 @@ assert_contains "planner aggregate target count" "$planner_stats" \
 	"aggregate_targets=137"
 assert_contains "planner diagnostic target count" "$planner_stats" \
 	"diagnostic_targets=8"
+
+status_work=$feeds/devel/libffi/work-pj.target
+rm -rf "$status_work"
+status_empty=$(run_make --eval='.PHONY: status-check
+status-check: ; @echo $(call info_ports_status,$(call info_ports_work,target@devel/libffi))' \
+	status-check)
+if [ -n "$status_empty" ]; then
+	fail "empty status has no lifecycle marker" "unexpected: $status_empty"
+else
+	pass "empty status has no lifecycle marker"
+fi
+mkdir -p "$status_work"
+touch "$status_work/build._done.test.cookie"
+status_build=$(run_make --eval='.PHONY: status-check
+status-check: ; @echo $(call info_ports_status,$(call info_ports_work,target@devel/libffi))' \
+	status-check)
+assert_contains "build status cookie is reported" "$status_build" "B"
+touch "$status_work/install._done.test.cookie"
+status_install=$(run_make --eval='.PHONY: status-check
+status-check: ; @echo $(call info_ports_status,$(call info_ports_work,target@devel/libffi))' \
+	status-check)
+assert_contains "install status overrides build status" "$status_install" "I"
+rm -rf "$status_work"
 
 debug_categories=$(run_make info.debug.category-all)
 assert_contains "aggregate category diagnostics" "$debug_categories" \
