@@ -82,6 +82,8 @@ assert_contains "unselected logical port lookup" "$snapshot" \
 assert_contains "normalized instance origin" "$snapshot" \
 	"instance.target_libffi.origin=devel/libffi
 instance.target_libffi.root=$feeds"
+assert_contains "normalized instance default variant" "$snapshot" \
+	"instance.target_libffi.variant=default"
 assert_contains "normalized instance environment" "$snapshot" \
 	"instance.target_libffi.env="
 assert_contains "status work path has no embedded whitespace" "$snapshot" \

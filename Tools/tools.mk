@@ -412,6 +412,8 @@ $(foreach g,$(groups_all),						\
 # normalized build-instance lookup records...
 #
 
+instance-default-variant := default
+
 # $(call instance-key, group, port)
 instance-key		= $(strip $1)_$(strip $2)
 
@@ -419,6 +421,7 @@ instance-key		= $(strip $1)_$(strip $2)
 define generate-instance-record
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_group := $(call get-group,$1)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_port := $(call get-port,$1)
+  instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_variant := $(instance-default-variant)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_category := $(port_$(call get-port,$1)_category)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_origin := $(port_$(call get-port,$1)_origin)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1))_root := $(port_$(call get-port,$1)_root)

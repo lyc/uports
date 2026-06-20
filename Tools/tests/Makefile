@@ -130,6 +130,7 @@ regression.snapshot:
 	  'record.cpython.root=$(port_cpython_root)'				\
 	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
 	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
+	  'instance.target_libffi.variant=$(instance_target_libffi_variant)' \
 	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
 	  'work.target_libffi=$(call info_ports_work,target@devel/libffi)' \
 	  'flavor.env.target.libffi=$(flavor port_target_libffi_env)'	\
