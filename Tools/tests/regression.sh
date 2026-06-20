@@ -181,6 +181,63 @@ show_suffix=$(run_make show-groups-suffix-target)
 assert_contains "direct group-suffix diagnostic alias" "$show_suffix" \
 	"target_SUFFIX = -pj.target"
 
+debug_plan=$(run_make info.debug.plan)
+assert_contains "human-readable planner diagnostics" "$debug_plan" \
+	"selected_ports = 5"
+assert_contains "human-readable instance and variant counts" "$debug_plan" \
+	"build_instances = 6
+implicit_default_variants = 6
+selected_nondefault_variants = 0"
+
+debug_origins=$(run_make info.debug.origins)
+assert_contains "human-readable origin diagnostics" "$debug_origins" \
+	"collection.builtin = $portdir
+collection.feed = $feeds
+feed_overrides = none"
+assert_contains "resolved feed origin diagnostic" "$debug_origins" \
+	"origin.openssl = $feeds/security/openssl"
+
+debug_instances=$(run_make info.debug.instances)
+assert_contains "normalized instance diagnostics" "$debug_instances" \
+	"instance.target_libffi = group=target origin=devel/libffi variant=default root=$feeds"
+assert_not_contains "default instance diagnostics omit environment detail" \
+	"$debug_instances" "WITH_TESTS=yes"
+
+debug_instance_envs=$(run_make info.debug.instance-envs)
+assert_contains "focused instance environment diagnostics" \
+	"$debug_instance_envs" "instance.target_libffi.env ="
+assert_contains "focused instance environment includes overlay" \
+	"$debug_instance_envs" "WITH_TESTS=yes"
+
+debug_variants=$(run_make info.debug.variants)
+assert_contains "variant diagnostics" "$debug_variants" \
+	"default_variant = default
+implicit_default_instances = 6
+selected_nondefault_variants = 0
+unselected_variants_generate_state = no"
+
+debug_targets=$(run_make info.debug.targets)
+assert_contains "dispatch diagnostics" "$debug_targets" \
+	"lifecycle_suffixes = 17
+canonical_targets = 102
+alias_targets = 85
+aggregate_targets = 137"
+assert_contains "dispatch validation diagnostics" "$debug_targets" \
+	"ambiguous_short_ports = none
+target_validation = enabled"
+assert_not_contains "concise dispatch diagnostics omit target matrix" \
+	"$debug_targets" "depends_exclude_targets ="
+
+debug_targets_all=$(run_make info.debug.targets-all)
+assert_contains "full target matrix remains available" "$debug_targets_all" \
+	"depends_exclude_targets ="
+
+debug_all=$(run_make info.debug)
+assert_contains "default debug report includes normalized plan" "$debug_all" \
+	"implicit_default_variants = 6"
+assert_not_contains "default debug report omits target matrix" "$debug_all" \
+	"depends_exclude_targets ="
+
 benchmark=$("$testdir/../benchmark-tools.sh" -C "$testdir" -n 1 \
 	-l regression)
 assert_contains "benchmark output format" "$benchmark" \

@@ -611,6 +611,7 @@ planner_alias_targets	:= $(ports_alias_target_all)
 planner_category_targets:= $(ports_category_target_all)
 planner_group_targets	:= $(ports_group_target_all)
 planner_global_targets	:= $(ports_global_target_all) ports
+planner_override_origins:= $(sort $(filter $(ports_lists),$(feeds_lists)))
 planner_diagnostic_targets :=						\
 	info i.ports info.ports i.pc info.pc i.debug info.debug planner-stats
 
@@ -892,6 +893,39 @@ endif
 # info.debug
 #
 
+info.debug.plan:
+	@printf '%s\n'							\
+	  "collections = $(words $(planner_collections))"		\
+	  "discovered_definitions = $(words $(planner_discovered_definitions))" \
+	  "resolved_logical_ports = $(words $(ports_all_raw_lists))"	\
+	  "selected_ports = $(words $(ports_all_raw))"			\
+	  "groups = $(words $(groups_all))"				\
+	  "categories = $(words $(categories_all))"			\
+	  "build_instances = $(words $(ports_all_group))"		\
+	  "implicit_default_variants = $(words $(ports_all_group))"	\
+	  "selected_nondefault_variants = 0"
+
+info.debug.origins:
+	@$(echo) "collection.builtin = $(portdir)"
+	@$(echo) "collection.feed = $(if $(feeds),$(feeds),none)"
+	@$(echo) "feed_overrides = $(if $(planner_override_origins),$(planner_override_origins),none)"
+	@$(foreach p,$(ports_all_raw),					\
+	  echo "origin.$(call get-port,$p) = $(call get-dir,$p)/$p";)
+
+info.debug.instances:
+	@$(foreach p,$(ports_all_group),				\
+	  echo "instance.$(call instance-key,$(call get-group,$p),$(call get-port,$p)) = group=$(call get-group,$p) origin=$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin) variant=$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),variant) root=$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),root)";)
+
+info.debug.instance-envs:
+	@$(foreach p,$(ports_all_group),				\
+	  echo "instance.$(call instance-key,$(call get-group,$p),$(call get-port,$p)).env = $(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)";)
+
+info.debug.variants:
+	@$(echo) "default_variant = $(instance-default-variant)"
+	@$(echo) "implicit_default_instances = $(words $(ports_all_group))"
+	@$(echo) "selected_nondefault_variants = 0"
+	@$(echo) "unselected_variants_generate_state = no"
+
 info.debug.port:
 	@$(echo) "feeds_lists = $(feeds_lists)"
 	@$(echo) "ports_lists = $(ports_lists)"
@@ -946,7 +980,13 @@ show-%-groups:
 	@echo "$*_groups = $($*_groups)"
 
 info.debug.targets:
-	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
+	@$(echo) "lifecycle_suffixes = $(words $(suffix_all_lists))"
+	@$(echo) "canonical_targets = $(words $(ports_target_all))"
+	@$(echo) "alias_targets = $(words $(planner_alias_targets))"
+	@$(echo) "aggregate_targets = $(words $(planner_category_targets) $(planner_group_targets) $(planner_global_targets))"
+	@$(echo) "excluded_targets = $(words $(sort $(depends_exclude_targets)))"
+	@$(echo) "ambiguous_short_ports = $(if $(ports_all_ambiguous),$(ports_all_ambiguous),none)"
+	@$(echo) "target_validation = enabled"
 ifneq ($(USE_HOSTTOOLS),)
 	@$(echo) "-------------------------------------------------"
 	@$(echo) "USE_HOSTTOOLS = $(USE_HOSTTOOLS)"
@@ -960,13 +1000,17 @@ ifneq ($(USE_HOSTTOOLS),)
 	@$(echo) "pkg-config = $(shell which pkg-config)"
 endif
 
-debug_targets		= sep1 port					\
-			  sep2 category sep3 category-all sep4 port-categories \
-			  sep5 group sep6 group-all sep7		\
-			       group-suffix sep8 port-groups		\
-			  sep9 targets					\
+info.debug.targets-all:
+	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
+
+debug_targets		= sep1 plan sep2 origins sep3 instances sep4 variants \
+			  sep5 port					\
+			  sep6 category sep7 category-all sep8 port-categories \
+			  sep9 group sep10 group-all sep11		\
+			       group-suffix sep12 port-groups		\
+			  sep13 targets					\
 			  sep-end
-double_line		= sep1 sep2 sep5 sep9 sep-end
+double_line		= sep1 sep2 sep3 sep4 sep5 sep6 sep9 sep13 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\
@@ -976,5 +1020,6 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	    $(echo) "-------------------------------------------------";\
 	fi
 
-depends_exclude_targets	+= $(addsuffix .debug,i info)
+depends_exclude_targets	+= $(addsuffix .debug,i info)			\
+			    info.debug.instance-envs info.debug.targets-all
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))
