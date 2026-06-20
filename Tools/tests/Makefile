@@ -132,6 +132,7 @@ regression.snapshot:
 	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
 	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
 	  'work.target_libffi=$(call info_ports_work,target@devel/libffi)' \
+	  'flavor.env.target.libffi=$(flavor port_target_libffi_env)'	\
 	  'merge.paths=$(call merge,/prefix/,/pkgconfig,lib lib64)'		\
 	  'flavor.info_ports_opsys=$(flavor info_ports_opsys)'		\
 	  'flavor.info_ports_arch=$(flavor info_ports_arch)'			\

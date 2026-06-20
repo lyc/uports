@@ -99,6 +99,8 @@ assert_contains "instance environment overlay" "$snapshot" \
 assert_not_contains "instance environment exclusion" \
 	"$(printf '%s\n' "$snapshot" | sed -n 's/^env.target.libffi=//p')" \
 	"USE_GLOBALBASE=yes"
+assert_contains "compatibility environment record is immediate" "$snapshot" \
+	"flavor.env.target.libffi=simple"
 
 planner_stats=$(run_make planner-stats)
 assert_contains "planner collection count" "$planner_stats" \

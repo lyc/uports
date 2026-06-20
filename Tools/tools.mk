@@ -380,29 +380,20 @@ endif
 #
 #  And finally, $(ggg_SUFFIX) will be always added into "port_ggg_xxx_env"
 
-# $(call generate-port-env, group, port)
+# $(call compose-port-env, group, port)
+compose-port-env	= $(strip					\
+			    $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),	\
+			      $(filter-out TYPE_SUFFIX=%,$(PORTS_ENVS)))	\
+			    $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),	\
+			      $(filter-out $1_SUFFIX=%,$(PORTS_$1_ENVS)))	\
+			    $(PORTS_$2_EXTRA_ENVS)			\
+			    $(PORTS_$1_$2_EXTRA_ENVS)			\
+			    TYPE_SUFFIX=$($1_SUFFIX))
+
+# Keep the compatibility variable while avoiding generated conditional
+# makefile fragments for every build instance.
 define generate-port-env
-  ifneq ($(PORTS_ENVS),)
-    port_$1_$2_env	+=						\
-      $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
-        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),			\
-          $(filter-out TYPE_SUFFIX=%,$(PORTS_ENVS))),			\
-        $(filter-out TYPE_SUFFIX=%,$(PORTS_ENVS)))
-  endif
-  ifneq ($(PORTS_$1_ENVS),)
-    port_$1_$2_env	+= 						\
-      $(if $(PORTS_$1_$2_EXCLUDE_ENVS),					\
-        $(filter-out $(PORTS_$1_$2_EXCLUDE_ENVS),			\
-          $(filter-out $1_SUFFIX=%,$(PORTS_$1_ENVS))),			\
-        $(filter-out $1_SUFFIX=%,$(PORTS_$1_ENVS)))
-  endif
-  ifneq ($(PORTS_$2_EXTRA_ENVS),)
-    port_$1_$2_env	+= $(PORTS_$2_EXTRA_ENVS)
-  endif
-  ifneq ($(PORTS_$1_$2_EXTRA_ENVS),)
-    port_$1_$2_env	+= $(PORTS_$1_$2_EXTRA_ENVS)
-  endif
-  port_$1_$2_env	+= TYPE_SUFFIX=$($1_SUFFIX)
+  port_$1_$2_env	:= $(call compose-port-env,$1,$2)
 endef
 
 $(foreach g,$(groups_all),						\
