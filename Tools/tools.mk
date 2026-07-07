@@ -543,6 +543,16 @@ ifneq ($(USE_HOSTTOOLS),)
     export CMAKE_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/cmake
   endif
 
+# check ninja
+  ifneq ($(filter ninja,$(groups_$(USE_HOSTTOOLS))),)
+    export NINJA_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/ninja
+  endif
+
+# check meson
+  ifneq ($(filter meson,$(groups_$(USE_HOSTTOOLS))),)
+    export MESON_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/meson
+  endif
+
 # check others
 # ...
 

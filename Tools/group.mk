@@ -9,6 +9,8 @@ bs_lists		= devel/m4					\
 			  devel/libtool
 
 host_lists		= devel/pkg-config				\
-			  devel/cmake
+			  devel/cmake					\
+			  devel/ninja					\
+			  devel/meson
 
 special_groups_all	+= bs host
