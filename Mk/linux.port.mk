@@ -1658,6 +1658,7 @@ quiet_cmd_fixup-darwin-rpath	?= RPATH   $(PKGNAME)
 	    exit 0;							\
 	fi;								\
 	dylibs="";							\
+	rpaths="$(addprefix $(PREFIX)/,$(libdirs))";			\
 	for d in $(addprefix $(STAGEDIR)$(PREFIX)/,$(libdirs)); do	\
 	    [ -d "$$d" ] || continue;					\
 	    for f in "$$d"/*.dylib; do					\
@@ -1672,14 +1673,21 @@ quiet_cmd_fixup-darwin-rpath	?= RPATH   $(PKGNAME)
 	[ -n "$$dylibs" ] || exit 0;					\
 	for f in `find $(STAGEDIR)$(PREFIX) -type f`; do		\
 	    otool -L "$$f" >/dev/null 2>&1 || continue;			\
+	    needs_rpath="";						\
 	    for dep in `otool -L "$$f" |				\
 	        $(SED) -e '1d' -e 's/^[[:space:]]*//' -e 's/[[:space:]].*//'`; do \
 	        [ -n "$$dep" ] || continue;				\
 	        b=`basename "$$dep"`;					\
 	        case " $$dylibs " in *" $$b "*) ;; *) continue ;; esac; \
+	        needs_rpath=1;						\
 	        new="@rpath/$$b";					\
 	        [ "$$dep" = "$$new" ] && continue;			\
 	        install_name_tool -change "$$dep" "$$new" "$$f";	\
+	    done;							\
+	    [ -n "$$needs_rpath" ] || continue;				\
+	    for rpath in $$rpaths; do					\
+	        otool -l "$$f" | grep -q "path $$rpath (offset" && continue; \
+	        install_name_tool -add_rpath "$$rpath" "$$f";		\
 	    done;							\
 	done
 
