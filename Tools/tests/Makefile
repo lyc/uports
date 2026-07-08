@@ -1,8 +1,12 @@
 #
 # Makefile
 #
-#   demonstration of how to ues tools.mk
+#   regression fixture and demonstration of how to use tools.mk
 #
+
+testdir			:= $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+topdir			:= $(abspath $(testdir)/../../../..)
+FEEDS			?= $(topdir)/feeds
 
 # STEP 1: Create PORTS_LISTS
 #
@@ -37,7 +41,7 @@ PORTS_LISTS		= host@devel/pkg-config				\
 			  textproc/expat2				\
 			  toolchain@math/gmp				\
 			  host@target@security/openssl			\
-			  graphics/webp
+			  target@devel/libffi
 
 # STEP 2: Setup Environment Variables
 #
@@ -74,7 +78,7 @@ PORTS_LISTS		= host@devel/pkg-config				\
 # are using to combine together to form final TYPE_SUFFIX ENVs, and then
 # remove from environment variable list.
 
-wrkdir			= $(shell cd && pwd)/local
+wrkdir			= $(testdir)/local
 PREFIX			= /usr
 DESTDIR			= $(wrkdir)/target
 USE_HOSTTOOLS		= host
@@ -98,7 +102,8 @@ PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  PREFIX=/opt					\
 			  DESTDIR=$(wrkdir)/host
 
-PORTS_target_webp_EXTRA_ENVS	= WITH_GL=yes
+PORTS_target_libffi_EXTRA_ENVS	= WITH_TESTS=yes
+PORTS_target_libffi_EXCLUDE_ENVS= USE_GLOBALBASE=%
 
 # include ports package at here...
 include ../tools.mk
@@ -106,6 +111,47 @@ include ../tools.mk
 #
 # define your own targets...
 #
+
+.PHONY: regression.snapshot
+regression.snapshot:
+	@printf '%s\n'							\
+	  'ports_all_raw=$(ports_all_raw)'				\
+	  'ports_all=$(ports_all)'					\
+	  'groups_all=$(groups_all)'					\
+	  'ports_all_group=$(ports_all_group)'				\
+	  'ports_all_group_extra=$(ports_all_group_extra)'		\
+	  'flavor.ports_all_raw=$(flavor ports_all_raw)'			\
+	  'flavor.categories_all=$(flavor categories_all)'			\
+	  'flavor.ports_all_group=$(flavor ports_all_group)'		\
+	  'flavor.groups_all=$(flavor groups_all)'				\
+	  'flavor.ports_all_group_extra=$(flavor ports_all_group_extra)'	\
+	  'record.openssl.origin=$(port_openssl_origin)'			\
+	  'record.openssl.root=$(port_openssl_root)'				\
+	  'record.cpython.root=$(port_cpython_root)'				\
+	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
+	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
+	  'instance.target_libffi.variant=$(instance_target_libffi_variant)' \
+	  'instance.key.default=$(call instance-key,target,libffi)'		\
+	  'instance.key.explicit-default=$(call instance-key,target,libffi,default)' \
+	  'instance.key.nondefault=$(call instance-key,target,libffi,shared)' \
+	  'instance.nondefault.origin=$(call instance-field,$(call instance-key,target,libffi,shared),origin)' \
+	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
+	  'work.target_libffi=$(call info_ports_work,target@devel/libffi)' \
+	  'flavor.env.target.libffi=$(flavor port_target_libffi_env)'	\
+	  'merge.paths=$(call merge,/prefix/,/pkgconfig,lib lib64)'		\
+	  'flavor.info_ports_opsys=$(flavor info_ports_opsys)'		\
+	  'flavor.info_ports_arch=$(flavor info_ports_arch)'			\
+	  'flavor.info_ports_cols=$(flavor info_ports_cols)'			\
+	  'host_SUFFIX=$(host_SUFFIX)'					\
+	  'target_SUFFIX=$(target_SUFFIX)'				\
+	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\
+	  'origin.pkg-config=$(call get-dir,devel/pkg-config)'		\
+	  'origin.openssl=$(call get-dir,security/openssl)'			\
+	  'env.target.libffi=$(port_target_libffi_env)'
+
+.PHONY: check
+check:
+	@./regression.sh
 
 clean:
 	@find . -type f -name \*~ -o -name .DS_Store | xargs rm -fr
