@@ -128,9 +128,9 @@ planner_stats=$(run_make planner-stats)
 assert_contains "planner collection count" "$planner_stats" \
 	"collections=2"
 assert_contains "planner discovered definition count" "$planner_stats" \
-	"discovered_definitions=43"
+	"discovered_definitions=62"
 assert_contains "planner resolved logical port count" "$planner_stats" \
-	"resolved_logical_ports=42"
+	"resolved_logical_ports=61"
 assert_contains "planner selected port count" "$planner_stats" \
 	"selected_ports=5"
 assert_contains "planner group and category counts" "$planner_stats" \
@@ -141,12 +141,12 @@ assert_contains "planner build instance count" "$planner_stats" \
 assert_contains "planner current variant count" "$planner_stats" \
 	"selected_variants=0"
 assert_contains "planner lifecycle and canonical target counts" "$planner_stats" \
-	"lifecycle_suffixes=17
-canonical_targets=102"
+	"lifecycle_suffixes=18
+canonical_targets=108"
 assert_contains "planner alias target count" "$planner_stats" \
-	"alias_targets=85"
+	"alias_targets=90"
 assert_contains "planner aggregate target count" "$planner_stats" \
-	"aggregate_targets=137"
+	"aggregate_targets=145"
 assert_contains "planner diagnostic target count" "$planner_stats" \
 	"diagnostic_targets=8"
 
@@ -243,10 +243,10 @@ assert_contains "unknown dependency origin is explicit" "$debug_dependencies" \
 
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
-	"lifecycle_suffixes = 17
-canonical_targets = 102
-alias_targets = 85
-aggregate_targets = 137"
+	"lifecycle_suffixes = 18
+canonical_targets = 108
+alias_targets = 90
+aggregate_targets = 145"
 assert_contains "dispatch validation diagnostics" "$debug_targets" \
 	"ambiguous_short_ports = none
 target_validation = enabled"
@@ -303,17 +303,17 @@ trap 'rm -rf "$synthetic_dir"' EXIT HUP INT TERM
 synthetic_stats=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "synthetic discovered and selected ports" "$synthetic_stats" \
-	"discovered_definitions=31
-resolved_logical_ports=31
+	"discovered_definitions=33
+resolved_logical_ports=33
 selected_ports=20"
 assert_contains "synthetic groups categories and instances" "$synthetic_stats" \
 	"groups=4
 categories=4
 build_instances=22"
 assert_contains "synthetic generated target counts" "$synthetic_stats" \
-	"canonical_targets=374
-alias_targets=340
-aggregate_targets=154"
+	"canonical_targets=396
+alias_targets=360
+aggregate_targets=163"
 
 mkdir -p "$synthetic_dir/feeds/devel/synthetic-added"
 printf '# discovery invalidation fixture\n' \
@@ -321,14 +321,14 @@ printf '# discovery invalidation fixture\n' \
 synthetic_added=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "new port is discovered without cache invalidation" \
-	"$synthetic_added" "discovered_definitions=32
-resolved_logical_ports=32"
+	"$synthetic_added" "discovered_definitions=34
+resolved_logical_ports=34"
 rm -rf "$synthetic_dir/feeds/devel/synthetic-added"
 synthetic_removed=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "removed port is dropped without cache invalidation" \
-	"$synthetic_removed" "discovered_definitions=31
-resolved_logical_ports=31"
+	"$synthetic_removed" "discovered_definitions=33
+resolved_logical_ports=33"
 rm -rf "$synthetic_dir"
 trap - EXIT HUP INT TERM
 
