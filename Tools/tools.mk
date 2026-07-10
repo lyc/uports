@@ -437,6 +437,67 @@ $(foreach p,$(ports_all_group),					\
   $(eval								\
     $(call generate-instance-record,$p)))
 
+#
+# normalized dependency records...
+#
+# Dependency collection is deliberately opt-in during this read-only phase.
+# It is enabled by the dependency diagnostics below, avoiding recursive port
+# metadata probes during ordinary planner startup.
+
+dependency-instance-key = $(call instance-key,$(call get-group,$1),$(call get-port,$1))
+dependency-instance-directory = $(call instance-field,$(call dependency-instance-key,$1),root)/$(call instance-field,$(call dependency-instance-key,$1),origin)
+
+dependency-metadata-command = $(foreach p,$(ports_all_group),		\
+	$(MAKE) -s -C "$(call dependency-instance-directory,$p)" 		\
+	  --no-print-directory $(call instance-field,$(call instance-key,	\
+	  $(call get-group,$p),$(call get-port,$p)),env)			\
+	  uports-dependency-metadata 2>/dev/null |				\
+	  sed -e 's#^#$(call instance-key,$(call get-group,$p),		\
+	    $(call get-port,$p))$(VERTICAL_BAR)#';)
+
+VERTICAL_BAR := |
+dependency_metadata_raw =
+
+# $(call dependency-provider-candidates, origin)
+dependency-provider-candidates = $(filter %$(AT)$1,$(ports_all_group))
+
+# $(call select-dependency-provider, consumer-group, origin)
+# Prefer the provider in the consumer's group.  Otherwise accept only one
+# selected instance globally; multiple candidates require future policy.
+select-dependency-provider = $(strip					\
+	$(if $(filter $1$(AT)$2,$(ports_all_group)),$1$(AT)$2,		\
+	  $(if $(filter 1,$(words $(call dependency-provider-candidates,$2))),\
+	    $(call dependency-provider-candidates,$2))))
+
+# $(call generate-dependency-record, consumer-key|type|requirement:origin[:target])
+define generate-dependency-record
+  $(eval dependency_record_id := dependency$(words x $(dependency_record_ids)))
+  $(eval dependency_record_ids += $(dependency_record_id))
+  $(eval dependency_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_entry := $(word 3,$(dependency_words)))
+  $(eval dependency_parts := $(subst :, ,$(dependency_entry)))
+  $(eval dependency_consumer := $(word 1,$(dependency_words)))
+  $(eval dependency_type := $(word 2,$(dependency_words)))
+  $(eval dependency_requirement := $(if $(filter :%,$(dependency_entry)),,$(word 1,$(dependency_parts))))
+  $(eval dependency_origin := $(if $(filter :%,$(dependency_entry)),$(word 1,$(dependency_parts)),$(word 2,$(dependency_parts))))
+  $(eval dependency_provider := $(call select-dependency-provider,$(call instance-field,$(dependency_consumer),group),$(dependency_origin)))
+  $(eval $(dependency_record_id)_consumer := $(dependency_consumer))
+  $(eval $(dependency_record_id)_type := $(dependency_type))
+  $(eval $(dependency_record_id)_requirement := $(dependency_requirement))
+  $(eval $(dependency_record_id)_origin := $(dependency_origin))
+  $(eval $(dependency_record_id)_target := $(wordlist 3,$(words $(dependency_parts)),$(dependency_parts)))
+  $(eval $(dependency_record_id)_provider_kind := $(if $(filter $(dependency_origin),$(ports_all_raw_lists)),uports,unresolved))
+  $(eval $(dependency_record_id)_provider_instance := $(if $(dependency_provider),$(call instance-key,$(call get-group,$(dependency_provider)),$(call get-port,$(dependency_provider))),))
+  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(filter $(dependency_origin),$(ports_all_raw_lists)),$(if $(call dependency-provider-candidates,$(dependency_origin)),ambiguous,unselected),unknown-origin)))
+endef
+
+# Load records only when a dependency diagnostic recipe is expanded.  GNU make
+# cannot reliably run recursive makes from a parse-time shell function, and
+# ordinary planner targets must not pay this metadata cost.
+load-dependency-records = 						\
+	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
+	$(foreach d,$(dependency_metadata_raw),$(call generate-dependency-record,$d))
+
 # $(call target-instance-key, group@port.suffix)
 target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
@@ -633,6 +694,10 @@ planner-stats:
 	  'aggregate_targets=$(words $(planner_category_targets)		\
 	    $(planner_group_targets) $(planner_global_targets))'		\
 	  'diagnostic_targets=$(words $(planner_diagnostic_targets))'
+
+.PHONY: dependencies-list
+depends_exclude_targets	+= dependencies-list
+dependencies-list: info.debug.dependencies
 
 #
 # Host utilities check...
@@ -926,6 +991,12 @@ info.debug.variants:
 	@$(echo) "selected_nondefault_variants = 0"
 	@$(echo) "unselected_variants_generate_state = no"
 
+info.debug.dependencies:
+	@$(load-dependency-records)
+	@$(echo) "dependency_records = $(words $(dependency_record_ids))"
+	@$(foreach d,$(dependency_record_ids),				\
+	  echo "$(d) = consumer=$($(d)_consumer) type=$($(d)_type) requirement=$($(d)_requirement) origin=$($(d)_origin) provider_kind=$($(d)_provider_kind) provider_instance=$(if $($(d)_provider_instance),$($(d)_provider_instance),none) resolution=$($(d)_resolution)";)
+
 info.debug.port:
 	@$(echo) "feeds_lists = $(feeds_lists)"
 	@$(echo) "ports_lists = $(ports_lists)"
@@ -1004,13 +1075,13 @@ info.debug.targets-all:
 	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
 
 debug_targets		= sep1 plan sep2 origins sep3 instances sep4 variants \
-			  sep5 port					\
-			  sep6 category sep7 category-all sep8 port-categories \
-			  sep9 group sep10 group-all sep11		\
-			       group-suffix sep12 port-groups		\
-			  sep13 targets					\
+			  sep5 dependencies sep6 port			\
+			  sep7 category sep8 category-all sep9 port-categories \
+			  sep10 group sep11 group-all sep12		\
+			       group-suffix sep13 port-groups		\
+			  sep14 targets					\
 			  sep-end
-double_line		= sep1 sep2 sep3 sep4 sep5 sep6 sep9 sep13 sep-end
+double_line		= sep1 sep2 sep3 sep4 sep5 sep6 sep7 sep10 sep14 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\
@@ -1021,5 +1092,6 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	fi
 
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
-			    info.debug.instance-envs info.debug.targets-all
+			    info.debug.instance-envs info.debug.dependencies \
+			    info.debug.targets-all dependencies-list
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))

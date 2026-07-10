@@ -229,6 +229,18 @@ implicit_default_instances = 6
 selected_nondefault_variants = 0
 unselected_variants_generate_state = no"
 
+debug_dependencies=$(run_make info.debug.dependencies)
+assert_contains "normalized dependency record count" "$debug_dependencies" \
+	"dependency_records = 4"
+assert_contains "dependency type and requirement normalization" \
+	"$debug_dependencies" \
+	"consumer=target_libffi type=build requirement=autoconf>=2.69 origin=devel/autoconf"
+assert_contains "selected definition with no instance is unresolved" \
+	"$debug_dependencies" \
+	"consumer=target_openssl type=lib requirement=libz.so origin=archivers/zlib provider_kind=uports provider_instance=none resolution=unselected"
+assert_contains "unknown dependency origin is explicit" "$debug_dependencies" \
+	"origin=devel/automake provider_kind=unresolved provider_instance=none resolution=unknown-origin"
+
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
 	"lifecycle_suffixes = 17
@@ -248,6 +260,8 @@ assert_contains "full target matrix remains available" "$debug_targets_all" \
 debug_all=$(run_make info.debug)
 assert_contains "default debug report includes normalized plan" "$debug_all" \
 	"implicit_default_variants = 6"
+assert_contains "default debug report includes dependency records" "$debug_all" \
+	"dependency_records = 4"
 assert_not_contains "default debug report omits target matrix" "$debug_all" \
 	"depends_exclude_targets ="
 

@@ -2339,6 +2339,15 @@ endif
 # Dependency checking
 ################################################################
 
+# Machine-readable dependency metadata for the top-level uports planner.
+# Keep this target free of dependency execution: the planner's first
+# dependency phase is inspection-only.
+.PHONY: uports-dependency-metadata
+uports-dependency-metadata:
+	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
+	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
+	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
+
 pkg-depends:
 extract-depends:
 patch-depends:
