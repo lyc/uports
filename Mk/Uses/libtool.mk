@@ -32,8 +32,9 @@ patch-libtool:
 ifneq ($(call find-uses-arg,keepla,$(libtool_ARGS)),)
 quiet_cmd_patch-lafiles?= PATCH   $(PKGNAME) lafiles
       cmd_patch-lafiles?= set -e;					\
-	${FIND} ${STAGEDIR} -type f -name '*.la' |			\
-		${XARGS} ${SED} -i -e "/dependency_libs=/s/=.*/=''/"
+	${FIND} ${STAGEDIR} -type f -name '*.la' -exec		\
+		${SED} -i.bak -e "/dependency_libs=/s/=.*/=''/" {} +; \
+	${FIND} ${STAGEDIR} -type f -name '*.la.bak' -delete
 else
 quiet_cmd_patch-lafiles?= RM      $(PKGNAME) lafiles
       cmd_patch-lafiles?= set -e;					\
