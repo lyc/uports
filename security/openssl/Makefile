@@ -46,6 +46,9 @@ else
       CONFIGURE_ARGS	+= darwin64-arm64-cc
     endif
   endif
+  ifeq ($(shell uname -s),Linux)
+      CONFIGURE_ARGS    += --libdir=lib64
+  endif
 endif
 GNU_CONFIGURE		= yes
 CONFIGURE_ARGS		+= --openssldir=$(PREFIX)/lib/ssl		\
