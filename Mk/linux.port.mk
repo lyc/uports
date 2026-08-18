@@ -779,6 +779,7 @@ SCM_SUBMODULES		?=
 SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
 SUBMODULE_UPDATE_ARGS	?= --init --checkout
+SUBMODULE_GIT_AM_OPTS	?= $(GIT_AM_OPTS)
 
 # stuff for configure ...
 
@@ -1446,6 +1447,19 @@ ifneq ($(strip $(SCM_SUBMODULES)),)
 	$(SH) $(SCRIPTSDIR)/submodule-prepare.sh
 endif
 
+.PHONY: apply-submodule-patches
+apply-submodule-patches:
+ifneq ($(strip $(SCM_SUBMODULES)),)
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
+	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
+	SUBMODULE_GIT_AM_OPTS="$(SUBMODULE_GIT_AM_OPTS)" \
+	OPSYS="$(OPSYS)" OPSYS_SUFX="$(OPSYS_SUFX)" ARCH="$(ARCH)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-patch.sh
+endif
+
 patch_msg1=Applying distribution patches for $(PKGNAME)
 patch_msg2=Applying $(OPSYS) patches for $(PKGNAME)
 
@@ -1912,6 +1926,7 @@ _PATCH_SEQ		= 050:ask-license				\
 			  275:prepare-submodules			\
 			  300:pre-patch 450:pre-patch-script		\
 			  500:do-patch					\
+			  525:apply-submodule-patches			\
 			  700:post-patch 850:post-patch-script $(_USES_patch)
 _CONFIGURE_DEP 		= patch
 _CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\

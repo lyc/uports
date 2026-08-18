@@ -59,6 +59,7 @@ SCM_SUBMODULES          ?=
 SUBMODULE_PATCHDIR      ?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD  ?= $(PATCH_METHOD)
 SUBMODULE_UPDATE_ARGS   ?= --init --checkout
+SUBMODULE_GIT_AM_OPTS   ?= $(GIT_AM_OPTS)
 ```
 
 `SCM_SUBMODULES` contains paths relative to `$(WRKSRC)`. Absolute paths,
@@ -86,6 +87,7 @@ ready
 uninitialized
 missing-gitlink
 commit-mismatch
+patched
 dirty
 invalid-path
 duplicate
@@ -130,3 +132,46 @@ additional `git submodule update` options.
 
 Slice 2 does not apply submodule patches. Patch execution remains a separate
 lifecycle operation for the next implementation slice.
+
+## 5. Slice 3 Patch Application
+
+The patch lifecycle applies submodule patches after the main source `do-patch`
+action and before `post-patch`. This ordering keeps submodule commits from
+making the parent work tree dirty while the parent's own `git am` series runs.
+The operation is also available directly after preparation:
+
+```sh
+make apply-submodule-patches
+```
+
+Submodule series use the platform selection order documented above. Each
+nonblank, noncomment line contains one patch filename relative to that
+submodule's patch directory. Patch entries must be direct filenames; absolute
+paths, parent traversal, subdirectories, and backslashes are rejected.
+
+Slice 3 supports `SUBMODULE_PATCH_METHOD=V2`. Each listed file must be a
+`git format-patch` email patch and is applied with `git am` plus
+`SUBMODULE_GIT_AM_OPTS`. A port whose main source uses V1 can select V2 only for
+its submodules:
+
+```make
+USE_PATCH= V1
+SUBMODULE_PATCH_METHOD= V2
+```
+
+After a V2 series is applied, `info.debug.submodules` reports `patched` when
+the checkout is a clean descendant of its gitlink and the descendant commit
+count matches the selected series entry count. Other clean divergences remain
+`commit-mismatch`.
+
+Before the first patch is applied, the framework validates all declarations,
+gitlinks, clean checkouts, selected series, and referenced patch files. Each
+submodule must still be at the exact commit recorded by the parent `HEAD`.
+When a patch fails, the active `git am` is aborted and that entire submodule
+series is reset to its clean starting commit. Series already completed in an
+earlier submodule are retained; rerunning the full patch lifecycle starts by
+preparing all declared submodules back to their parent gitlinks.
+
+Traditional V1 patching, quilt registration, and arbitrary file-copy actions
+are intentionally outside this mechanism. Existing port hooks remain available
+for non-patch file installation or generated-file work.

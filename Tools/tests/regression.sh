@@ -592,6 +592,91 @@ else
 		"unexpected module-mismatch commit"
 fi
 
+submodule_patch_root=$submodule_prepare_port/files/submodules
+mkdir -p "$submodule_patch_root/module-init" \
+	"$submodule_patch_root/module-mismatch"
+git -C "$submodule_source" format-patch -1 "$submodule_mismatch" --stdout \
+	>"$submodule_patch_root/module-init/0001-second.patch"
+printf '%s\n' 0001-second.patch \
+	>"$submodule_patch_root/module-init/series.linux-amd64"
+git -C "$submodule_prepare_parent/module-init" config user.name 'uports test'
+git -C "$submodule_prepare_parent/module-init" config user.email \
+	'uports-test@example.invalid'
+
+submodule_patch_output=$(make --no-print-directory -s \
+	-C "$submodule_prepare_port" OPSYS=linux OPSYS_SUFX= ARCH=amd64 \
+	apply-submodule-patches)
+assert_contains "submodule patch application reports selected series" \
+	"$submodule_patch_output" \
+	"SUBPAT  module-init (series.linux-amd64)"
+assert_contains "submodule patch application reports patch" \
+	"$submodule_patch_output" "module-init/0001-second.patch (am)"
+if [ "$(git -C "$submodule_prepare_parent/module-init" log -1 --format=%s)" = \
+    second ] && [ -z "$(git -C "$submodule_prepare_parent/module-init" \
+    status --porcelain)" ]; then
+	pass "submodule git-am series creates a clean commit"
+else
+	fail "submodule git-am series creates a clean commit" \
+		"patch result is not the expected clean commit"
+fi
+submodule_patched_info=$(make --no-print-directory -s \
+	-C "$submodule_prepare_port" OPSYS=linux OPSYS_SUFX= ARCH=amd64 \
+	info.debug.submodules)
+assert_contains "submodule diagnostics recognize applied series" \
+	"$submodule_patched_info" \
+	"path=module-init expected=$submodule_expected"
+assert_contains "submodule diagnostics report patched state" \
+	"$submodule_patched_info" \
+	"patch_series=series.linux-amd64 patch_count=1 state=patched"
+
+git -C "$submodule_prepare_parent/module-init" reset -q --hard \
+	"$submodule_expected"
+printf '%s\n' missing.patch \
+	>"$submodule_patch_root/module-mismatch/series.linux-amd64"
+submodule_patch_error=$submodule_fixture/submodule-patch.err
+if make --no-print-directory -s -C "$submodule_prepare_port" \
+    OPSYS=linux OPSYS_SUFX= ARCH=amd64 apply-submodule-patches \
+    >"$submodule_patch_error" 2>&1; then
+	fail "submodule patch metadata is validated before application" \
+		"missing patch unexpectedly accepted"
+else
+	assert_contains "submodule patch metadata is validated before application" \
+		"$(cat "$submodule_patch_error")" \
+		"submodule module-mismatch: missing patch missing.patch"
+fi
+if [ "$(git -C "$submodule_prepare_parent/module-init" rev-parse HEAD)" = \
+    "$submodule_expected" ]; then
+	pass "submodule patch prevalidation prevents partial application"
+else
+	fail "submodule patch prevalidation prevents partial application" \
+		"earlier series was applied before validation failed"
+fi
+
+rm -f "$submodule_patch_root/module-mismatch/series.linux-amd64"
+printf 'not an email patch\n' \
+	>"$submodule_patch_root/module-init/0002-broken.patch"
+printf '%s\n' 0001-second.patch 0002-broken.patch \
+	>"$submodule_patch_root/module-init/series.linux-amd64"
+if make --no-print-directory -s -C "$submodule_prepare_port" \
+    OPSYS=linux OPSYS_SUFX= ARCH=amd64 apply-submodule-patches \
+    >"$submodule_patch_error" 2>&1; then
+	fail "failed submodule series is rejected" \
+		"broken patch unexpectedly accepted"
+else
+	assert_contains "failed submodule series is rejected" \
+		"$(cat "$submodule_patch_error")" \
+		"patch 0002-broken.patch failed; series rolled back"
+fi
+if [ "$(git -C "$submodule_prepare_parent/module-init" rev-parse HEAD)" = \
+    "$submodule_expected" ] && \
+   [ -z "$(git -C "$submodule_prepare_parent/module-init" status --porcelain)" ] && \
+   [ ! -d "$submodule_prepare_parent/.git/modules/module-init/rebase-apply" ]; then
+	pass "failed submodule series rolls back cleanly"
+else
+	fail "failed submodule series rolls back cleanly" \
+		"submodule was not restored to its clean starting commit"
+fi
+
 submodule_atomic_parent=$submodule_fixture/atomic-parent
 submodule_atomic_port=$submodule_fixture/atomic-port
 mkdir -p "$submodule_atomic_parent" "$submodule_atomic_port"

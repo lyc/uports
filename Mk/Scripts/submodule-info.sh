@@ -151,6 +151,16 @@ do
 		patch_series=${series##*/}
 		patch_count=$(series_count "$series")
 	fi
+	if [ "$state" = commit-mismatch ] && [ "$dirty" = no ] && \
+	   [ "$patch_count" -gt 0 ] && \
+	   "$GIT" -C "$dir" merge-base --is-ancestor "$expected" "$checkout" \
+	       >/dev/null 2>&1; then
+		applied_count=$("$GIT" -C "$dir" rev-list --count \
+			"$expected..$checkout" 2>/dev/null || :)
+		if [ "$applied_count" = "$patch_count" ]; then
+			state=patched
+		fi
+	fi
 
 	printf 'submodule.%s = path=%s expected=%s checkout=%s initialized=%s dirty=%s patch_method=%s patch_series=%s patch_count=%s state=%s\n' \
 		"$index" "$path" "$expected" "$checkout" "$initialized" \
