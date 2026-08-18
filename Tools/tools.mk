@@ -88,7 +88,7 @@ suffix_special_all	:= package-source makesum
 suffix_all_lists	:=						\
 	fetch extract patch configure build stage package install	\
 	clean distclean deinstall uninstall rebuild restage reinstall	\
-	$(suffix_special_all)
+	generate-plist $(suffix_special_all)
 
 #
 # utilities ...
