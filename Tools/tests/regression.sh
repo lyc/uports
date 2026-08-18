@@ -438,6 +438,7 @@ submodule_fixture=${TMPDIR:-/tmp}/uports-submodule-info.$$
 submodule_source=$submodule_fixture/source
 submodule_parent=$submodule_fixture/parent
 submodule_port=$submodule_fixture/port
+rm -rf "$submodule_fixture"
 mkdir -p "$submodule_source" "$submodule_parent" "$submodule_port/files/submodules/module-ready"
 
 git -C "$submodule_source" init -q
@@ -532,6 +533,113 @@ if [ "$submodule_before" = "$submodule_after" ]; then
 else
 	fail "submodule diagnostics do not modify checkout" \
 		"before: $submodule_before; after: $submodule_after"
+fi
+
+submodule_prepare_parent=$submodule_fixture/prepare-parent
+submodule_prepare_port=$submodule_fixture/prepare-port
+mkdir -p "$submodule_prepare_parent" "$submodule_prepare_port"
+git -C "$submodule_prepare_parent" init -q
+cat >"$submodule_prepare_parent/.gitmodules" <<EOF
+[submodule "module-init"]
+	path = module-init
+	url = $submodule_source
+[submodule "module-mismatch"]
+	path = module-mismatch
+	url = $submodule_source
+EOF
+git -C "$submodule_prepare_parent" add .gitmodules
+for path in module-init module-mismatch; do
+	git -C "$submodule_prepare_parent" update-index --add --cacheinfo \
+		160000,"$submodule_expected","$path"
+done
+git -C "$submodule_prepare_parent" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm parent
+git -c protocol.file.allow=always clone -q "$submodule_source" \
+	"$submodule_prepare_parent/module-mismatch"
+
+cat >"$submodule_prepare_port/Makefile" <<EOF
+PORTNAME = submodule-prepare-fixture
+DISTVERSION = 1
+CATEGORIES = devel
+SCM_SUBMODULES = module-init module-mismatch
+SCM_FETCH_ENV = GIT_ALLOW_PROTOCOL=file
+WRKSRC = $submodule_prepare_parent
+MASTERDIR = \$(CURDIR)
+PORTSDIR = $portdir
+include \$(PORTSDIR)/Mk/linux.port.mk
+EOF
+
+submodule_prepare_output=$(make --no-print-directory -s \
+	-C "$submodule_prepare_port" prepare-submodules)
+assert_contains "submodule preparation follows declaration order" \
+	"$submodule_prepare_output" \
+	"SUBMOD  module-init ($submodule_expected)"
+assert_contains "submodule preparation visits clean mismatch" \
+	"$submodule_prepare_output" \
+	"SUBMOD  module-mismatch ($submodule_expected)"
+if [ "$(git -C "$submodule_prepare_parent/module-init" rev-parse HEAD)" = \
+    "$submodule_expected" ]; then
+	pass "submodule preparation initializes exact gitlink commit"
+else
+	fail "submodule preparation initializes exact gitlink commit" \
+		"unexpected module-init commit"
+fi
+if [ "$(git -C "$submodule_prepare_parent/module-mismatch" rev-parse HEAD)" = \
+    "$submodule_expected" ]; then
+	pass "submodule preparation corrects clean commit mismatch"
+else
+	fail "submodule preparation corrects clean commit mismatch" \
+		"unexpected module-mismatch commit"
+fi
+
+submodule_atomic_parent=$submodule_fixture/atomic-parent
+submodule_atomic_port=$submodule_fixture/atomic-port
+mkdir -p "$submodule_atomic_parent" "$submodule_atomic_port"
+git -C "$submodule_atomic_parent" init -q
+cat >"$submodule_atomic_parent/.gitmodules" <<EOF
+[submodule "module-first"]
+	path = module-first
+	url = $submodule_source
+[submodule "module-dirty"]
+	path = module-dirty
+	url = $submodule_source
+EOF
+git -C "$submodule_atomic_parent" add .gitmodules
+for path in module-first module-dirty; do
+	git -C "$submodule_atomic_parent" update-index --add --cacheinfo \
+		160000,"$submodule_expected","$path"
+done
+git -C "$submodule_atomic_parent" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm parent
+git -c protocol.file.allow=always clone -q "$submodule_source" \
+	"$submodule_atomic_parent/module-dirty"
+printf 'dirty\n' >>"$submodule_atomic_parent/module-dirty/tracked"
+cat >"$submodule_atomic_port/Makefile" <<EOF
+PORTNAME = submodule-atomic-fixture
+DISTVERSION = 1
+CATEGORIES = devel
+SCM_SUBMODULES = module-first module-dirty
+SCM_FETCH_ENV = GIT_ALLOW_PROTOCOL=file
+WRKSRC = $submodule_atomic_parent
+MASTERDIR = \$(CURDIR)
+PORTSDIR = $portdir
+include \$(PORTSDIR)/Mk/linux.port.mk
+EOF
+submodule_prepare_error=$submodule_fixture/prepare.err
+if make --no-print-directory -s -C "$submodule_atomic_port" \
+    prepare-submodules >"$submodule_prepare_error" 2>&1; then
+	fail "submodule preparation rejects dirty checkout" \
+		"dirty checkout unexpectedly accepted"
+else
+	assert_contains "submodule preparation rejects dirty checkout" \
+		"$(cat "$submodule_prepare_error")" \
+		"submodule module-dirty: checkout is dirty"
+fi
+if [ ! -e "$submodule_atomic_parent/module-first/.git" ]; then
+	pass "submodule validation completes before mutation"
+else
+	fail "submodule validation completes before mutation" \
+		"module-first was initialized before validation failed"
 fi
 rm -rf "$submodule_fixture"
 

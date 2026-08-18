@@ -773,11 +773,12 @@ PATCHLIST		?= $(call config.lookup,$(PATCHLIST_NAME))
 USE_PATCH		?= V2
 PATCH_METHOD		= $(USE_PATCH)
 
-# Explicit submodule metadata.  Slice 1 is intentionally diagnostic-only:
-# these declarations do not initialize, update, or patch submodules.
+# Explicit submodule metadata.  Declared submodules are prepared by the patch
+# lifecycle; submodule patch application is implemented separately.
 SCM_SUBMODULES		?=
 SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
+SUBMODULE_UPDATE_ARGS	?= --init --checkout
 
 # stuff for configure ...
 
@@ -1433,6 +1434,18 @@ pre-init-repo:
 pre-patch: pre-init-repo
 endif
 
+.PHONY: prepare-submodules
+prepare-submodules:
+ifneq ($(strip $(SCM_SUBMODULES)),)
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SCM_FETCH_ENV="$(SCM_FETCH_ENV)" \
+	SCM_TIMEOUT_CMD="$(SCM_TIMEOUT_CMD)" \
+	SUBMODULE_UPDATE_ARGS="$(SUBMODULE_UPDATE_ARGS)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-prepare.sh
+endif
+
 patch_msg1=Applying distribution patches for $(PKGNAME)
 patch_msg2=Applying $(OPSYS) patches for $(PKGNAME)
 
@@ -1896,6 +1909,7 @@ _PATCH_DEP		= extract
 _PATCH_SEQ		= 050:ask-license				\
 			  100:patch-message				\
 			  150:patch-depends				\
+			  275:prepare-submodules			\
 			  300:pre-patch 450:pre-patch-script		\
 			  500:do-patch					\
 			  700:post-patch 850:post-patch-script $(_USES_patch)

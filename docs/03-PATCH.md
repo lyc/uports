@@ -58,6 +58,7 @@ The public variables are:
 SCM_SUBMODULES          ?=
 SUBMODULE_PATCHDIR      ?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD  ?= $(PATCH_METHOD)
+SUBMODULE_UPDATE_ARGS   ?= --init --checkout
 ```
 
 `SCM_SUBMODULES` contains paths relative to `$(WRKSRC)`. Absolute paths,
@@ -94,3 +95,38 @@ parent-not-git
 This target does not initialize or update submodules, access the network, change
 a checkout, or apply patches. Those lifecycle operations belong to later
 implementation slices.
+
+## 4. Slice 2 Preparation
+
+When `SCM_SUBMODULES` is nonempty, the patch lifecycle prepares the declared
+submodules before `pre-patch`, patch scripts, or the `do-patch` action runs.
+The same operation can be invoked directly:
+
+```sh
+make prepare-submodules
+```
+
+Preparation has two phases. The first phase validates every declaration without
+changing the work tree. It rejects:
+
+- invalid or duplicate paths;
+- paths without a gitlink at the parent `HEAD`;
+- paths not registered in `.gitmodules`;
+- paths that resolve outside `$(WRKSRC)`;
+- dirty initialized checkouts;
+- nonempty uninitialized paths and non-directory obstructions.
+
+Only after every declaration passes validation does the second phase run
+`git submodule update --init --checkout` for each path, in declaration order.
+This initializes missing checkouts and changes clean mismatched checkouts to the
+exact commit stored in the parent gitlink. Each result is verified for both the
+expected commit and a clean work tree.
+
+Submodule retrieval inherits `SCM_FETCH_ENV` and `SCM_TIMEOUT_CMD` from the SCM
+fetch framework. Git uses an existing local submodule object database first and
+contacts the configured submodule transport only when required objects are not
+available locally. `SUBMODULE_UPDATE_ARGS` may be overridden when a port needs
+additional `git submodule update` options.
+
+Slice 2 does not apply submodule patches. Patch execution remains a separate
+lifecycle operation for the next implementation slice.
