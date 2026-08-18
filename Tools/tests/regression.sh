@@ -434,6 +434,107 @@ assert_contains "aggregate name collision includes category members" \
 assert_contains "aggregate name collision includes group members" \
 	"$collision_dispatch" "textproc@devel/libffi build"
 
+submodule_fixture=${TMPDIR:-/tmp}/uports-submodule-info.$$
+submodule_source=$submodule_fixture/source
+submodule_parent=$submodule_fixture/parent
+submodule_port=$submodule_fixture/port
+mkdir -p "$submodule_source" "$submodule_parent" "$submodule_port/files/submodules/module-ready"
+
+git -C "$submodule_source" init -q
+printf 'initial\n' >"$submodule_source/tracked"
+git -C "$submodule_source" add tracked
+git -C "$submodule_source" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm initial
+submodule_expected=$(git -C "$submodule_source" rev-parse HEAD)
+
+git -C "$submodule_parent" init -q
+cat >"$submodule_parent/.gitmodules" <<EOF
+[submodule "module-ready"]
+	path = module-ready
+	url = $submodule_source
+[submodule "module-dirty"]
+	path = module-dirty
+	url = $submodule_source
+[submodule "module-mismatch"]
+	path = module-mismatch
+	url = $submodule_source
+[submodule "module-uninitialized"]
+	path = module-uninitialized
+	url = $submodule_source
+EOF
+git -C "$submodule_parent" add .gitmodules
+for path in module-ready module-dirty module-mismatch module-uninitialized; do
+	git -C "$submodule_parent" update-index --add --cacheinfo \
+		160000,"$submodule_expected","$path"
+done
+git -C "$submodule_parent" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm parent
+
+printf 'second\n' >>"$submodule_source/tracked"
+git -C "$submodule_source" add tracked
+git -C "$submodule_source" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm second
+submodule_mismatch=$(git -C "$submodule_source" rev-parse HEAD)
+
+for path in module-ready module-dirty module-mismatch; do
+	git -c protocol.file.allow=always clone -q "$submodule_source" \
+		"$submodule_parent/$path"
+done
+git -C "$submodule_parent/module-ready" checkout -q "$submodule_expected"
+git -C "$submodule_parent/module-dirty" checkout -q "$submodule_expected"
+printf 'dirty\n' >>"$submodule_parent/module-dirty/tracked"
+mkdir -p "$submodule_parent/module-uninitialized"
+
+cat >"$submodule_port/files/submodules/module-ready/series.linux-amd64" <<'EOF'
+# platform-specific fixture
+0001-first.patch
+
+0002-second.patch
+EOF
+cat >"$submodule_port/Makefile" <<EOF
+PORTNAME = submodule-fixture
+DISTVERSION = 1
+CATEGORIES = devel
+SCM_SUBMODULES = module-ready module-dirty module-mismatch module-uninitialized module-missing ../escape module-ready
+WRKSRC = $submodule_parent
+MASTERDIR = \$(CURDIR)
+PORTSDIR = $portdir
+include \$(PORTSDIR)/Mk/linux.port.mk
+EOF
+
+submodule_before=$(git -C "$submodule_parent/module-ready" status --porcelain)
+submodule_output=$(make --no-print-directory -s -C "$submodule_port" \
+	OPSYS=linux OPSYS_SUFX= ARCH=amd64 info.debug.submodules)
+submodule_after=$(git -C "$submodule_parent/module-ready" status --porcelain)
+
+assert_contains "submodule metadata preserves declaration order" \
+	"$submodule_output" \
+	"submodules.declared = module-ready module-dirty module-mismatch module-uninitialized module-missing ../escape module-ready"
+assert_contains "submodule metadata reports declaration count" \
+	"$submodule_output" "submodules.count = 7"
+assert_contains "ready submodule and platform series diagnostics" \
+	"$submodule_output" \
+	"submodule.1 = path=module-ready expected=$submodule_expected checkout=$submodule_expected initialized=yes dirty=no patch_method=V2 patch_series=series.linux-amd64 patch_count=2 state=ready"
+assert_contains "dirty submodule diagnostics" "$submodule_output" \
+	"path=module-dirty expected=$submodule_expected checkout=$submodule_expected initialized=yes dirty=yes patch_method=V2 patch_series=none patch_count=0 state=dirty"
+assert_contains "commit mismatch diagnostics" "$submodule_output" \
+	"path=module-mismatch expected=$submodule_expected checkout=$submodule_mismatch initialized=yes dirty=no patch_method=V2 patch_series=none patch_count=0 state=commit-mismatch"
+assert_contains "uninitialized submodule diagnostics" "$submodule_output" \
+	"path=module-uninitialized expected=$submodule_expected checkout=none initialized=no dirty=unknown patch_method=V2 patch_series=none patch_count=0 state=uninitialized"
+assert_contains "missing gitlink diagnostics" "$submodule_output" \
+	"path=module-missing expected=none checkout=none initialized=no dirty=unknown patch_method=V2 patch_series=none patch_count=0 state=missing-gitlink"
+assert_contains "unsafe submodule path diagnostics" "$submodule_output" \
+	"path=../escape expected=none checkout=none initialized=no dirty=unknown patch_method=V2 patch_series=none patch_count=0 state=invalid-path"
+assert_contains "duplicate submodule diagnostics" "$submodule_output" \
+	"submodule.7 = path=module-ready expected=none checkout=none initialized=no dirty=unknown patch_method=V2 patch_series=series.linux-amd64 patch_count=2 state=duplicate"
+if [ "$submodule_before" = "$submodule_after" ]; then
+	pass "submodule diagnostics do not modify checkout"
+else
+	fail "submodule diagnostics do not modify checkout" \
+		"before: $submodule_before; after: $submodule_after"
+fi
+rm -rf "$submodule_fixture"
+
 error_file=${TMPDIR:-/tmp}/uports-tools-regression.$$.err
 trap 'rm -f "$error_file"' EXIT HUP INT TERM
 if run_make PORTS_LISTS=devel/does-not-exist info.debug >"$error_file" 2>&1; then

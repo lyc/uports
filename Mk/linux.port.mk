@@ -773,6 +773,12 @@ PATCHLIST		?= $(call config.lookup,$(PATCHLIST_NAME))
 USE_PATCH		?= V2
 PATCH_METHOD		= $(USE_PATCH)
 
+# Explicit submodule metadata.  Slice 1 is intentionally diagnostic-only:
+# these declarations do not initialize, update, or patch submodules.
+SCM_SUBMODULES		?=
+SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
+SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
+
 # stuff for configure ...
 
 CONFIGURE_SHELL		?= $(SH)
@@ -1545,6 +1551,16 @@ endif
 endif
 endif
 endif
+
+.PHONY: info.debug.submodules
+info.debug.submodules:
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
+	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
+	OPSYS="$(OPSYS)" OPSYS_SUFX="$(OPSYS_SUFX)" ARCH="$(ARCH)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-info.sh
 
 #
 # Configure...
