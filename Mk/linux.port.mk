@@ -773,6 +773,14 @@ PATCHLIST		?= $(call config.lookup,$(PATCHLIST_NAME))
 USE_PATCH		?= V2
 PATCH_METHOD		= $(USE_PATCH)
 
+# Explicit submodule metadata.  Declared submodules are prepared by the patch
+# lifecycle; submodule patch application is implemented separately.
+SCM_SUBMODULES		?=
+SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
+SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
+SUBMODULE_UPDATE_ARGS	?= --init --checkout
+SUBMODULE_GIT_AM_OPTS	?= $(GIT_AM_OPTS)
+
 # stuff for configure ...
 
 CONFIGURE_SHELL		?= $(SH)
@@ -1427,6 +1435,31 @@ pre-init-repo:
 pre-patch: pre-init-repo
 endif
 
+.PHONY: prepare-submodules
+prepare-submodules:
+ifneq ($(strip $(SCM_SUBMODULES)),)
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SCM_FETCH_ENV="$(SCM_FETCH_ENV)" \
+	SCM_TIMEOUT_CMD="$(SCM_TIMEOUT_CMD)" \
+	SUBMODULE_UPDATE_ARGS="$(SUBMODULE_UPDATE_ARGS)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-prepare.sh
+endif
+
+.PHONY: apply-submodule-patches
+apply-submodule-patches:
+ifneq ($(strip $(SCM_SUBMODULES)),)
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
+	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
+	SUBMODULE_GIT_AM_OPTS="$(SUBMODULE_GIT_AM_OPTS)" \
+	OPSYS="$(OPSYS)" OPSYS_SUFX="$(OPSYS_SUFX)" ARCH="$(ARCH)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-patch.sh
+endif
+
 patch_msg1=Applying distribution patches for $(PKGNAME)
 patch_msg2=Applying $(OPSYS) patches for $(PKGNAME)
 
@@ -1545,6 +1578,16 @@ endif
 endif
 endif
 endif
+
+.PHONY: info.debug.submodules
+info.debug.submodules:
+	@WRKSRC="$(WRKSRC)" \
+	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
+	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
+	OPSYS="$(OPSYS)" OPSYS_SUFX="$(OPSYS_SUFX)" ARCH="$(ARCH)" \
+	GIT="$(GIT)" \
+	$(SH) $(SCRIPTSDIR)/submodule-info.sh
 
 #
 # Configure...
@@ -1880,8 +1923,10 @@ _PATCH_DEP		= extract
 _PATCH_SEQ		= 050:ask-license				\
 			  100:patch-message				\
 			  150:patch-depends				\
+			  275:prepare-submodules			\
 			  300:pre-patch 450:pre-patch-script		\
 			  500:do-patch					\
+			  525:apply-submodule-patches			\
 			  700:post-patch 850:post-patch-script $(_USES_patch)
 _CONFIGURE_DEP 		= patch
 _CONFIGURE_SEQ		= 150:build-depends 151:lib-depends		\
