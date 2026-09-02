@@ -522,6 +522,16 @@ load-dependency-records = 						\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))
 
+dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
+	$(if $(filter selected,$($(d)_resolution)),$d))
+dependency-unresolved-record-ids = $(foreach d,$(dependency_record_ids),\
+	$(if $(filter-out selected,$($(d)_resolution)),$d))
+
+define dependency-graph-input
+  $(foreach d,$(dependency-graph-record-ids),			\
+    printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)';)
+endef
+
 # $(call target-instance-key, group@port.suffix)
 target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
@@ -722,6 +732,19 @@ planner-stats:
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
+
+.PHONY: dependency-graph-list dependencies-check
+depends_exclude_targets	+= dependency-graph-list dependencies-check
+dependency-graph-list: info.debug.dependency-graph
+
+dependencies-check:
+	@$(load-dependency-records)
+	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
+	  echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	  exit 1; \
+	fi
+	@{ $(dependency-graph-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk"
 
 #
 # Host utilities check...
@@ -1021,6 +1044,18 @@ info.debug.dependencies:
 	@$(foreach d,$(dependency_record_ids),				\
 	  echo "$(d) = consumer=$($(d)_consumer) type=$($(d)_type) requirement=$($(d)_requirement) origin=$($(d)_origin) provider_kind=$($(d)_provider_kind) provider_instance=$(if $($(d)_provider_instance),$($(d)_provider_instance),none) resolution=$($(d)_resolution)";)
 
+info.debug.dependency-graph:
+	@$(load-dependency-records)
+	@$(echo) "dependency_graph_nodes = $(words $(ports_all_group))"
+	@$(echo) "dependency_graph_edges = $(words $(dependency-graph-record-ids))"
+	@$(echo) "dependency_graph_unresolved = $(words $(dependency-unresolved-record-ids))"
+	@$(foreach d,$(dependency-graph-record-ids),			\
+	  echo "edge.$(d) = consumer=$($(d)_consumer) provider=$($(d)_provider_instance) type=$($(d)_type) origin=$($(d)_origin)";)
+	@$(foreach d,$(dependency-unresolved-record-ids),		\
+	  echo "unresolved.$(d) = consumer=$($(d)_consumer) type=$($(d)_type) origin=$($(d)_origin) resolution=$($(d)_resolution)";)
+	@{ $(dependency-graph-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-graph.awk"
+
 info.debug.port:
 	@$(echo) "feeds_lists = $(feeds_lists)"
 	@$(echo) "ports_lists = $(ports_lists)"
@@ -1117,5 +1152,6 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
 			    info.debug.instance-envs info.debug.dependencies \
-			    info.debug.targets-all dependencies-list
+			    info.debug.dependency-graph info.debug.targets-all \
+			    dependencies-list dependency-graph-list dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))

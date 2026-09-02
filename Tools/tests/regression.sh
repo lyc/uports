@@ -269,6 +269,51 @@ assert_contains "multiple consumer-group capability providers are ambiguous" \
 	"$ambiguous_capability_dependencies" \
 	"origin=devel/autoconf provider_kind=uports provider_instance=none resolution=ambiguous"
 
+dependency_graph=$(run_make info.debug.dependency-graph)
+assert_contains "unresolved dependencies remain visible in graph" \
+	"$dependency_graph" \
+	"unresolved.dependency3 = consumer=target_libffi type=build origin=devel/autoconf resolution=unknown-origin"
+assert_contains "empty selected graph is acyclic" "$dependency_graph" \
+	"dependency_cycle = none"
+
+if unresolved_output=$(run_make dependencies-check 2>&1); then
+	fail "unresolved dependency graph fails validation" \
+		"unresolved records were accepted"
+else
+	pass "unresolved dependency graph fails validation"
+fi
+assert_contains "dependency validation reports unresolved count" \
+	"$unresolved_output" "unresolved_dependencies = 4"
+
+resolved_dependency_graph=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	info.debug.dependency-graph)
+assert_contains "selected dependency becomes typed graph edge" \
+	"$resolved_dependency_graph" \
+	"edge.dependency3 = consumer=target_libffi provider=host_pkg-config type=build origin=devel/autoconf"
+assert_contains "shared provider graph is acyclic" "$resolved_dependency_graph" \
+	"dependency_cycle = none"
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	dependencies-check >/dev/null 2>&1; then
+	pass "resolved acyclic dependency graph passes validation"
+else
+	fail "resolved acyclic dependency graph passes validation" \
+		"dependencies-check failed"
+fi
+
+if cycle_output=$(run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	dependencies-check 2>&1); then
+	fail "dependency cycle fails validation" "cycle was accepted"
+else
+	pass "dependency cycle fails validation"
+fi
+assert_contains "dependency cycle reports blocked instances" "$cycle_output" \
+	"dependency_cycle_blocked_nodes = target_libffi target_openssl"
+
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
 	"lifecycle_suffixes = 18
