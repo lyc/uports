@@ -337,6 +337,53 @@ else
 		"alias and diagnostic output differ"
 fi
 
+dependency_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	info.debug.dependency-lifecycle)
+assert_contains "build dependency maps to configure prerequisite" \
+	"$dependency_lifecycle" \
+	"prerequisite.dependency3 = consumer=target@devel/libffi.configure provider=host@devel/pkg-config.install type=build origin=devel/autoconf"
+assert_contains "library dependency maps to configure prerequisite" \
+	"$dependency_lifecycle" \
+	"prerequisite.dependency1 = consumer=host@security/openssl.configure provider=host@devel/pkg-config.install type=lib origin=archivers/zlib"
+
+runtime_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency3_target := build' \
+	info.debug.dependency-lifecycle)
+assert_contains "runtime dependency maps to stage prerequisite" \
+	"$runtime_lifecycle" \
+	"prerequisite.dependency3 = consumer=target@devel/libffi.stage provider=host@devel/pkg-config.build type=run origin=devel/autoconf"
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	dependency-lifecycle-check >/dev/null 2>&1; then
+	pass "resolved lifecycle prerequisite plan passes validation"
+else
+	fail "resolved lifecycle prerequisite plan passes validation" \
+		"dependency-lifecycle-check failed"
+fi
+
+if invalid_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	--eval='override dependency3_target := unsupported-target' \
+	dependency-lifecycle-check 2>&1); then
+	fail "unsupported dependency target fails lifecycle validation" \
+		"unsupported target was accepted"
+else
+	pass "unsupported dependency target fails lifecycle validation"
+fi
+assert_contains "invalid dependency target is explicitly reported" \
+	"$invalid_lifecycle" "invalid_dependency_targets = 1"
+
+if run_make dependency-lifecycle-check >/dev/null 2>&1; then
+	fail "unresolved lifecycle prerequisite plan fails validation" \
+		"unresolved plan was accepted"
+else
+	pass "unresolved lifecycle prerequisite plan fails validation"
+fi
+
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
 	dependencies-check >/dev/null 2>&1; then
@@ -356,6 +403,16 @@ else
 fi
 assert_contains "dependency cycle reports blocked instances" "$cycle_output" \
 	"dependency_cycle_blocked_nodes = host_openssl target_openssl target_libffi"
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	dependency-lifecycle-check >/dev/null 2>&1; then
+	fail "cyclic lifecycle prerequisite plan fails validation" \
+		"cyclic plan was accepted"
+else
+	pass "cyclic lifecycle prerequisite plan fails validation"
+fi
 
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \

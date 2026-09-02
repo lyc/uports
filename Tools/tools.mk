@@ -569,6 +569,27 @@ define dependency-graph-input
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)';)
 endef
 
+# Dependency records keep logical instance keys.  Lifecycle prerequisites use
+# canonical wrapper targets so group selection remains explicit and aliases are
+# never involved in execution planning.
+# $(call dependency-instance-target, instance-key, suffix)
+dependency-instance-target = $(call instance-field,$1,group)$(AT)$(call instance-field,$1,origin).$2
+
+# Build and library dependencies are needed by the consumer's configure stage;
+# runtime dependencies are needed by its stage/install flow.
+dependency-lifecycle-consumer-suffix = $(if $(filter run,$($1_type)),stage,configure)
+dependency-lifecycle-provider-suffix = $(if $($1_target),$($1_target),install)
+dependency-lifecycle-record-ids = $(dependency-graph-record-ids)
+dependency-lifecycle-invalid-target-ids = $(foreach d,$(dependency-lifecycle-record-ids),\
+	$(if $(filter-out $(suffix_all_lists),$(call dependency-lifecycle-provider-suffix,$d)),$d))
+
+# $(call dependency-lifecycle-consumer-target, dependency-record-id)
+dependency-lifecycle-consumer-target = $(call dependency-instance-target,\
+	$($1_consumer),$(call dependency-lifecycle-consumer-suffix,$1))
+# $(call dependency-lifecycle-provider-target, dependency-record-id)
+dependency-lifecycle-provider-target = $(call dependency-instance-target,\
+	$($1_provider_instance),$(call dependency-lifecycle-provider-suffix,$1))
+
 # $(call target-instance-key, group@port.suffix)
 target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
@@ -767,16 +788,32 @@ planner-stats:
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
 
-.PHONY: dependency-graph-list dependency-order-list dependencies-check
+.PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
+	dependency-lifecycle-check dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
-			   dependencies-check
+			   dependency-lifecycle-list \
+			   dependency-lifecycle-check dependencies-check
 dependency-graph-list: info.debug.dependency-graph
 dependency-order-list: info.debug.dependency-order
+dependency-lifecycle-list: info.debug.dependency-lifecycle
 
 dependencies-check:
 	@$(load-dependency-records)
 	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
 	  echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	  exit 1; \
+	fi
+	@{ $(dependency-graph-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk"
+
+dependency-lifecycle-check:
+	@$(load-dependency-records)
+	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
+	  echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	  exit 1; \
+	fi
+	@if test "$(words $(dependency-lifecycle-invalid-target-ids))" -ne 0; then \
+	  echo "invalid_dependency_targets = $(words $(dependency-lifecycle-invalid-target-ids))"; \
 	  exit 1; \
 	fi
 	@{ $(dependency-graph-input) :; } | \
@@ -1100,6 +1137,14 @@ info.debug.dependency-order:
 	@{ $(dependency-graph-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-graph.awk"
 
+info.debug.dependency-lifecycle:
+	@$(load-dependency-records)
+	@$(echo) "dependency_lifecycle_prerequisites = $(words $(dependency-lifecycle-record-ids))"
+	@$(echo) "dependency_lifecycle_unresolved = $(words $(dependency-unresolved-record-ids))"
+	@$(echo) "dependency_lifecycle_invalid_targets = $(words $(dependency-lifecycle-invalid-target-ids))"
+	@$(foreach d,$(dependency-lifecycle-record-ids),		\
+	  echo "prerequisite.$d = consumer=$(call dependency-lifecycle-consumer-target,$d) provider=$(call dependency-lifecycle-provider-target,$d) type=$($d_type) origin=$($d_origin)";)
+
 info.debug.port:
 	@$(echo) "feeds_lists = $(feeds_lists)"
 	@$(echo) "ports_lists = $(ports_lists)"
@@ -1197,7 +1242,9 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
 			    info.debug.instance-envs info.debug.dependencies \
 			    info.debug.dependency-graph info.debug.dependency-order \
+			    info.debug.dependency-lifecycle		\
 			    info.debug.targets-all dependencies-list	\
 			    dependency-graph-list dependency-order-list \
-			    dependencies-check
+			    dependency-lifecycle-list			\
+			    dependency-lifecycle-check dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))
