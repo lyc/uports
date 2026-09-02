@@ -1,4 +1,4 @@
-# handle dependency on the pkgconf port
+# Handle dependency on the selected pkg-config implementation.
 #
 # Feature:	pkgconfig
 # Usage:	USES=pkgconfig or USES=pkgconfig:ARGS
@@ -10,7 +10,7 @@
 ifndef _INCLUDE_USES_PKGCONFIG_MK
 _INCLUDE_USES_PKGCONFIG_MK = yes
 
-_PKGCONFIG_DEPENDS	= pkgconf>=1.3.0_1:devel/pkgconf
+_PKGCONFIG_DEPENDS	= pkg-config>=0:devel/pkg-config
 
 ifeq ($(pkgconfig_ARGS),)
 pkgconfig_ARGS		= build
