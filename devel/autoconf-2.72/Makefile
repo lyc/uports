@@ -13,6 +13,8 @@ COMMENT			= Generate configure scripts and related files
 
 LICENSE			= GPLv3
 
+PORT_PROVIDES		+= devel/autoconf
+
 USES			= tar:xz
 
 VERSION			= $(DISTVERSION)

@@ -458,16 +458,35 @@ dependency-metadata-command = $(foreach p,$(ports_all_group),		\
 VERTICAL_BAR := |
 dependency_metadata_raw =
 
+# $(call collect-dependency-capability, provider-key|provides|origin)
+define collect-dependency-capability
+  $(eval dependency_capability_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_capabilities_$(word 1,$(dependency_capability_words)) += $(word 3,$(dependency_capability_words)))
+endef
+
 # $(call dependency-provider-candidates, origin)
 dependency-provider-candidates = $(filter %$(AT)$1,$(ports_all_group))
 
+# $(call dependency-capability-candidates, origin)
+dependency-capability-candidates = $(strip				\
+	$(foreach p,$(ports_all_group),					\
+	  $(if $(filter $1,$(dependency_capabilities_$(call dependency-instance-key,$p))),$p)))
+
+# $(call dependency-all-provider-candidates, origin)
+dependency-all-provider-candidates = $(sort				\
+	$(call dependency-provider-candidates,$1)			\
+	$(call dependency-capability-candidates,$1))
+
 # $(call select-dependency-provider, consumer-group, origin)
-# Prefer the provider in the consumer's group.  Otherwise accept only one
-# selected instance globally; multiple candidates require future policy.
+# Prefer an exact provider in the consumer's group, then one capability provider
+# there.  Otherwise accept only one exact/capability provider globally.
 select-dependency-provider = $(strip					\
 	$(if $(filter $1$(AT)$2,$(ports_all_group)),$1$(AT)$2,		\
-	  $(if $(filter 1,$(words $(call dependency-provider-candidates,$2))),\
-	    $(call dependency-provider-candidates,$2))))
+	  $(if $(filter 1,$(words $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)))),\
+	    $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)),	\
+	    $(if $(filter 0,$(words $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)))),\
+	      $(if $(filter 1,$(words $(call dependency-all-provider-candidates,$2))),\
+	        $(call dependency-all-provider-candidates,$2))))))
 
 # $(call generate-dependency-record, consumer-key|type|requirement:origin[:target])
 define generate-dependency-record
@@ -486,9 +505,9 @@ define generate-dependency-record
   $(eval $(dependency_record_id)_requirement := $(dependency_requirement))
   $(eval $(dependency_record_id)_origin := $(dependency_origin))
   $(eval $(dependency_record_id)_target := $(wordlist 3,$(words $(dependency_parts)),$(dependency_parts)))
-  $(eval $(dependency_record_id)_provider_kind := $(if $(filter $(dependency_origin),$(ports_all_raw_lists)),uports,unresolved))
+  $(eval $(dependency_record_id)_provider_kind := $(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),uports,unresolved))
   $(eval $(dependency_record_id)_provider_instance := $(if $(dependency_provider),$(call instance-key,$(call get-group,$(dependency_provider)),$(call get-port,$(dependency_provider))),))
-  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(filter $(dependency_origin),$(ports_all_raw_lists)),$(if $(call dependency-provider-candidates,$(dependency_origin)),ambiguous,unselected),unknown-origin)))
+  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),$(if $(call dependency-all-provider-candidates,$(dependency_origin)),ambiguous,unselected),unknown-origin)))
 endef
 
 # Load records only when a dependency diagnostic recipe is expanded.  GNU make
@@ -496,7 +515,12 @@ endef
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
-	$(foreach d,$(dependency_metadata_raw),$(call generate-dependency-record,$d))
+	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call collect-dependency-capability,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call generate-dependency-record,$d)))
 
 # $(call target-instance-key, group@port.suffix)
 target-instance-key	= $(call instance-key,				\

@@ -241,6 +241,34 @@ assert_contains "selected definition with no instance is unresolved" \
 assert_contains "unknown dependency origin is explicit" "$debug_dependencies" \
 	"origin=devel/automake provider_kind=unresolved provider_instance=none resolution=unknown-origin"
 
+autoconf_metadata=$(make --no-print-directory -s -C \
+	"$portdir/devel/autoconf-2.72" uports-dependency-metadata)
+assert_contains "provider capability metadata is exported" "$autoconf_metadata" \
+	"provides|devel/autoconf"
+
+capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "unique capability provider is selected" \
+	"$capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=host_pkg-config resolution=selected"
+
+local_capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf' \
+	--eval='dependency_capabilities_target_libffi := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "consumer-group capability provider is preferred" \
+	"$local_capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=target_libffi resolution=selected"
+
+ambiguous_capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_target_libffi := devel/autoconf' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "multiple consumer-group capability providers are ambiguous" \
+	"$ambiguous_capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=none resolution=ambiguous"
+
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
 	"lifecycle_suffixes = 18

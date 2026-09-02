@@ -2344,6 +2344,7 @@ endif
 # dependency phase is inspection-only.
 .PHONY: uports-dependency-metadata
 uports-dependency-metadata:
+	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
 	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
 	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
