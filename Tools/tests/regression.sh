@@ -232,6 +232,27 @@ unselected_variants_generate_state = no"
 debug_dependencies=$(run_make info.debug.dependencies)
 assert_contains "normalized dependency record count" "$debug_dependencies" \
 	"dependency_records = 4"
+
+serial_dependencies=$(run_make DEPENDENCY_METADATA_JOBS=1 \
+	info.debug.dependencies)
+if [ "$debug_dependencies" = "$serial_dependencies" ]; then
+	pass "parallel dependency metadata preserves deterministic order"
+else
+	fail "parallel dependency metadata preserves deterministic order" \
+		"parallel and serial output differ"
+fi
+
+if metadata_error=$(run_make \
+	PORTS_target_libffi_EXTRA_ENVS='PORTSDIR=/nonexistent' \
+	info.debug.dependencies 2>&1); then
+	fail "dependency metadata probe failure is fatal" \
+		"failed probe was accepted"
+else
+	pass "dependency metadata probe failure is fatal"
+fi
+assert_contains "dependency metadata failure is explicit" "$metadata_error" \
+	"dependency metadata collection failed"
+
 assert_contains "dependency type and requirement normalization" \
 	"$debug_dependencies" \
 	"consumer=target_libffi type=build requirement=autoconf>=2.69 origin=devel/autoconf"

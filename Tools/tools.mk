@@ -437,6 +437,9 @@ $(foreach p,$(ports_all_group),					\
   $(eval								\
     $(call generate-instance-record,$p)))
 
+# $(call instance-field, instance-key, field)
+instance-field		= $(instance_$(strip $1)_$(strip $2))
+
 #
 # normalized dependency records...
 #
@@ -447,15 +450,45 @@ $(foreach p,$(ports_all_group),					\
 dependency-instance-key = $(call instance-key,$(call get-group,$1),$(call get-port,$1))
 dependency-instance-directory = $(call instance-field,$(call dependency-instance-key,$1),root)/$(call instance-field,$(call dependency-instance-key,$1),origin)
 
-dependency-metadata-command = $(foreach p,$(ports_all_group),		\
-	$(MAKE) -s -C "$(call dependency-instance-directory,$p)" 		\
-	  --no-print-directory $(call instance-field,$(call instance-key,	\
-	  $(call get-group,$p),$(call get-port,$p)),env)			\
-	  uports-dependency-metadata 2>/dev/null |				\
-	  sed -e 's#^#$(call instance-key,$(call get-group,$p),		\
-	    $(call get-port,$p))$(VERTICAL_BAR)#';)
-
 VERTICAL_BAR := |
+DEPENDENCY_METADATA_JOBS ?= 4
+
+define generate-dependency-metadata-probe
+dependency_metadata_probe_targets += dependency-metadata-probe-$(call dependency-instance-key,$1)
+.PHONY: dependency-metadata-probe-$(call dependency-instance-key,$1)
+dependency-metadata-probe-$(call dependency-instance-key,$1):
+	@$$(MAKE) -s -C "$(call dependency-instance-directory,$1)" 	\
+	  --no-print-directory PORTSDIR="$(portdir)" 			\
+	  $(call instance-field,$(call dependency-instance-key,$1),env) \
+	  uports-dependency-metadata					\
+	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw" 2>/dev/null
+	@sed -e 's#^#$(call dependency-instance-key,$1)$(VERTICAL_BAR)#' \
+	  < "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw" \
+	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1)"
+endef
+
+$(foreach p,$(ports_all_group),					\
+  $(eval $(call generate-dependency-metadata-probe,$p)))
+
+.PHONY: dependency-metadata-probes
+depends_exclude_targets += dependency-metadata-probes $(dependency_metadata_probe_targets)
+dependency-metadata-probes: $(dependency_metadata_probe_targets)
+
+dependency-metadata-command = 						\
+	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
+	$(MAKE) -s --no-print-directory -j$(DEPENDENCY_METADATA_JOBS) 	\
+	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
+	  >/dev/null &&							\
+	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\
+	  "$$metadata_dir/$(call dependency-instance-key,$p)"),:);	\
+	status=$$?;							\
+	case "$$metadata_dir" in					\
+	  "$${TMPDIR:-/tmp}"/uports-dependencies.*)			\
+	    find "$$metadata_dir" -type f -delete;			\
+	    rmdir "$$metadata_dir";;					\
+	esac;								\
+	exit $$status
+
 dependency_metadata_raw =
 
 # $(call collect-dependency-capability, provider-key|provides|origin)
@@ -515,6 +548,8 @@ endef
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
+	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
+	  $(error dependency metadata collection failed),)		\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-capability,$d)))			\
@@ -537,9 +572,6 @@ target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
 			    $(strip $(call extract-port,		\
 			      $(call rm-group,$1))))
-
-# $(call instance-field, instance-key, field)
-instance-field		= $(instance_$(strip $1)_$(strip $2))
 
 # $(call target-instance-field, group@port.suffix, field)
 target-instance-field	= $(call instance-field,			\
