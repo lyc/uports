@@ -22,6 +22,7 @@ USES			= libtool pkgconfig
 #USE_AUTOTOOLS 		= yes
 GNU_CONFIGURE 		= yes
 CONFIGURE_ARGS		+= --enable-shared				\
+			   --with-shared-termcap-library		\
 			   --with-curses
 
 
