@@ -563,6 +563,8 @@ dependency-unresolved-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter-out selected,$($(d)_resolution)),$d))
 
 define dependency-graph-input
+  $(foreach p,$(ports_all_group),				\
+    printf '%s\n' '$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
   $(foreach d,$(dependency-graph-record-ids),			\
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)';)
 endef
@@ -765,9 +767,11 @@ planner-stats:
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
 
-.PHONY: dependency-graph-list dependencies-check
-depends_exclude_targets	+= dependency-graph-list dependencies-check
+.PHONY: dependency-graph-list dependency-order-list dependencies-check
+depends_exclude_targets	+= dependency-graph-list dependency-order-list \
+			   dependencies-check
 dependency-graph-list: info.debug.dependency-graph
+dependency-order-list: info.debug.dependency-order
 
 dependencies-check:
 	@$(load-dependency-records)
@@ -1088,6 +1092,14 @@ info.debug.dependency-graph:
 	@{ $(dependency-graph-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-graph.awk"
 
+info.debug.dependency-order:
+	@$(load-dependency-records)
+	@$(echo) "dependency_order_nodes = $(words $(ports_all_group))"
+	@$(echo) "dependency_order_edges = $(words $(dependency-graph-record-ids))"
+	@$(echo) "dependency_order_unresolved = $(words $(dependency-unresolved-record-ids))"
+	@{ $(dependency-graph-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-graph.awk"
+
 info.debug.port:
 	@$(echo) "feeds_lists = $(feeds_lists)"
 	@$(echo) "ports_lists = $(ports_lists)"
@@ -1184,6 +1196,8 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
 			    info.debug.instance-envs info.debug.dependencies \
-			    info.debug.dependency-graph info.debug.targets-all \
-			    dependencies-list dependency-graph-list dependencies-check
+			    info.debug.dependency-graph info.debug.dependency-order \
+			    info.debug.targets-all dependencies-list	\
+			    dependency-graph-list dependency-order-list \
+			    dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))

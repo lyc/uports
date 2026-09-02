@@ -315,6 +315,28 @@ assert_contains "selected dependency becomes typed graph edge" \
 assert_contains "shared provider graph is acyclic" "$resolved_dependency_graph" \
 	"dependency_cycle = none"
 
+dependency_order=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	info.debug.dependency-order)
+assert_contains "dependency order includes every selected instance" \
+	"$dependency_order" \
+	"dependency_order_count = 6"
+assert_contains "dependency order is provider-first and deterministic" \
+	"$dependency_order" \
+	"dependency_order = host_pkg-config target_expat2 toolchain_gmp host_openssl target_openssl target_libffi"
+
+dependency_order_alias=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	dependency-order-list)
+if [ "$dependency_order" = "$dependency_order_alias" ]; then
+	pass "dependency order list exposes the read-only diagnostic"
+else
+	fail "dependency order list exposes the read-only diagnostic" \
+		"alias and diagnostic output differ"
+fi
+
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
 	dependencies-check >/dev/null 2>&1; then
@@ -333,7 +355,7 @@ else
 	pass "dependency cycle fails validation"
 fi
 assert_contains "dependency cycle reports blocked instances" "$cycle_output" \
-	"dependency_cycle_blocked_nodes = target_libffi target_openssl"
+	"dependency_cycle_blocked_nodes = host_openssl target_openssl target_libffi"
 
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
