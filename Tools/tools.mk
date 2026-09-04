@@ -571,6 +571,13 @@ endef
 
 define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
+    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
+  $(foreach d,$(dependency_record_ids),			\
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)';)
+endef
+
+define dependency-project-execution-input
+  $(foreach p,$(ports_all_group),				\
     printf '%s\n' '$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
   $(foreach d,$(dependency-lifecycle-record-ids),		\
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)|$(call dependency-lifecycle-provider-target,$d)';)
@@ -580,15 +587,17 @@ endef
 # canonical wrapper targets so group selection remains explicit and aliases are
 # never involved in execution planning.
 # $(call dependency-instance-target, instance-key, suffix)
-dependency-instance-target = $(call instance-field,$1,group)$(AT)$(call instance-field,$1,origin).$2
+dependency-instance-target = $(call instance-field,$1,group)$(AT)$(call instance-field,$1,port).$2
 
 # Build and library dependencies are needed by the consumer's configure stage;
 # runtime dependencies are needed by its stage/install flow.
 dependency-lifecycle-consumer-suffix = $(if $(filter run,$($1_type)),stage,configure)
 dependency-lifecycle-provider-suffix = $(if $($1_target),$($1_target),install)
+dependency-lifecycle-provider-suffixes = fetch extract patch configure build \
+	stage package install
 dependency-lifecycle-record-ids = $(dependency-graph-record-ids)
 dependency-lifecycle-invalid-target-ids = $(foreach d,$(dependency-lifecycle-record-ids),\
-	$(if $(filter-out $(suffix_all_lists),$(call dependency-lifecycle-provider-suffix,$d)),$d))
+	$(if $(filter-out $(dependency-lifecycle-provider-suffixes),$(call dependency-lifecycle-provider-suffix,$d)),$d))
 
 # $(call dependency-lifecycle-consumer-target, dependency-record-id)
 dependency-lifecycle-consumer-target = $(call dependency-instance-target,\
@@ -686,6 +695,15 @@ aggregate-prerequisites = $(strip					\
 
 get-envs		= $(call target-instance-field,$1,env)
 
+UPORTS_DEPENDENCIES	?= no
+ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
+$(error UPORTS_DEPENDENCIES must be yes or no)
+endif
+
+dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
+	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  dependency-lifecycle-execute;)
+
 quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin) $(call extract-suffix,$(call rm-group,$(resolved-port-target)))
       cmd_generate-port-target	?= set -e;				\
 	dir=$(call target-instance-field,$(resolved-port-target),root);	\
@@ -718,6 +736,7 @@ $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
+	@$$(dependency-dispatch-command) :
 	$$(call cmd,generate-port-target)
 endef
 
@@ -796,10 +815,11 @@ depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
-	dependency-lifecycle-check dependency-lifecycle-execute dependencies-check
+	dependency-lifecycle-check dependency-execution-plan \
+	dependency-lifecycle-execute dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
 			   dependency-lifecycle-list \
-			   dependency-lifecycle-check \
+			   dependency-lifecycle-check dependency-execution-plan \
 			   dependency-lifecycle-execute dependencies-check
 dependency-graph-list: info.debug.dependency-graph
 dependency-order-list: info.debug.dependency-order
@@ -829,22 +849,56 @@ dependency-lifecycle-check:
 
 # Keep execution opt-in while the dependency-aware canonical target behavior is
 # evaluated.  Tests may replace this command with a recorder.
-DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1
+DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 UPORTS_DEPENDENCIES=no
+
+dependency-request-target = $(call resolve-port-target,$(DEPENDENCY_REQUEST))
+dependency-request-instance = $(call target-instance-key,$(dependency-request-target))
+dependency-request-phase = $(call extract-suffix,$(call rm-group,$(dependency-request-target)))
+
+dependency-execution-plan:
+	@$(load-dependency-records)
+	@if test -z "$(dependency-request-target)"; then \
+	  echo "invalid dependency execution request: $(DEPENDENCY_REQUEST)" >&2; \
+	  exit 1; \
+	fi
+	@{ $(dependency-execution-input) :; } | \
+	  awk -v inspect=1 -v root="$(dependency-request-instance)" \
+	    -v root_phase="$(dependency-request-phase)" \
+	    -f "$(portdir)/Tools/dependency-execution.awk"
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
-	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
-	  echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	@if test -n "$(DEPENDENCY_REQUEST)" && \
+	    test -z "$(dependency-request-target)"; then \
+	  echo "invalid dependency execution request: $(DEPENDENCY_REQUEST)" >&2; \
 	  exit 1; \
+	fi
+	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
+	  if test -z "$(DEPENDENCY_REQUEST)"; then \
+	    echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	    exit 1; \
+	  fi; \
 	fi
 	@if test "$(words $(dependency-lifecycle-invalid-target-ids))" -ne 0; then \
-	  echo "invalid_dependency_targets = $(words $(dependency-lifecycle-invalid-target-ids))"; \
-	  exit 1; \
+	  if test -z "$(DEPENDENCY_REQUEST)"; then \
+	    echo "invalid_dependency_targets = $(words $(dependency-lifecycle-invalid-target-ids))"; \
+	    exit 1; \
+	  fi; \
 	fi
-	@{ $(dependency-graph-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" >/dev/null
-	@targets="$$( { $(dependency-execution-input) :; } | \
-	  awk -v raw_targets=1 -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" )"; \
+	@if test -z "$(DEPENDENCY_REQUEST)"; then \
+	  { $(dependency-graph-input) :; } | \
+	    awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" >/dev/null; \
+	fi
+	@targets="$$( if test -n "$(DEPENDENCY_REQUEST)"; then \
+	    { $(dependency-execution-input) :; } | \
+	      awk -v root="$(dependency-request-instance)" \
+	        -v root_phase="$(dependency-request-phase)" \
+	        -f "$(portdir)/Tools/dependency-execution.awk"; \
+	  else \
+	    { $(dependency-project-execution-input) :; } | \
+	      awk -v raw_targets=1 -v fail=1 \
+	        -f "$(portdir)/Tools/dependency-graph.awk"; \
+	  fi )"; \
 	  if test -n "$$targets"; then \
 	    $(DEPENDENCY_EXECUTE_COMMAND) $$targets; \
 	  fi
@@ -1276,6 +1330,6 @@ depends_exclude_targets	+= $(addsuffix .debug,i info)			\
 			    info.debug.targets-all dependencies-list	\
 			    dependency-graph-list dependency-order-list \
 			    dependency-lifecycle-list			\
-			    dependency-lifecycle-check		\
+			    dependency-lifecycle-check dependency-execution-plan \
 			    dependency-lifecycle-execute dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))

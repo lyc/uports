@@ -342,10 +342,10 @@ dependency_lifecycle=$(run_make \
 	info.debug.dependency-lifecycle)
 assert_contains "build dependency maps to configure prerequisite" \
 	"$dependency_lifecycle" \
-	"prerequisite.dependency3 = consumer=target@devel/libffi.configure provider=host@devel/pkg-config.install type=build origin=devel/autoconf"
+	"prerequisite.dependency3 = consumer=target@libffi.configure provider=host@pkg-config.install type=build origin=devel/autoconf"
 assert_contains "library dependency maps to configure prerequisite" \
 	"$dependency_lifecycle" \
-	"prerequisite.dependency1 = consumer=host@security/openssl.configure provider=host@devel/pkg-config.install type=lib origin=archivers/zlib"
+	"prerequisite.dependency1 = consumer=host@openssl.configure provider=host@pkg-config.install type=lib origin=archivers/zlib"
 
 runtime_lifecycle=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
@@ -354,7 +354,7 @@ runtime_lifecycle=$(run_make \
 	info.debug.dependency-lifecycle)
 assert_contains "runtime dependency maps to stage prerequisite" \
 	"$runtime_lifecycle" \
-	"prerequisite.dependency3 = consumer=target@devel/libffi.stage provider=host@devel/pkg-config.build type=run origin=devel/autoconf"
+	"prerequisite.dependency3 = consumer=target@libffi.stage provider=host@pkg-config.build type=run origin=devel/autoconf"
 
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
@@ -389,8 +389,8 @@ dependency_execution=$(run_make \
 	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
 	dependency-lifecycle-execute)
-if [ "$dependency_execution" = "host@devel/pkg-config.install
-target@security/openssl.install" ]; then
+if [ "$dependency_execution" = "host@pkg-config.install
+target@openssl.install" ]; then
 	pass "opt-in execution is provider-first and deduplicated"
 else
 	fail "opt-in execution is provider-first and deduplicated" \
@@ -406,7 +406,134 @@ else
 	pass "opt-in execution rejects unresolved plan before dispatch"
 fi
 assert_not_contains "unresolved execution dispatches no provider" \
-	"$unresolved_execution" "@devel/pkg-config.install"
+	"$unresolved_execution" "@pkg-config.install"
+
+target_execution_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-plan)
+assert_contains "target execution plan follows transitive closure" \
+	"$target_execution_plan" \
+	"dependency_execution_instances = 3
+dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+fetch_execution_plan=$(run_make \
+	DEPENDENCY_REQUEST=target@libffi.fetch dependency-execution-plan)
+assert_contains "pre-configure target needs no package dependencies" \
+	"$fetch_execution_plan" \
+	"dependency_execution_instances = 1
+dependency_execution_targets ="
+
+runtime_build_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency4_type := run' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-plan)
+assert_contains "build request excludes runtime-only dependencies" \
+	"$runtime_build_plan" \
+	"dependency_execution_instances = 1
+dependency_execution_targets ="
+
+runtime_stage_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency4_type := run' \
+	DEPENDENCY_REQUEST=target@libffi.stage dependency-execution-plan)
+assert_contains "stage request includes runtime dependencies" \
+	"$runtime_stage_plan" \
+	"dependency_execution_instances = 2
+dependency_execution_targets = host@pkg-config.install"
+
+if run_make DEPENDENCY_REQUEST=target@openssl.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects unresolved reachable dependency" \
+		"unresolved target closure was accepted"
+else
+	pass "target execution rejects unresolved reachable dependency"
+fi
+
+target_execution=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute)
+if [ "$target_execution" = "host@pkg-config.install
+target@openssl.install" ]; then
+	pass "target execution dispatches only transitive providers"
+else
+	fail "target execution dispatches only transitive providers" \
+		"unexpected targets: $target_execution"
+fi
+
+if run_make DEPENDENCY_REQUEST=target@does-not-exist.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects unknown request" \
+		"unknown request was accepted"
+else
+	pass "target execution rejects unknown request"
+fi
+
+alias_execution_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=libffi.build dependency-execution-plan)
+assert_contains "target execution accepts unambiguous alias" \
+	"$alias_execution_plan" "dependency_execution_root = target_libffi"
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects cycle in reachable closure" \
+		"cyclic target closure was accepted"
+else
+	pass "target execution rejects cycle in reachable closure"
+fi
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	--eval='override dependency3_target := unsupported-target' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects invalid target in reachable closure" \
+		"invalid provider target was accepted"
+else
+	pass "target execution rejects invalid target in reachable closure"
+fi
+
+dependency_aware_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+if [ "$dependency_aware_dispatch" = "host@pkg-config.install
+target@openssl.install
+consumer=target@libffi.build" ]; then
+	pass "dependency-aware canonical dispatch runs providers before consumer"
+else
+	fail "dependency-aware canonical dispatch runs providers before consumer" \
+		"unexpected dispatch: $dependency_aware_dispatch"
+fi
+
+legacy_dispatch=$(run_make \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	target@libffi.build)
+if [ "$legacy_dispatch" = "consumer=target@libffi.build" ]; then
+	pass "normal canonical dispatch remains dependency-neutral by default"
+else
+	fail "normal canonical dispatch remains dependency-neutral by default" \
+		"unexpected dispatch: $legacy_dispatch"
+fi
+
+if run_make UPORTS_DEPENDENCIES=invalid target@libffi.build \
+	>/dev/null 2>&1; then
+	fail "invalid dependency policy is rejected" "invalid policy was accepted"
+else
+	pass "invalid dependency policy is rejected"
+fi
 
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
