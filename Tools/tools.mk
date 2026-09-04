@@ -569,6 +569,13 @@ define dependency-graph-input
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)';)
 endef
 
+define dependency-execution-input
+  $(foreach p,$(ports_all_group),				\
+    printf '%s\n' '$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
+  $(foreach d,$(dependency-lifecycle-record-ids),		\
+    printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)|$(call dependency-lifecycle-provider-target,$d)';)
+endef
+
 # Dependency records keep logical instance keys.  Lifecycle prerequisites use
 # canonical wrapper targets so group selection remains explicit and aliases are
 # never involved in execution planning.
@@ -789,10 +796,11 @@ depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
-	dependency-lifecycle-check dependencies-check
+	dependency-lifecycle-check dependency-lifecycle-execute dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
 			   dependency-lifecycle-list \
-			   dependency-lifecycle-check dependencies-check
+			   dependency-lifecycle-check \
+			   dependency-lifecycle-execute dependencies-check
 dependency-graph-list: info.debug.dependency-graph
 dependency-order-list: info.debug.dependency-order
 dependency-lifecycle-list: info.debug.dependency-lifecycle
@@ -818,6 +826,28 @@ dependency-lifecycle-check:
 	fi
 	@{ $(dependency-graph-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk"
+
+# Keep execution opt-in while the dependency-aware canonical target behavior is
+# evaluated.  Tests may replace this command with a recorder.
+DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1
+
+dependency-lifecycle-execute:
+	@$(load-dependency-records)
+	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
+	  echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
+	  exit 1; \
+	fi
+	@if test "$(words $(dependency-lifecycle-invalid-target-ids))" -ne 0; then \
+	  echo "invalid_dependency_targets = $(words $(dependency-lifecycle-invalid-target-ids))"; \
+	  exit 1; \
+	fi
+	@{ $(dependency-graph-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" >/dev/null
+	@targets="$$( { $(dependency-execution-input) :; } | \
+	  awk -v raw_targets=1 -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" )"; \
+	  if test -n "$$targets"; then \
+	    $(DEPENDENCY_EXECUTE_COMMAND) $$targets; \
+	  fi
 
 #
 # Host utilities check...
@@ -1246,5 +1276,6 @@ depends_exclude_targets	+= $(addsuffix .debug,i info)			\
 			    info.debug.targets-all dependencies-list	\
 			    dependency-graph-list dependency-order-list \
 			    dependency-lifecycle-list			\
-			    dependency-lifecycle-check dependencies-check
+			    dependency-lifecycle-check		\
+			    dependency-lifecycle-execute dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))

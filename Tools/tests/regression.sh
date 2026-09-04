@@ -384,6 +384,40 @@ else
 	pass "unresolved lifecycle prerequisite plan fails validation"
 fi
 
+dependency_execution=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute)
+if [ "$dependency_execution" = "host@devel/pkg-config.install
+target@security/openssl.install" ]; then
+	pass "opt-in execution is provider-first and deduplicated"
+else
+	fail "opt-in execution is provider-first and deduplicated" \
+		"unexpected targets: $dependency_execution"
+fi
+
+if unresolved_execution=$(run_make \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute 2>&1); then
+	fail "opt-in execution rejects unresolved plan before dispatch" \
+		"unresolved plan was executed"
+else
+	pass "opt-in execution rejects unresolved plan before dispatch"
+fi
+assert_not_contains "unresolved execution dispatches no provider" \
+	"$unresolved_execution" "@devel/pkg-config.install"
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	dependency-lifecycle-execute >/dev/null 2>&1; then
+	fail "provider execution failure is propagated" \
+		"failed provider command was accepted"
+else
+	pass "provider execution failure is propagated"
+fi
+
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
 	dependencies-check >/dev/null 2>&1; then
@@ -412,6 +446,17 @@ if run_make \
 		"cyclic plan was accepted"
 else
 	pass "cyclic lifecycle prerequisite plan fails validation"
+fi
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute >/dev/null 2>&1; then
+	fail "opt-in execution rejects cycle before dispatch" \
+		"cyclic plan was executed"
+else
+	pass "opt-in execution rejects cycle before dispatch"
 fi
 
 debug_targets=$(run_make info.debug.targets)

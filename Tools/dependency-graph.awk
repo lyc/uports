@@ -31,6 +31,14 @@ NF >= 2 {
 		edge_to[to, ++edge_count_from[to]] = from
 		indegree[from]++
 	}
+
+	if (NF >= 3) {
+		target_key = to SUBSEP $3
+		if (!(target_key in target_seen)) {
+			target_seen[target_key] = 1
+			target_for_node[to, ++target_count_for_node[to]] = $3
+		}
+	}
 }
 
 END {
@@ -55,6 +63,17 @@ END {
 	}
 
 	if (processed == node_count) {
+		if (raw_targets) {
+			for (i = 1; i <= node_count; i++) {
+				node = ordered[i]
+				for (j = 1; j <= target_count_for_node[node]; j++) {
+					printf "%s%s", separator, target_for_node[node, j]
+					separator = " "
+				}
+			}
+			printf "\n"
+			exit 0
+		}
 		print "dependency_cycle = none"
 		printf "dependency_order_count = %d\n", node_count
 		printf "dependency_order ="
