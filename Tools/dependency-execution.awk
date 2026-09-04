@@ -20,6 +20,11 @@ $1 == "dependency" {
 	dependency_resolution[consumer, dep_index] = $7
 }
 
+$1 == "request" {
+	request_node[++request_count] = $2
+	request_phase[request_count] = $3
+}
+
 function dependency_level(phase) {
 	if (phase == "configure" || phase == "build" || phase == "rebuild")
 		return 1
@@ -54,10 +59,10 @@ function valid_provider_phase(phase) {
 	       phase == "package" || phase == "install"
 }
 
-function add_request(node, phase, target, rank) {
+function add_request(node, phase, rank) {
 	rank = target_rank(phase)
 	if (!(node in requested) || rank > requested_rank[node]) {
-		requested[node] = target
+		requested[node] = 1
 		requested_phase[node] = phase
 		requested_rank[node] = rank
 		return 1
@@ -65,13 +70,33 @@ function add_request(node, phase, target, rank) {
 	return 0
 }
 
+function add_provider_target(node, phase, target, rank) {
+	rank = target_rank(phase)
+	if (!(node in provider_target) || rank > provider_target_rank[node]) {
+		provider_target[node] = target
+		provider_target_rank[node] = rank
+	}
+}
+
 END {
-	if (root == "" || !(root in node_seen)) {
+	if (request_count == 0 && root != "") {
+		request_node[++request_count] = root
+		request_phase[request_count] = root_phase
+	}
+	if (request_count == 0) {
 		print "dependency execution request is not a selected instance" > "/dev/stderr"
 		exit 1
 	}
 
-	add_request(root, root_phase, "")
+	for (r = 1; r <= request_count; r++) {
+		node = request_node[r]
+		if (!(node in node_seen)) {
+			print "dependency execution request is not a selected instance" > "/dev/stderr"
+			exit 1
+		}
+		is_root[node] = 1
+		add_request(node, request_phase[r])
+	}
 	changed = 1
 	while (changed) {
 		changed = 0
@@ -97,7 +122,8 @@ END {
 					continue
 				}
 				selected_edge[consumer, i] = 1
-				if (add_request(provider, phase, target))
+				add_provider_target(provider, phase, target)
+				if (add_request(provider, phase))
 					changed = 1
 			}
 		}
@@ -154,17 +180,24 @@ END {
 	}
 
 	if (inspect) {
-		printf "dependency_execution_root = %s\n", root
-		printf "dependency_execution_phase = %s\n", root_phase
+		if (request_count == 1) {
+			printf "dependency_execution_root = %s\n", request_node[1]
+			printf "dependency_execution_phase = %s\n", request_phase[1]
+		} else {
+			printf "dependency_execution_roots ="
+			for (r = 1; r <= request_count; r++)
+				printf " %s.%s", request_node[r], request_phase[r]
+			printf "\n"
+		}
 		printf "dependency_execution_instances = %d\n", closure_count
 		printf "dependency_execution_targets ="
 		separator = " "
 	}
 	for (n = 1; n <= processed; n++) {
 		node = ordered[n]
-		if (node == root || requested[node] == "")
+		if (!(node in provider_target))
 			continue
-		printf "%s%s", separator, requested[node]
+		printf "%s%s", separator, provider_target[node]
 		separator = " "
 	}
 	printf "\n"

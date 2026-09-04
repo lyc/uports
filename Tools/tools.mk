@@ -573,7 +573,9 @@ define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)';)
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)';) \
+  $(foreach r,$(dependency-request-targets),			\
+    printf '%s\n' 'request|$(call target-instance-key,$r)|$(call extract-suffix,$(call rm-group,$r))';)
 endef
 
 define dependency-project-execution-input
@@ -625,6 +627,9 @@ target-alias-instance	= $(firstword $(filter				\
 			    %/$(call target-alias-port,$1),		\
 			    $(ports_all_group_extra)))
 
+# $(call target-alias-canonical, port.suffix)
+target-alias-canonical	= $(call get-group,$(call target-alias-instance,$1))$(AT)$(call target-alias-port,$1)$(suffix $1)
+
 #
 # generate group@port.suffix target...
 #
@@ -649,9 +654,7 @@ ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 resolve-port-target	= $(strip					\
 			    $(if $(filter $1,$(ports_target_all)),$1,	\
 			      $(if $(filter $1,$(ports_alias_target_all)),	\
-			        $(call get-group,				\
-			          $(call target-alias-instance,$1))$(AT)	\
-			        $(call target-alias-port,$1)$(suffix $1))))
+			        $(call target-alias-canonical,$1))))
 resolved-port-target	= $(call resolve-port-target,$@)
 
 # $(call aggregate-target-name, aggregate.suffix)
@@ -729,8 +732,20 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 .SECONDEXPANSION:
 
 # Aggregate targets are explicit so their canonical prerequisites can resolve
-# through the shared lifecycle patterns without implicit-rule recursion.
+# through the shared lifecycle patterns without implicit-rule recursion.  With
+# dependency execution enabled, validate and prepare the union first, then let a
+# dependency-neutral recursive make dispatch the consumers.
+ifeq ($(UPORTS_DEPENDENCIES),yes)
+$(ports_aggregate_target_unique): %: uports-force
+	@roots="$(call aggregate-prerequisites,$@)"; \
+	  if test -n "$$roots"; then \
+	    $(MAKE) --no-print-directory DEPENDENCY_REQUESTS="$$roots" \
+	      dependency-lifecycle-execute; \
+	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no $$roots; \
+	  fi
+else
 $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
+endif
 
 # $(call generate-port-lifecycle-pattern, suffix)
 define generate-port-lifecycle-pattern
@@ -851,49 +866,50 @@ dependency-lifecycle-check:
 # evaluated.  Tests may replace this command with a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 UPORTS_DEPENDENCIES=no
 
-dependency-request-target = $(call resolve-port-target,$(DEPENDENCY_REQUEST))
+dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
+dependency-request-targets = $(foreach r,$(dependency-requests),$(call resolve-port-target,$r))
+dependency-request-target = $(firstword $(dependency-request-targets))
 dependency-request-instance = $(call target-instance-key,$(dependency-request-target))
 dependency-request-phase = $(call extract-suffix,$(call rm-group,$(dependency-request-target)))
+dependency-invalid-requests = $(strip $(foreach r,$(dependency-requests),\
+	$(if $(call resolve-port-target,$r),,$r)))
 
 dependency-execution-plan:
 	@$(load-dependency-records)
-	@if test -z "$(dependency-request-target)"; then \
-	  echo "invalid dependency execution request: $(DEPENDENCY_REQUEST)" >&2; \
+	@if test -z "$(dependency-requests)" || \
+	    test -n "$(dependency-invalid-requests)"; then \
+	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
 	  exit 1; \
 	fi
 	@{ $(dependency-execution-input) :; } | \
-	  awk -v inspect=1 -v root="$(dependency-request-instance)" \
-	    -v root_phase="$(dependency-request-phase)" \
-	    -f "$(portdir)/Tools/dependency-execution.awk"
+	  awk -v inspect=1 -f "$(portdir)/Tools/dependency-execution.awk"
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
-	@if test -n "$(DEPENDENCY_REQUEST)" && \
-	    test -z "$(dependency-request-target)"; then \
-	  echo "invalid dependency execution request: $(DEPENDENCY_REQUEST)" >&2; \
+	@if test -n "$(dependency-requests)" && \
+	    test -n "$(dependency-invalid-requests)"; then \
+	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
 	  exit 1; \
 	fi
 	@if test "$(words $(dependency-unresolved-record-ids))" -ne 0; then \
-	  if test -z "$(DEPENDENCY_REQUEST)"; then \
+	  if test -z "$(dependency-requests)"; then \
 	    echo "unresolved_dependencies = $(words $(dependency-unresolved-record-ids))"; \
 	    exit 1; \
 	  fi; \
 	fi
 	@if test "$(words $(dependency-lifecycle-invalid-target-ids))" -ne 0; then \
-	  if test -z "$(DEPENDENCY_REQUEST)"; then \
+	  if test -z "$(dependency-requests)"; then \
 	    echo "invalid_dependency_targets = $(words $(dependency-lifecycle-invalid-target-ids))"; \
 	    exit 1; \
 	  fi; \
 	fi
-	@if test -z "$(DEPENDENCY_REQUEST)"; then \
+	@if test -z "$(dependency-requests)"; then \
 	  { $(dependency-graph-input) :; } | \
 	    awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk" >/dev/null; \
 	fi
-	@targets="$$( if test -n "$(DEPENDENCY_REQUEST)"; then \
+	@targets="$$( if test -n "$(dependency-requests)"; then \
 	    { $(dependency-execution-input) :; } | \
-	      awk -v root="$(dependency-request-instance)" \
-	        -v root_phase="$(dependency-request-phase)" \
-	        -f "$(portdir)/Tools/dependency-execution.awk"; \
+	      awk -f "$(portdir)/Tools/dependency-execution.awk"; \
 	  else \
 	    { $(dependency-project-execution-input) :; } | \
 	      awk -v raw_targets=1 -v fail=1 \

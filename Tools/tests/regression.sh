@@ -535,6 +535,83 @@ else
 	pass "invalid dependency policy is rejected"
 fi
 
+multi_root_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	'DEPENDENCY_REQUESTS=target@expat2.build target@openssl.build target@libffi.build' \
+	dependency-execution-plan)
+assert_contains "multi-root plan reports requested consumers" \
+	"$multi_root_plan" \
+	"dependency_execution_roots = target_expat2.build target_openssl.build target_libffi.build"
+assert_contains "multi-root plan deduplicates union of providers" \
+	"$multi_root_plan" \
+	"dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+provider_root_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	'DEPENDENCY_REQUESTS=target@openssl.install target@libffi.build' \
+	dependency-execution-plan)
+assert_contains "consumer root still executes when it is also a provider" \
+	"$provider_root_plan" \
+	"dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+aggregate_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target.build)
+assert_contains "aggregate dispatch prepares shared providers once" \
+	"$aggregate_dispatch" \
+	"host@pkg-config.install
+target@openssl.install
+consumer=target@expat2.build"
+assert_contains "aggregate dispatch runs consumers after providers" \
+	"$aggregate_dispatch" \
+	"consumer=target@expat2.build
+consumer=target@openssl.build
+consumer=target@libffi.build"
+
+parallel_aggregate_dispatch=$(make --no-print-directory -s -j8 -C \
+	"$testdir" USE_HOSTTOOLS= \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target.build)
+case "$parallel_aggregate_dispatch" in
+	"host@pkg-config.install
+target@openssl.install
+consumer="*)
+		pass "parallel aggregate completes providers before consumers"
+		;;
+	*)
+		fail "parallel aggregate completes providers before consumers" \
+			"unexpected dispatch: $parallel_aggregate_dispatch"
+		;;
+esac
+
+category_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes security.build)
+assert_contains "category aggregate uses one provider preflight" \
+	"$category_dispatch" \
+	"host@pkg-config.install
+consumer=host@openssl.build
+consumer=target@openssl.build"
+
+global_fetch_dispatch=$(run_make \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes ports.fetch)
+assert_not_contains "global pre-dependency aggregate dispatches no providers" \
+	"$global_fetch_dispatch" ".install"
+assert_contains "global aggregate dispatches consumers after preflight" \
+	"$global_fetch_dispatch" "consumer=target@libffi.fetch"
+
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
 	DEPENDENCY_EXECUTE_COMMAND=false \
