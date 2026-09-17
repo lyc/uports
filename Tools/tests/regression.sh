@@ -305,6 +305,9 @@ else
 fi
 assert_contains "dependency validation reports unresolved count" \
 	"$unresolved_output" "unresolved_dependencies = 4"
+assert_contains "dependency validation identifies unresolved record" \
+	"$unresolved_output" \
+	"unresolved.dependency3 = consumer=target_libffi type=build origin=devel/autoconf resolution=unknown-origin"
 
 resolved_dependency_graph=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
