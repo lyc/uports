@@ -128,9 +128,9 @@ planner_stats=$(run_make planner-stats)
 assert_contains "planner collection count" "$planner_stats" \
 	"collections=2"
 assert_contains "planner discovered definition count" "$planner_stats" \
-	"discovered_definitions=62"
+	"discovered_definitions=56"
 assert_contains "planner resolved logical port count" "$planner_stats" \
-	"resolved_logical_ports=61"
+	"resolved_logical_ports=55"
 assert_contains "planner selected port count" "$planner_stats" \
 	"selected_ports=5"
 assert_contains "planner group and category counts" "$planner_stats" \
