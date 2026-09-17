@@ -1539,7 +1539,7 @@ quiet_cmd_init-git-repo		?=
 	    $(GIT) commit -m "init" $(trash);				\
 	fi)
 
-git-init:
+git-init: | pre-patch-script
 	$(call cmd,init-git-repo)
 
 quiet_cmd_apply-git-patches	?=
@@ -2048,7 +2048,9 @@ $(foreach s,$(_TARGET_STAGES),						\
 # $(call setup-dependence, STAGE, seq[1..n])
 define setup-dependence
 _PHONY_TARGETS		+= $2
-$2: | $($1_IDX)
+ifeq ($(filter $2,$(MAKECMDGOALS)),)
+$2: | $(_$1_IDX)
+endif
 
 _$1_IDX			:= $2
 endef
@@ -2079,6 +2081,9 @@ ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
 ifeq ($(wildcard $($2_COOKIE)),)
+ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
+$$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
+endif
 #ifneq ($($(patsubst %,_%_NEXT,$2)),)
 #$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
 #endif

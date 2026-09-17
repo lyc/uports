@@ -309,6 +309,18 @@ assert_contains "dependency validation identifies unresolved record" \
 	"$unresolved_output" \
 	"unresolved.dependency3 = consumer=target_libffi type=build origin=devel/autoconf resolution=unknown-origin"
 
+port_lifecycle_graph=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/lifecycle" PREFIX=/usr/local \
+	TYPE_SUFFIX=.regression ALTERNATIVE_WRKDIR="$testdir/work/lifecycle/src" \
+	-pn build 2>/dev/null)
+assert_contains "parallel lifecycle waits for previous phase" \
+	"$port_lifecycle_graph" "build-message: | configure"
+assert_contains "parallel lifecycle orders phase steps" \
+	"$port_lifecycle_graph" "configure-message: | lib-depends"
+assert_contains "parallel patch initialization waits for extraction" \
+	"$port_lifecycle_graph" "git-init: | pre-patch-script"
+
 resolved_dependency_graph=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
 	info.debug.dependency-graph)
