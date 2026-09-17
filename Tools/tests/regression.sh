@@ -532,6 +532,20 @@ else
 		"unexpected dispatch: $dependency_aware_dispatch"
 fi
 
+if failed_canonical_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	UPORTS_DEPENDENCIES=yes target@libffi.build 2>&1); then
+	fail "canonical provider failure is propagated" \
+		"failed provider command was accepted"
+else
+	pass "canonical provider failure is propagated"
+fi
+assert_not_contains "canonical provider failure blocks consumer" \
+	"$failed_canonical_dispatch" "consumer=target@libffi.build"
+
 legacy_dispatch=$(run_make \
 	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \

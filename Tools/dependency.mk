@@ -181,7 +181,7 @@ endif
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-lifecycle-execute;)
+	  dependency-lifecycle-execute &&)
 
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
