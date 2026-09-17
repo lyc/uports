@@ -47,6 +47,19 @@ assert_not_contains()
 	esac
 }
 
+assert_eq()
+{
+	name=$1
+	actual=$2
+	expected=$3
+
+	if [ "$actual" = "$expected" ]; then
+		pass "$name"
+	else
+		fail "$name" "expected: $expected; actual: $actual"
+	fi
+}
+
 run_make()
 {
 	make --no-print-directory -s -C "$testdir" USE_HOSTTOOLS= "$@"
@@ -433,6 +446,50 @@ assert_contains "aggregate name collision includes category members" \
 	"$collision_dispatch" "textproc@textproc/expat2 build"
 assert_contains "aggregate name collision includes group members" \
 	"$collision_dispatch" "textproc@devel/libffi build"
+
+main_patch_fixture=${TMPDIR:-/tmp}/uports-main-patch.$$
+main_patch_repo=$main_patch_fixture/repo
+main_patch_dir=$main_patch_fixture/patches
+rm -rf "$main_patch_fixture"
+mkdir -p "$main_patch_repo" "$main_patch_dir"
+git -C "$main_patch_repo" init -q
+printf 'before\n' >"$main_patch_repo/tracked"
+git -C "$main_patch_repo" add tracked
+git -C "$main_patch_repo" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm base
+main_patch_base=$(git -C "$main_patch_repo" rev-parse HEAD)
+printf 'after\n' >"$main_patch_repo/tracked"
+git -C "$main_patch_repo" add tracked
+git -C "$main_patch_repo" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm 'main patch fixture'
+git -C "$main_patch_repo" format-patch -1 --stdout \
+	>"$main_patch_dir/0001-main.patch"
+printf '%s\n' 0001-main.patch >"$main_patch_dir/series"
+git -C "$main_patch_repo" reset -q --hard "$main_patch_base"
+
+PATCH_WRKSRC="$main_patch_repo" PATCHLIST="$main_patch_dir/series" \
+	PATCHDIR="$main_patch_dir" GIT=git \
+	"$portdir/Mk/Scripts/git-patch.sh" >/dev/null
+assert_eq "main patch series applies" \
+	"$(git -C "$main_patch_repo" log -1 --format=%s)" "main patch fixture"
+main_patch_repeat=$(PATCH_WRKSRC="$main_patch_repo" \
+	PATCHLIST="$main_patch_dir/series" PATCHDIR="$main_patch_dir" GIT=git \
+	"$portdir/Mk/Scripts/git-patch.sh")
+assert_contains "applied main patch series is restartable" \
+	"$main_patch_repeat" "patch series already applied"
+
+git -C "$main_patch_repo" reset -q --hard "$main_patch_base"
+printf '%s\n' 0001-main.patch 0001-main.patch >"$main_patch_dir/series"
+if PATCH_WRKSRC="$main_patch_repo" PATCHLIST="$main_patch_dir/series" \
+	PATCHDIR="$main_patch_dir" GIT=git \
+	"$portdir/Mk/Scripts/git-patch.sh" >/dev/null 2>&1; then
+	fail "failed main patch series is rejected" "script unexpectedly succeeded"
+else
+	pass "failed main patch series is rejected"
+fi
+assert_eq "failed main patch series rolls back cleanly" \
+	"$(git -C "$main_patch_repo" rev-parse HEAD)" "$main_patch_base"
+rm -rf "$main_patch_fixture"
 
 submodule_fixture=${TMPDIR:-/tmp}/uports-submodule-info.$$
 submodule_source=$submodule_fixture/source

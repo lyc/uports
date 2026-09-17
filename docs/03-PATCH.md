@@ -29,6 +29,15 @@ series
 
 The two `OPSYS_SUFX` forms are omitted when `OPSYS_SUFX` is empty.
 
+V2 application is restartable. Before applying a series, the framework aborts
+an incomplete `git am` and requires a clean checkout. It recognizes the leading
+series commits already present at `HEAD` and continues with the first missing
+patch; if the whole series is present, the operation succeeds without applying
+it again. If a newly attempted patch fails, `git am` is aborted and all patches
+added by that invocation are rolled back to its clean starting commit. This
+allows a missing patch cookie to be recreated without duplicating commits while
+preserving successfully applied commits from an earlier interrupted lifecycle.
+
 ## 2. Submodule Patch Metadata
 
 Ports that need patches in Git submodules declare each submodule explicitly,

@@ -1543,14 +1543,9 @@ git-init:
 	$(call cmd,init-git-repo)
 
 quiet_cmd_apply-git-patches	?=
-      cmd_apply-git-patches	?= set -e;				\
-	(cd $(PATCH_WRKSRC);						\
-	if [ -f "$(PATCHLIST)" ]; then					\
-	    $(kecho) "  GIT     $(DISTNAME)(am)";			\
-	    for p in `cat $(PATCHLIST)`; do				\
-	        $(GIT) am $(GIT_AM_OPTS) $(PATCHDIR)/$$p;		\
-	    done;							\
-	fi)
+      cmd_apply-git-patches	?= PATCH_WRKSRC="$(PATCH_WRKSRC)" 	\
+	PATCHLIST="$(PATCHLIST)" PATCHDIR="$(PATCHDIR)" GIT="$(GIT)" \
+	GIT_AM_OPTS="$(GIT_AM_OPTS)" $(SH) $(SCRIPTSDIR)/git-patch.sh
 
 ifeq ($(filter $(override_targets),do-patch),)
 ifeq ($(PATCH_METHOD),V1)
