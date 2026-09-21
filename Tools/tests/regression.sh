@@ -496,6 +496,57 @@ assert_contains "dependency state records provider environment" \
 assert_not_contains "dependency state excludes obsolete prefixes" \
 	"$dependency_execution_state" "PREFIX=/usr "
 
+dependency_state_fixture="$testdir/work/dependency-state"
+dependency_state_source="$dependency_state_fixture/current"
+dependency_state_saved="$dependency_state_fixture/dependency.configure.state"
+rm -rf "$dependency_state_fixture"
+mkdir -p "$dependency_state_fixture"
+printf '%s\n' 'provider=uports:host_pkg-config:/usr/local' \
+	>"$dependency_state_source"
+dependency_state_new=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "missing saved dependency state is new" \
+	"$dependency_state_new" "dependency_state = new"
+dependency_state_save=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" save)
+assert_contains "dependency state save reports new" \
+	"$dependency_state_save" "dependency_state = new"
+dependency_state_same=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "saved dependency state is unchanged" \
+	"$dependency_state_same" "dependency_state = unchanged"
+printf '%s\n' 'provider=system:pkg-config:/usr/local' \
+	>"$dependency_state_source"
+dependency_state_changed=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "different dependency state is changed" \
+	"$dependency_state_changed" "dependency_state = changed"
+assert_contains "state comparison does not overwrite saved state" \
+	"$(cat "$dependency_state_saved")" \
+	"provider=uports:host_pkg-config:/usr/local"
+port_state_save=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	uports-dependency-state-save)
+assert_contains "port target saves changed dependency state" \
+	"$port_state_save" "dependency_state = changed"
+port_state_same=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	uports-dependency-state-check)
+assert_contains "port target reads saved dependency state" \
+	"$port_state_same" "dependency_state = unchanged"
+
 if run_make DEPENDENCY_REQUEST=target@does-not-exist.build \
 	dependency-execution-plan >/dev/null 2>&1; then
 	fail "target execution rejects unknown request" \

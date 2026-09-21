@@ -400,6 +400,25 @@ STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
+DEPENDENCY_STATE_CLASS	?=
+DEPENDENCY_STATE_SOURCE	?=
+DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
+
+ifneq ($(filter $(DEPENDENCY_STATE_CLASS),configure stage),$(DEPENDENCY_STATE_CLASS))
+$(error DEPENDENCY_STATE_CLASS must be configure or stage)
+endif
+
+.PHONY: uports-dependency-state-check uports-dependency-state-save
+uports-dependency-state-check uports-dependency-state-save:
+	@if test -z "$(DEPENDENCY_STATE_CLASS)"; then \
+	  echo "DEPENDENCY_STATE_CLASS must be configure or stage" >&2; \
+	  exit 1; \
+	fi
+	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
+	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
+	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
+	  $(patsubst uports-dependency-state-%,%,$@)
+
 # Special macro for doing in-place file editing using regexps
 ifeq ($(USE_REINPLACE),yes)
 REINPLACE_ARGS		?= -i.bak
