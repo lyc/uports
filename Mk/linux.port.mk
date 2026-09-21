@@ -403,19 +403,25 @@ PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 DEPENDENCY_STATE_CLASS	?=
 DEPENDENCY_STATE_SOURCE	?=
 DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
+dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
+	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
+	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
 
 ifneq ($(filter $(DEPENDENCY_STATE_CLASS),configure stage),$(DEPENDENCY_STATE_CLASS))
 $(error DEPENDENCY_STATE_CLASS must be configure or stage)
 endif
 
-.PHONY: uports-dependency-state-check uports-dependency-state-save
-uports-dependency-state-check uports-dependency-state-save:
+.PHONY: uports-dependency-state-check uports-dependency-state-save \
+	uports-dependency-state-invalidate
+uports-dependency-state-check uports-dependency-state-save \
+uports-dependency-state-invalidate:
 	@if test -z "$(DEPENDENCY_STATE_CLASS)"; then \
 	  echo "DEPENDENCY_STATE_CLASS must be configure or stage" >&2; \
 	  exit 1; \
 	fi
 	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
+	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
 	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
 	  $(patsubst uports-dependency-state-%,%,$@)
 

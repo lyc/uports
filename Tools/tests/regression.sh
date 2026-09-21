@@ -547,6 +547,100 @@ port_state_same=$(make --no-print-directory -s -C \
 assert_contains "port target reads saved dependency state" \
 	"$port_state_same" "dependency_state = unchanged"
 
+dependency_cookie_fixture="$dependency_state_fixture/cookies"
+mkdir -p "$dependency_cookie_fixture"
+for cookie in extract configure build stage package install
+do
+	touch "$dependency_cookie_fixture/$cookie"
+done
+port_state_unchanged=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	CONFIGURE_COOKIE="$dependency_cookie_fixture/configure" \
+	BUILD_COOKIE="$dependency_cookie_fixture/build" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	uports-dependency-state-invalidate)
+assert_contains "unchanged state reports no invalidation" \
+	"$port_state_unchanged" "dependency_state = unchanged"
+if test -f "$dependency_cookie_fixture/configure" && \
+	   test -f "$dependency_cookie_fixture/install"; then
+	pass "unchanged state preserves downstream cookies"
+else
+	fail "unchanged state preserves downstream cookies" \
+		"configure or install cookie was removed"
+fi
+
+printf '%s\n' 'provider=uports:other-provider:/usr/local' \
+	>"$dependency_state_source"
+port_state_invalidated=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	CONFIGURE_COOKIE="$dependency_cookie_fixture/configure" \
+	BUILD_COOKIE="$dependency_cookie_fixture/build" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	uports-dependency-state-invalidate)
+assert_contains "changed configure state reports invalidation" \
+	"$port_state_invalidated" "dependency_state = changed"
+if test ! -f "$dependency_cookie_fixture/configure" && \
+	   test ! -f "$dependency_cookie_fixture/build" && \
+	   test ! -f "$dependency_cookie_fixture/stage" && \
+	   test ! -f "$dependency_cookie_fixture/package" && \
+	   test ! -f "$dependency_cookie_fixture/install"; then
+	pass "configure state removes configure and downstream cookies"
+else
+	fail "configure state removes configure and downstream cookies" \
+		"one or more downstream cookies remain"
+fi
+if test -f "$dependency_cookie_fixture/extract"; then
+	pass "configure state preserves source cookies"
+else
+	fail "configure state preserves source cookies" \
+		"extract cookie was removed"
+fi
+
+for cookie in configure build stage package install
+do
+	touch "$dependency_cookie_fixture/$cookie"
+done
+rm -f "$dependency_state_saved"
+port_stage_invalidated=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=stage \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	uports-dependency-state-invalidate)
+assert_contains "new stage state reports invalidation" \
+	"$port_stage_invalidated" "dependency_state = new"
+if test ! -f "$dependency_cookie_fixture/stage" && \
+	   test ! -f "$dependency_cookie_fixture/package" && \
+	   test ! -f "$dependency_cookie_fixture/install"; then
+	pass "stage state removes stage and downstream cookies"
+else
+	fail "stage state removes stage and downstream cookies" \
+		"one or more stage cookies remain"
+fi
+if test -f "$dependency_cookie_fixture/configure" && \
+	   test -f "$dependency_cookie_fixture/build"; then
+	pass "stage state preserves configure and build cookies"
+else
+	fail "stage state preserves configure and build cookies" \
+		"configure or build cookie was removed"
+fi
+
 if run_make DEPENDENCY_REQUEST=target@does-not-exist.build \
 	dependency-execution-plan >/dev/null 2>&1; then
 	fail "target execution rejects unknown request" \

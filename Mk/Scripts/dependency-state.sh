@@ -9,8 +9,8 @@ fail()
 }
 
 mode=${1:-}
-[ "$mode" = check ] || [ "$mode" = save ] ||
-	fail 'dependency state mode must be check or save'
+[ "$mode" = check ] || [ "$mode" = save ] || [ "$mode" = invalidate ] ||
+	fail 'dependency state mode must be check, save, or invalidate'
 [ -n "${DEPENDENCY_STATE_SOURCE:-}" ] ||
 	fail 'missing DEPENDENCY_STATE_SOURCE'
 [ -n "${DEPENDENCY_STATE_FILE:-}" ] ||
@@ -27,6 +27,17 @@ else
 fi
 
 printf 'dependency_state = %s\n' "$state"
+
+[ "$mode" != invalidate ] || {
+	[ "$state" = unchanged ] && exit 0
+	[ -n "${DEPENDENCY_STATE_COOKIES:-}" ] ||
+		fail 'missing DEPENDENCY_STATE_COOKIES'
+	for cookie in $DEPENDENCY_STATE_COOKIES
+	do
+		rm -f -- "$cookie"
+	done
+	exit 0
+}
 
 [ "$mode" = save ] || exit 0
 directory=${DEPENDENCY_STATE_FILE%/*}
