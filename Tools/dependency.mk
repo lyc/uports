@@ -22,6 +22,7 @@ DEPENDENCY_TARGET_ARCH ?= $(DEPENDENCY_BUILD_ARCH)
 dependency-policy-field = $(word $1,$(subst $(AT), ,$2))
 dependency-policy-origin-key = $(subst /,_,$1)
 dependency-policy-validator = DEPENDENCY_PROVIDER_CHECK.$(call dependency-policy-field,7,$1).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$1))
+dependency-provider-value = $(DEPENDENCY_PROVIDER_$1.$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2)))
 
 define dependency-provider-policy-input
   $(foreach g,$(groups_all),printf '%s\n' 'group|$g';) \
@@ -34,6 +35,16 @@ define dependency-provider-selection-input
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';)) \
   $(foreach d,$(dependency_record_ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
+endef
+
+define dependency-provider-environment-input
+  $(dependency-provider-selection-input) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,LIBDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|libdir|$v';)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,PKGCONFIGDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|pkgconfigdir|$v';)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,RUNTIMEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|runtimedir|$v';)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
 endef
 
 define generate-dependency-metadata-probe
@@ -229,10 +240,12 @@ depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-provider-policy-list dependency-provider-policy-check \
-	dependency-provider-selection-list dependency-provider-selection-check
+	dependency-provider-selection-list dependency-provider-selection-check \
+	dependency-provider-environment-list dependency-provider-environment-check
 depends_exclude_targets += dependency-provider-policy-list \
 	dependency-provider-policy-check dependency-provider-selection-list \
-	dependency-provider-selection-check
+	dependency-provider-selection-check dependency-provider-environment-list \
+	dependency-provider-environment-check
 dependency-provider-policy-list:
 	@{ $(dependency-provider-policy-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-policy.awk"
@@ -250,6 +263,18 @@ dependency-provider-selection-check: dependency-provider-policy-check
 	@$(load-dependency-records)
 	@{ $(dependency-provider-selection-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-environment-list:
+	@$(load-dependency-records)
+	@{ $(dependency-provider-environment-input) :; } | \
+	  awk -v environment=1 -v fail=0 \
+	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-environment-check: dependency-provider-policy-check
+	@$(load-dependency-records)
+	@{ $(dependency-provider-environment-input) :; } | \
+	  awk -v environment=1 -v fail=1 \
+	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \

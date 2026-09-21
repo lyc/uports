@@ -165,6 +165,52 @@ assert_contains "group target platform selects validated SDK" \
 	"$sdk_selection" \
 	"consumer=target_openssl context=target opsys=linux arch=arm64 type=lib requirement=libz.so origin=archivers/zlib provider_kind=sdk provider_identity=target-sdk resolution=selected state=validated"
 
+system_environment=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_BINDIRS.linux-base.devel_autoconf=/usr/bin /opt/tools/bin /usr/bin' \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/usr/include' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.linux-base.devel_autoconf=/usr/lib' \
+	'DEPENDENCY_PROVIDER_PKGCONFIGDIRS.linux-base.devel_autoconf=/usr/lib/pkgconfig' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/usr/lib' \
+	dependency-provider-environment-list)
+assert_contains "system provider paths are normalized and deduplicated" \
+	"$system_environment" \
+	"environment.target_libffi = bindirs=/usr/bin:/opt/tools/bin includedirs=/usr/include libdirs=/usr/lib pkgconfigdirs=/usr/lib/pkgconfig runtimedirs=/usr/lib runtime_variable=LD_LIBRARY_PATH sysroot=none state=valid"
+assert_contains "valid system provider environment passes" \
+	"$system_environment" "dependency_provider_environment_invalid = 0"
+
+missing_sdk_environment=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-environment-list)
+assert_contains "SDK provider without sysroot fails closed" \
+	"$missing_sdk_environment" "state=sdk-sysroot-missing"
+if run_make "$resolved_provider_args" \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-environment-check >/dev/null 2>&1; then
+	fail "missing SDK sysroot fails environment check" \
+		"SDK without sysroot was accepted"
+else
+	pass "missing SDK sysroot fails environment check"
+fi
+
+sdk_environment=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	dependency-provider-environment-list)
+assert_contains "SDK environment records sysroot and Darwin runtime variable" \
+	"$sdk_environment" \
+	"libdirs=/SDKs/MacOSX.sdk/usr/lib pkgconfigdirs=none runtimedirs=/SDKs/MacOSX.sdk/usr/lib runtime_variable=DYLD_LIBRARY_PATH sysroot=/SDKs/MacOSX.sdk state=valid"
+
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
 assert_contains "short port names" "$snapshot" \
