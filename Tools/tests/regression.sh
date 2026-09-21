@@ -106,6 +106,65 @@ assert_contains "duplicate provider selection key is rejected" \
 assert_contains "malformed provider policy is rejected" \
 	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
 
+resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+provider_selection=$(run_make "$resolved_provider_args" \
+	dependency-provider-selection-list)
+assert_contains "uports provider selection remains the default" \
+	"$provider_selection" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+assert_contains "resolved provider selection has no invalid records" \
+	"$provider_selection" "dependency_provider_selection_invalid = 0"
+
+system_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "validated system provider replaces uports selection" \
+	"$system_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-base resolution=selected state=validated"
+
+missing_validator_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	dependency-provider-selection-list)
+assert_contains "explicit provider without validator fails closed" \
+	"$missing_validator_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=validator-missing"
+
+failed_validator_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	dependency-provider-selection-list)
+assert_contains "failed explicit provider validation is visible" \
+	"$failed_validator_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=validation-failed"
+
+if run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	dependency-provider-selection-check >/dev/null 2>&1; then
+	fail "invalid explicit provider fails selection check" \
+		"failed validator was accepted"
+else
+	pass "invalid explicit provider fails selection check"
+fi
+
+platform_mismatch_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@darwin@arm64@devel/autoconf@macos-base' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "nonmatching platform policy does not replace uports" \
+	"$platform_mismatch_selection" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+
+sdk_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "group target platform selects validated SDK" \
+	"$sdk_selection" \
+	"consumer=target_openssl context=target opsys=linux arch=arm64 type=lib requirement=libz.so origin=archivers/zlib provider_kind=sdk provider_identity=target-sdk resolution=selected state=validated"
+
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
 assert_contains "short port names" "$snapshot" \
