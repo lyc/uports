@@ -76,13 +76,23 @@ END {
 		resolved_context[i] = context
 		resolved_opsys[i] = opsys
 		resolved_arch[i] = arch
+		if (records) {
+			if (state == "validated")
+				printf "record|%s|%s|%s\n", dependency_id[i], kind, identity
+			else if (resolution == "invalid-provider")
+				printf "invalid|%s|%s\n", dependency_id[i], state
+			continue
+		}
 		if (!environment)
 			printf "selection.%s = consumer=%s context=%s opsys=%s arch=%s type=%s requirement=%s origin=%s provider_kind=%s provider_identity=%s resolution=%s state=%s\n", \
 			       dependency_id[i], consumer[i], context, opsys, arch, type[i], \
 			       requirement[i], origin[i], kind, identity, resolution, state
 	}
 
-	if (!environment) {
+	if (records) {
+		if (fail && invalid_count)
+			exit 1
+	} else if (!environment) {
 		printf "dependency_provider_selections = %d\n", dependency_count
 		printf "dependency_provider_selection_invalid = %d\n", invalid_count
 	} else {

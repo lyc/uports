@@ -14,6 +14,10 @@ dependency-instance-directory = $(call instance-field,$(call dependency-instance
 VERTICAL_BAR := |
 DEPENDENCY_METADATA_JOBS ?= 4
 DEPENDENCY_PROVIDER_POLICIES ?=
+DEPENDENCY_EXTERNAL_PROVIDERS ?= no
+ifneq ($(filter $(DEPENDENCY_EXTERNAL_PROVIDERS),yes no),$(DEPENDENCY_EXTERNAL_PROVIDERS))
+$(error DEPENDENCY_EXTERNAL_PROVIDERS must be yes or no)
+endif
 DEPENDENCY_BUILD_OPSYS ?= $(info_ports_opsys)
 DEPENDENCY_BUILD_ARCH ?= $(info_ports_arch)
 DEPENDENCY_TARGET_OPSYS ?= $(DEPENDENCY_BUILD_OPSYS)
@@ -23,6 +27,15 @@ dependency-policy-field = $(word $1,$(subst $(AT), ,$2))
 dependency-policy-origin-key = $(subst /,_,$1)
 dependency-policy-validator = DEPENDENCY_PROVIDER_CHECK.$(call dependency-policy-field,7,$1).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$1))
 dependency-provider-value = $(DEPENDENCY_PROVIDER_$1.$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2)))
+dependency-projection-field = $(word $1,$(subst $(VERTICAL_BAR), ,$2))
+
+define apply-dependency-provider-projection
+  $(eval projection_record := $(call dependency-projection-field,2,$1))
+  $(eval $(projection_record)_provider_kind := $(call dependency-projection-field,3,$1))
+  $(eval $(projection_record)_provider_identity := $(call dependency-projection-field,4,$1))
+  $(eval $(projection_record)_provider_instance :=)
+  $(eval $(projection_record)_resolution := selected)
+endef
 
 define dependency-provider-policy-input
   $(foreach g,$(groups_all),printf '%s\n' 'group|$g';) \
@@ -149,12 +162,23 @@ load-dependency-records = 						\
 	    $(call collect-dependency-capability,$d)))			\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
-	    $(call generate-dependency-record,$d)))
+	    $(call generate-dependency-record,$d)))			\
+	$(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),		\
+	  $(eval dependency_policy_result := $(shell { $(dependency-provider-policy-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-policy.awk" >/dev/null))\
+	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider policy validation failed))\
+	  $(eval dependency_provider_projection := $(shell { $(dependency-provider-selection-input) :; } | awk -v records=1 -f "$(portdir)/Tools/dependency-provider-selection.awk"))\
+	  $(foreach p,$(dependency_provider_projection),		\
+	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
+	      $(call apply-dependency-provider-projection,$p))))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
-	$(if $(filter selected,$($(d)_resolution)),$d))
+	$(if $(and $(filter selected,$($(d)_resolution)),$(filter uports,$($(d)_provider_kind))),$d))
 dependency-unresolved-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter-out selected,$($(d)_resolution)),$d))
+dependency-external-record-ids = $(foreach d,$(dependency_record_ids),\
+	$(if $(filter system sdk,$($(d)_provider_kind)),$d))
+dependency-execution-external-guard = $(if $(strip $(dependency-external-record-ids)),\
+	$(error external provider dispatch is not yet integrated))
 
 define dependency-graph-input
   $(foreach p,$(ports_all_group),				\
@@ -329,6 +353,7 @@ dependency-invalid-requests = $(strip $(foreach r,$(dependency-requests),\
 
 dependency-execution-plan:
 	@$(load-dependency-records)
+	@$(dependency-execution-external-guard)
 	@if test -z "$(dependency-requests)" || \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
@@ -339,6 +364,7 @@ dependency-execution-plan:
 
 dependency-execution-state:
 	@$(load-dependency-records)
+	@$(dependency-execution-external-guard)
 	@if test -z "$(dependency-requests)" || \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
@@ -349,6 +375,7 @@ dependency-execution-state:
 
 define dependency-state-operation
 	@$(load-dependency-records)
+	@$(dependency-execution-external-guard)
 	@if test "$(words $(dependency-requests))" -ne 1 || \
 	    test -n "$(dependency-invalid-requests)" || \
 	    test -z "$(call dependency-state-class,$(dependency-request-phase))"; then \
@@ -382,6 +409,7 @@ dependency-state-invalidate:
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
+	@$(dependency-execution-external-guard)
 	@if test -n "$(dependency-requests)" && \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
@@ -419,7 +447,7 @@ info.debug.dependencies:
 	@$(load-dependency-records)
 	@$(echo) "dependency_records = $(words $(dependency_record_ids))"
 	@$(foreach d,$(dependency_record_ids),				\
-	  echo "$(d) = consumer=$($(d)_consumer) type=$($(d)_type) requirement=$($(d)_requirement) origin=$($(d)_origin) provider_kind=$($(d)_provider_kind) provider_instance=$(if $($(d)_provider_instance),$($(d)_provider_instance),none) resolution=$($(d)_resolution)";)
+	  echo "$(d) = consumer=$($(d)_consumer) type=$($(d)_type) requirement=$($(d)_requirement) origin=$($(d)_origin) provider_kind=$($(d)_provider_kind) provider_instance=$(if $($(d)_provider_instance),$($(d)_provider_instance),none) resolution=$($(d)_resolution)$(if $($(d)_provider_identity), provider_identity=$($(d)_provider_identity))";)
 
 info.debug.dependency-graph:
 	@$(load-dependency-records)

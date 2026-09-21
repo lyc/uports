@@ -211,6 +211,58 @@ assert_contains "SDK environment records sysroot and Darwin runtime variable" \
 	"$sdk_environment" \
 	"libdirs=/SDKs/MacOSX.sdk/usr/lib pkgconfigdirs=none runtimedirs=/SDKs/MacOSX.sdk/usr/lib runtime_variable=DYLD_LIBRARY_PATH sysroot=/SDKs/MacOSX.sdk state=valid"
 
+external_record_args='DEPENDENCY_EXTERNAL_PROVIDERS=yes'
+external_policy='DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base'
+external_validator='DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true'
+external_records=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependencies)
+assert_contains "external provider replaces normalized record" \
+	"$external_records" \
+	"origin=devel/autoconf provider_kind=system provider_instance=none resolution=selected provider_identity=linux-base"
+
+external_unknown_record=$(run_make "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependencies)
+assert_contains "explicit external provider resolves otherwise unknown origin" \
+	"$external_unknown_record" \
+	"origin=devel/autoconf provider_kind=system provider_instance=none resolution=selected provider_identity=linux-base"
+
+opt_in_without_policy=$(run_make "$resolved_provider_args" \
+	"$external_record_args" info.debug.dependencies)
+assert_contains "opt-in without policy preserves uports selection" \
+	"$opt_in_without_policy" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=host_pkg-config resolution=selected"
+
+external_graph=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependency-graph)
+assert_contains "external provider removes uports graph edge" \
+	"$external_graph" "dependency_graph_edges = 3"
+assert_not_contains "external provider has no uports graph edge" \
+	"$external_graph" "edge.dependency3 ="
+
+if external_plan=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	DEPENDENCY_REQUEST=target@devel/libffi.build \
+	dependency-execution-plan 2>&1); then
+	fail "external provider execution remains gated" \
+		"external provider execution was accepted"
+else
+	pass "external provider execution remains gated"
+fi
+assert_contains "external provider gate is explicit" \
+	"$external_plan" "external provider dispatch is not yet integrated"
+
+if invalid_external=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	info.debug.dependencies 2>&1); then
+	fail "invalid external provider cannot alter records" \
+		"failed external validator was accepted"
+else
+	pass "invalid external provider cannot alter records"
+fi
+assert_contains "invalid external provider is explicit" \
+	"$invalid_external" "dependency provider validation failed"
+
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
 assert_contains "short port names" "$snapshot" \
