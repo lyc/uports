@@ -67,6 +67,45 @@ run_make()
 
 snapshot=$(run_make regression.snapshot)
 
+empty_provider_policy=$(run_make dependency-provider-policy-list)
+assert_contains "empty provider policy is valid" "$empty_provider_policy" \
+	"dependency_provider_policies = 0
+dependency_provider_policy_invalid = 0"
+
+valid_provider_policy='system@target@target@linux@amd64@devel/ncurses@linux-base sdk@target@target@darwin@arm64@devel/libffi@macos-sdk'
+provider_policy=$(run_make \
+	"DEPENDENCY_PROVIDER_POLICIES=$valid_provider_policy" \
+	dependency-provider-policy-list)
+assert_contains "system provider policy is normalized" "$provider_policy" \
+	"policy.1 = kind=system context=target consumer_group=target opsys=linux arch=amd64 origin=devel/ncurses identity=linux-base state=valid"
+assert_contains "SDK provider policy is normalized" "$provider_policy" \
+	"policy.2 = kind=sdk context=target consumer_group=target opsys=darwin arch=arm64 origin=devel/libffi identity=macos-sdk state=valid"
+if run_make "DEPENDENCY_PROVIDER_POLICIES=$valid_provider_policy" \
+	dependency-provider-policy-check >/dev/null 2>&1; then
+	pass "valid provider policy passes validation"
+else
+	fail "valid provider policy passes validation" \
+		"dependency-provider-policy-check failed"
+fi
+
+invalid_provider_policy='sdk@build@target@darwin@arm64@devel/libffi@macos-sdk system@target@missing@linux@amd64@devel/ncurses@linux-base system@target@target@linux@amd64@devel/ncurses@linux-one sdk@target@target@linux@amd64@devel/ncurses@linux-two malformed'
+if invalid_provider_policy_output=$(run_make \
+	"DEPENDENCY_PROVIDER_POLICIES=$invalid_provider_policy" \
+	dependency-provider-policy-check 2>&1); then
+	fail "invalid provider policy fails validation" \
+		"invalid policy was accepted"
+else
+	pass "invalid provider policy fails validation"
+fi
+assert_contains "SDK build context is rejected" \
+	"$invalid_provider_policy_output" "state=sdk-requires-target-context"
+assert_contains "unknown provider consumer group is rejected" \
+	"$invalid_provider_policy_output" "state=unknown-consumer-group"
+assert_contains "duplicate provider selection key is rejected" \
+	"$invalid_provider_policy_output" "state=duplicate-selection-key"
+assert_contains "malformed provider policy is rejected" \
+	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
+
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
 assert_contains "short port names" "$snapshot" \

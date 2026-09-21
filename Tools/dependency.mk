@@ -13,6 +13,12 @@ dependency-instance-directory = $(call instance-field,$(call dependency-instance
 
 VERTICAL_BAR := |
 DEPENDENCY_METADATA_JOBS ?= 4
+DEPENDENCY_PROVIDER_POLICIES ?=
+
+define dependency-provider-policy-input
+  $(foreach g,$(groups_all),printf '%s\n' 'group|$g';) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';)
+endef
 
 define generate-dependency-metadata-probe
 dependency_metadata_probe_targets += dependency-metadata-probe-$(call dependency-instance-key,$1)
@@ -205,6 +211,17 @@ dependency-state-save-command = $(if $(and \
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
+
+.PHONY: dependency-provider-policy-list dependency-provider-policy-check
+depends_exclude_targets += dependency-provider-policy-list \
+	dependency-provider-policy-check
+dependency-provider-policy-list:
+	@{ $(dependency-provider-policy-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-policy.awk"
+
+dependency-provider-policy-check:
+	@{ $(dependency-provider-policy-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-policy.awk"
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \
