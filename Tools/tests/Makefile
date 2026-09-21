@@ -79,7 +79,7 @@ PORTS_LISTS		= host@devel/pkg-config				\
 # remove from environment variable list.
 
 wrkdir			= $(testdir)/local
-PREFIX			= /usr
+PREFIX			= /usr/local
 DESTDIR			= $(wrkdir)/target
 USE_HOSTTOOLS		= host
 
@@ -91,7 +91,7 @@ PORTS_ENVS		= USE_GLOBALBASE=yes				\
 
 PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  host_SUFFIX=utils				\
-			  PREFIX=/usr					\
+			  PREFIX=/usr/local				\
 			  DESTDIR=$(wrkdir)/host
 
 PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
@@ -99,7 +99,7 @@ PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
 			  DESTDIR=$(DESTDIR)
 
 PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
-			  PREFIX=/opt					\
+			  PREFIX=/usr/local				\
 			  DESTDIR=$(wrkdir)/host
 
 PORTS_target_libffi_EXTRA_ENVS	= WITH_TESTS=yes

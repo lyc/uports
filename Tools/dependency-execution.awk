@@ -4,6 +4,9 @@ BEGIN {
 
 $1 == "node" {
 	node = $2
+	node_group[node] = $3
+	node_origin[node] = $4
+	node_environment[node] = $5
 	if (!(node in node_seen)) {
 		node_seen[node] = 1
 		node_order[++node_count] = node
@@ -18,6 +21,9 @@ $1 == "dependency" {
 	dependency_target[consumer, dep_index] = $5
 	dependency_suffix[consumer, dep_index] = $6
 	dependency_resolution[consumer, dep_index] = $7
+	dependency_requirement[consumer, dep_index] = $8
+	dependency_origin[consumer, dep_index] = $9
+	dependency_provider_kind[consumer, dep_index] = $10
 }
 
 $1 == "request" {
@@ -177,6 +183,29 @@ END {
 	if (processed != closure_count) {
 		print "dependency_cycle = detected" > "/dev/stderr"
 		exit 1
+	}
+
+	if (state) {
+		for (r = 1; r <= request_count; r++)
+			printf "request|%s|%s\n", request_node[r], request_phase[r]
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			printf "instance|%s|%s|%s|%s|%s\n", node,
+			       requested_phase[node], node_group[node],
+			       node_origin[node], node_environment[node]
+			for (i = 1; i <= dependency_count[node]; i++) {
+				if (!selected_edge[node, i])
+					continue
+				printf "dependency|%s|%s|%s|%s|%s|%s|%s\n", node,
+				       dependency_type[node, i],
+				       dependency_requirement[node, i],
+				       dependency_origin[node, i],
+				       dependency_provider_kind[node, i],
+				       dependency_provider[node, i],
+				       dependency_target[node, i]
+			}
+		}
+		exit 0
 	}
 
 	if (inspect) {

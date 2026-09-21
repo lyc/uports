@@ -132,9 +132,9 @@ endef
 
 define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
-    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
+    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)';) \
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)';) \
   $(foreach r,$(dependency-request-targets),			\
     printf '%s\n' 'request|$(call target-instance-key,$r)|$(call extract-suffix,$(call rm-group,$r))';)
 endef
@@ -189,10 +189,12 @@ dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \
+	dependency-execution-state \
 	dependency-lifecycle-execute dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
 			   dependency-lifecycle-list \
 			   dependency-lifecycle-check dependency-execution-plan \
+			   dependency-execution-state \
 			   dependency-lifecycle-execute dependencies-check
 dependency-graph-list: info.debug.dependency-graph
 dependency-order-list: info.debug.dependency-order
@@ -242,6 +244,16 @@ dependency-execution-plan:
 	fi
 	@{ $(dependency-execution-input) :; } | \
 	  awk -v inspect=1 -f "$(portdir)/Tools/dependency-execution.awk"
+
+dependency-execution-state:
+	@$(load-dependency-records)
+	@if test -z "$(dependency-requests)" || \
+	    test -n "$(dependency-invalid-requests)"; then \
+	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
+	  exit 1; \
+	fi
+	@{ $(dependency-execution-input) :; } | \
+	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk"
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)

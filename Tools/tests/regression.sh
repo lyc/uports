@@ -481,6 +481,21 @@ else
 		"unexpected targets: $target_execution"
 fi
 
+dependency_execution_state=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+assert_contains "dependency state identifies requested consumer phase" \
+	"$dependency_execution_state" "request|target_libffi|build"
+assert_contains "dependency state records provider identity" \
+	"$dependency_execution_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|uports|target_openssl|target@openssl.install"
+assert_contains "dependency state records provider environment" \
+	"$dependency_execution_state" \
+	"instance|host_pkg-config|install|host|devel/pkg-config|"
+assert_not_contains "dependency state excludes obsolete prefixes" \
+	"$dependency_execution_state" "PREFIX=/usr "
+
 if run_make DEPENDENCY_REQUEST=target@does-not-exist.build \
 	dependency-execution-plan >/dev/null 2>&1; then
 	fail "target execution rejects unknown request" \
