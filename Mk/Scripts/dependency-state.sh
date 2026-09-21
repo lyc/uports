@@ -40,6 +40,7 @@ printf 'dependency_state = %s\n' "$state"
 }
 
 [ "$mode" = save ] || exit 0
+[ "$state" != unchanged ] || exit 0
 directory=${DEPENDENCY_STATE_FILE%/*}
 [ "$directory" != "$DEPENDENCY_STATE_FILE" ] || directory=.
 mkdir -p "$directory"

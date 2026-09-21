@@ -486,7 +486,7 @@ dependency_execution_state=$(run_make \
 	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
 	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
 assert_contains "dependency state identifies requested consumer phase" \
-	"$dependency_execution_state" "request|target_libffi|build"
+	"$dependency_execution_state" "request|target_libffi|configure"
 assert_contains "dependency state records provider identity" \
 	"$dependency_execution_state" \
 	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|uports|target_openssl|target@openssl.install"
@@ -518,6 +518,15 @@ dependency_state_same=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
 	"$portdir/Mk/Scripts/dependency-state.sh" check)
 assert_contains "saved dependency state is unchanged" \
 	"$dependency_state_same" "dependency_state = unchanged"
+dependency_state_inode=$(ls -di "$dependency_state_saved" | awk '{ print $1 }')
+dependency_state_resave=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" save)
+assert_contains "unchanged dependency state save is reported" \
+	"$dependency_state_resave" "dependency_state = unchanged"
+assert_eq "unchanged dependency state is not rewritten" \
+	"$(ls -di "$dependency_state_saved" | awk '{ print $1 }')" \
+	"$dependency_state_inode"
 printf '%s\n' 'provider=system:pkg-config:/usr/local' \
 	>"$dependency_state_source"
 dependency_state_changed=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
@@ -677,9 +686,16 @@ else
 	pass "target execution rejects invalid target in reachable closure"
 fi
 
+dispatch_state_dir="$testdir/work/dispatch-state"
+dispatch_state_file="$dispatch_state_dir/dependency.configure.state"
+rm -rf "$dispatch_state_dir"
+mkdir -p "$dispatch_state_dir"
+dispatch_state_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$dispatch_state_file CONFIGURE_COOKIE=$dispatch_state_dir/configure BUILD_COOKIE=$dispatch_state_dir/build STAGE_COOKIE=$dispatch_state_dir/stage PACKAGE_COOKIE=$dispatch_state_dir/package INSTALL_COOKIE=$dispatch_state_dir/install"
+
 dependency_aware_dispatch=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
 	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env" \
 	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
 	UPORTS_DEPENDENCIES=yes target@libffi.build)
@@ -690,6 +706,32 @@ consumer=target@libffi.build" ]; then
 else
 	fail "dependency-aware canonical dispatch runs providers before consumer" \
 		"unexpected dispatch: $dependency_aware_dispatch"
+fi
+if test -f "$dispatch_state_file"; then
+	pass "successful canonical dispatch saves dependency state"
+else
+	fail "successful canonical dispatch saves dependency state" \
+		"missing saved state: $dispatch_state_file"
+fi
+
+cp "$dispatch_state_file" "$dispatch_state_dir/before-failure"
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env STATE_REVISION=changed" \
+	--eval='override cmd_generate-port-target = false' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null 2>&1; then
+	fail "consumer failure after invalidation is propagated" \
+		"failed consumer command was accepted"
+else
+	pass "consumer failure after invalidation is propagated"
+fi
+if cmp -s "$dispatch_state_dir/before-failure" "$dispatch_state_file"; then
+	pass "consumer failure preserves last successful dependency state"
+else
+	fail "consumer failure preserves last successful dependency state" \
+		"saved dependency state changed after consumer failure"
 fi
 
 if failed_canonical_dispatch=$(run_make \
@@ -761,6 +803,20 @@ assert_contains "aggregate dispatch runs consumers after providers" \
 	"consumer=target@expat2.build
 consumer=target@openssl.build
 consumer=target@libffi.build"
+
+if failed_aggregate_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	UPORTS_DEPENDENCIES=yes target.build 2>&1); then
+	fail "aggregate provider failure is propagated" \
+		"failed aggregate provider command was accepted"
+else
+	pass "aggregate provider failure is propagated"
+fi
+assert_not_contains "aggregate provider failure blocks consumers" \
+	"$failed_aggregate_dispatch" "consumer="
 
 parallel_aggregate_dispatch=$(make --no-print-directory -s -j8 -C \
 	"$testdir" USE_HOSTTOOLS= \

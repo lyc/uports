@@ -41,6 +41,15 @@ function dependency_level(phase) {
 	return 0
 }
 
+function dependency_state_class(phase) {
+	level = dependency_level(phase)
+	if (level == 1)
+		return "configure"
+	if (level == 2)
+		return "stage"
+	return phase
+}
+
 function target_rank(phase) {
 	if (phase == "fetch") return 1
 	if (phase == "extract") return 2
@@ -187,11 +196,13 @@ END {
 
 	if (state) {
 		for (r = 1; r <= request_count; r++)
-			printf "request|%s|%s\n", request_node[r], request_phase[r]
+			printf "request|%s|%s\n", request_node[r],
+			       dependency_state_class(request_phase[r])
 		for (n = 1; n <= processed; n++) {
 			node = ordered[n]
 			printf "instance|%s|%s|%s|%s|%s\n", node,
-			       requested_phase[node], node_group[node],
+			       (is_root[node] ? dependency_state_class(requested_phase[node]) : requested_phase[node]),
+			       node_group[node],
 			       node_origin[node], node_environment[node]
 			for (i = 1; i <= dependency_count[node]; i++) {
 				if (!selected_edge[node, i])

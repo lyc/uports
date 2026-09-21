@@ -565,8 +565,9 @@ $(ports_aggregate_target_unique): %: uports-force
 	@roots="$(call aggregate-prerequisites,$@)"; \
 	  if test -n "$$roots"; then \
 	    $(MAKE) --no-print-directory DEPENDENCY_REQUESTS="$$roots" \
-	      dependency-lifecycle-execute; \
-	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no $$roots; \
+	      dependency-lifecycle-execute && \
+	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
+	      UPORTS_DEPENDENCY_STATE=yes $$roots; \
 	  fi
 else
 $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
@@ -576,8 +577,9 @@ endif
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
-	@$$(dependency-dispatch-command) :
+	@$$(dependency-dispatch-command) $$(dependency-state-invalidate-command) :
 	$$(call cmd,generate-port-target)
+	@$$(dependency-state-save-command) :
 endef
 
 $(foreach s,$(filter-out $(suffix_special_all),$(suffix_all_lists)),	\

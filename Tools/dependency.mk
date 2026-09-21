@@ -178,10 +178,29 @@ UPORTS_DEPENDENCIES	?= no
 ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
 $(error UPORTS_DEPENDENCIES must be yes or no)
 endif
+UPORTS_DEPENDENCY_STATE ?= $(UPORTS_DEPENDENCIES)
+ifneq ($(filter $(UPORTS_DEPENDENCY_STATE),yes no),$(UPORTS_DEPENDENCY_STATE))
+$(error UPORTS_DEPENDENCY_STATE must be yes or no)
+endif
+
+dependency-state-class = $(if $(filter configure build rebuild,$1),configure,\
+	$(if $(filter stage package install restage reinstall generate-plist,$1),stage))
+dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
+	$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-lifecycle-execute &&)
+dependency-state-invalidate-command = $(if $(and \
+	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(dependency-dispatch-state-class)),\
+	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  dependency-state-invalidate >/dev/null &&)
+dependency-state-save-command = $(if $(and \
+	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(dependency-dispatch-state-class)),\
+	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  dependency-state-save >/dev/null &&)
 
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
@@ -190,11 +209,14 @@ dependencies-list: info.debug.dependencies
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \
 	dependency-execution-state \
+	dependency-state-check dependency-state-save dependency-state-invalidate \
 	dependency-lifecycle-execute dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
 			   dependency-lifecycle-list \
 			   dependency-lifecycle-check dependency-execution-plan \
 			   dependency-execution-state \
+			   dependency-state-check dependency-state-save \
+			   dependency-state-invalidate \
 			   dependency-lifecycle-execute dependencies-check
 dependency-graph-list: info.debug.dependency-graph
 dependency-order-list: info.debug.dependency-order
@@ -254,6 +276,39 @@ dependency-execution-state:
 	fi
 	@{ $(dependency-execution-input) :; } | \
 	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk"
+
+define dependency-state-operation
+	@$(load-dependency-records)
+	@if test "$(words $(dependency-requests))" -ne 1 || \
+	    test -n "$(dependency-invalid-requests)" || \
+	    test -z "$(call dependency-state-class,$(dependency-request-phase))"; then \
+	  echo "invalid dependency state request: $(dependency-requests)" >&2; \
+	  exit 1; \
+	fi
+	@state_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-dependency-state.XXXXXX"); \
+	trap 'rm -f "$$state_file"' EXIT HUP INT TERM; \
+	{ $(dependency-execution-input) :; } | \
+	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk" \
+	  > "$$state_file"; \
+	dir="$(call target-instance-field,$(dependency-request-target),root)"; \
+	category="$(call target-instance-field,$(dependency-request-target),category)"; \
+	port="$(call target-instance-field,$(dependency-request-target),port)"; \
+	envs="$(call get-envs,$(dependency-request-target))"; \
+	$(MAKE) -s -C "$$dir/$$category/$$port" --no-print-directory \
+	  $$envs \
+	  DEPENDENCY_STATE_CLASS="$(call dependency-state-class,$(dependency-request-phase))" \
+	  DEPENDENCY_STATE_SOURCE="$$state_file" \
+	  uports-dependency-state-$1
+endef
+
+dependency-state-check:
+	$(call dependency-state-operation,check)
+
+dependency-state-save:
+	$(call dependency-state-operation,save)
+
+dependency-state-invalidate:
+	$(call dependency-state-operation,invalidate)
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
