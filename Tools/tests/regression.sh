@@ -156,6 +156,40 @@ assert_contains "nonmatching platform policy does not replace uports" \
 	"$platform_mismatch_selection" \
 	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
 
+readiness_policy='DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base'
+ready_provider=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_LIBRARY.linux-base.devel_autoconf=true' \
+	dependency-provider-readiness-check)
+assert_contains "readiness reports passing named checks" "$ready_provider" \
+	"header=ready library=ready metadata=unspecified tool=unspecified state=ready"
+assert_contains "readiness check counts matching dependencies" "$ready_provider" \
+	"dependency_provider_readiness_invalid = 0"
+
+missing_provider=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_LIBRARY.linux-base.devel_autoconf=true' \
+	dependency-provider-readiness-list)
+assert_contains "readiness names a missing header check" "$missing_provider" \
+	"header=missing library=ready metadata=unspecified tool=unspecified state=validation-failed"
+if run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=false' \
+	dependency-provider-readiness-check >/dev/null 2>&1; then
+	fail "readiness check fails for missing provider" "failed validator was accepted"
+else
+	pass "readiness check fails for missing provider"
+fi
+
+probe_disagrees=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_METADATA.linux-base.devel_autoconf=false' \
+	dependency-provider-readiness-list)
+assert_contains "readiness exposes failed named probe despite passing validator" \
+	"$probe_disagrees" "metadata=missing tool=unspecified state=probe-failed"
+
 sdk_selection=$(run_make "$resolved_provider_args" \
 	'DEPENDENCY_TARGET_ARCH.target=arm64' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \

@@ -21,6 +21,10 @@ $1 == "validation" {
 	validation[$2, $3] = $4
 }
 
+$1 == "readiness" {
+	readiness[$2, $3, $4] = $5
+}
+
 $1 == "contribution" {
 	contribution_key = $2 SUBSEP $3 SUBSEP $4
 	contribution[contribution_key, ++contribution_count[contribution_key]] = $5
@@ -71,6 +75,24 @@ END {
 				state = "validator-missing"
 			}
 		}
+		if (readiness_report && key in policy_kind) {
+			header = readiness_value(identity, origin[i], "HEADER")
+			library = readiness_value(identity, origin[i], "LIBRARY")
+			metadata = readiness_value(identity, origin[i], "METADATA")
+			tool = readiness_value(identity, origin[i], "TOOL")
+			readiness_state = state
+			if (state == "validated" && (header == "missing" ||
+			    library == "missing" || metadata == "missing" || tool == "missing"))
+				readiness_state = "probe-failed"
+			if (readiness_state != "validated")
+				readiness_invalid++
+			printf "readiness.%s = consumer=%s origin=%s kind=%s identity=%s header=%s library=%s metadata=%s tool=%s state=%s\n", \
+			       dependency_id[i], consumer[i], origin[i], kind, identity,
+			       header, library, metadata, tool,
+			       (readiness_state == "validated" ? "ready" : readiness_state)
+			readiness_count++
+			continue
+		}
 
 		if (resolution != "selected")
 			invalid_count++
@@ -94,13 +116,18 @@ END {
 				printf "invalid|%s|%s\n", dependency_id[i], state
 			continue
 		}
-		if (!environment)
+		if (!environment && !readiness_report)
 			printf "selection.%s = consumer=%s context=%s opsys=%s arch=%s type=%s requirement=%s origin=%s provider_kind=%s provider_identity=%s resolution=%s state=%s\n", \
 			       dependency_id[i], consumer[i], context, opsys, arch, type[i], \
 			       requirement[i], origin[i], kind, identity, resolution, state
 	}
 
-	if (records) {
+	if (readiness_report) {
+		printf "dependency_provider_readiness = %d\n", readiness_count
+		printf "dependency_provider_readiness_invalid = %d\n", readiness_invalid
+		if (fail && readiness_invalid)
+			exit 1
+	} else if (records) {
 		if (fail && invalid_count)
 			exit 1
 	} else if (!environment) {
@@ -109,8 +136,13 @@ END {
 	} else {
 		emit_environments()
 	}
-	if (fail && invalid_count)
+	if (fail && !readiness_report && invalid_count)
 		exit 1
+}
+
+function readiness_value(identity, origin, category) {
+	return ((identity SUBSEP origin SUBSEP category) in readiness) ?
+	       readiness[identity, origin, category] : "unspecified"
 }
 
 function dependency_needed(phase, type) {

@@ -26,6 +26,8 @@ DEPENDENCY_TARGET_ARCH ?= $(DEPENDENCY_BUILD_ARCH)
 dependency-policy-field = $(word $1,$(subst $(AT), ,$2))
 dependency-policy-origin-key = $(subst /,_,$1)
 dependency-policy-validator = DEPENDENCY_PROVIDER_CHECK.$(call dependency-policy-field,7,$1).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$1))
+dependency-policy-readiness-check = DEPENDENCY_PROVIDER_READY_$(1).$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2))
+dependency-policy-readiness-probe = $(if $(strip $($(call dependency-policy-readiness-check,$1,$2))),if { $($(call dependency-policy-readiness-check,$1,$2)); } >/dev/null 2>&1; then printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|ready'; else printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|missing'; fi;,printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|unspecified';)
 dependency-provider-value = $(DEPENDENCY_PROVIDER_$1.$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2)))
 dependency-projection-field = $(word $1,$(subst $(VERTICAL_BAR), ,$2))
 
@@ -38,6 +40,14 @@ define apply-dependency-provider-projection
   $(eval $(projection_record)_provider_arch := $(call dependency-projection-field,7,$1))
   $(eval $(projection_record)_provider_instance :=)
   $(eval $(projection_record)_resolution := selected)
+endef
+
+define dependency-provider-readiness-input
+  $(dependency-provider-selection-input) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(call dependency-policy-readiness-probe,HEADER,$p)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(call dependency-policy-readiness-probe,LIBRARY,$p)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(call dependency-policy-readiness-probe,METADATA,$p)) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(call dependency-policy-readiness-probe,TOOL,$p))
 endef
 
 define dependency-provider-policy-input
@@ -279,11 +289,13 @@ dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
+	dependency-provider-readiness-list dependency-provider-readiness-check \
 	dependency-provider-environment-list dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-policy-list \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
+	dependency-provider-readiness-list dependency-provider-readiness-check \
 	dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 dependency-provider-policy-list:
@@ -303,6 +315,18 @@ dependency-provider-selection-check: dependency-provider-policy-check
 	@$(load-dependency-records)
 	@{ $(dependency-provider-selection-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-readiness-list:
+	@$(load-dependency-records)
+	@{ $(dependency-provider-readiness-input) :; } | \
+	  awk -v readiness_report=1 -v fail=0 \
+	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-readiness-check: dependency-provider-policy-check
+	@$(load-dependency-records)
+	@{ $(dependency-provider-readiness-input) :; } | \
+	  awk -v readiness_report=1 -v fail=1 \
+	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
 
 dependency-provider-environment-list:
 	@$(load-dependency-records)
