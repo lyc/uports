@@ -48,6 +48,8 @@ END {
 		opsys = context_opsys[context, group[i]]
 		arch = context_arch[context, group[i]]
 		key = context SUBSEP group[i] SUBSEP opsys SUBSEP arch SUBSEP origin[i]
+		if (external_only && !(key in policy_kind))
+			continue
 
 		kind = uports_kind[i]
 		identity = (uports_instance[i] == "") ? "none" : uports_instance[i]
@@ -79,9 +81,15 @@ END {
 		resolved_context[i] = context
 		resolved_opsys[i] = opsys
 		resolved_arch[i] = arch
+		if (exports && type[i] == "lib" && resolution == "selected") {
+			if (kind == "uports")
+				uports_library_count++
+			else if (kind == "system" || kind == "sdk")
+				external_library_count++
+		}
 		if (records) {
 			if (state == "validated")
-				printf "record|%s|%s|%s\n", dependency_id[i], kind, identity
+				printf "record|%s|%s|%s|%s|%s|%s\n", dependency_id[i], kind, identity, context, opsys, arch
 			else if (resolution == "invalid-provider")
 				printf "invalid|%s|%s\n", dependency_id[i], state
 			continue
@@ -201,6 +209,13 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 			printf "invalid external provider environment for %s\n", export_node > "/dev/stderr"
 		return
 	}
+	if (preflight && invalid_count) {
+		for (i = 1; i <= consumer_count; i++) {
+			node = environment_consumer[i]
+			if (environment_error[node] != "")
+				printf "external provider environment invalid: consumer=%s state=%s\n", node, environment_error[node] > "/dev/stderr"
+		}
+	}
 	for (i = 1; i <= consumer_count; i++) {
 		node = environment_consumer[i]
 		printf "environment.%s = bindirs=%s includedirs=%s libdirs=%s pkgconfigdirs=%s runtimedirs=%s runtime_variable=%s sysroot=%s state=%s\n", \
@@ -227,12 +242,18 @@ function flags(node, type, prefix, result, j) {
 }
 
 function emit_exports(node, value, sysroot, runtime) {
+	if (external_library_count && !uports_library_count)
+		print "UPORTS_LIB_DEPENDS_USES_UPORTS=no; export UPORTS_LIB_DEPENDS_USES_UPORTS"
 	value = joined_paths(node, "bindir", ":")
 	if (value != "none")
 		printf "PATH='%s':\"${PATH-}\"; export PATH\n", value
 	value = flags(node, "includedir", "-I")
 	if (value != "")
 		printf "CPPFLAGS='%s'${CPPFLAGS:+ }\"${CPPFLAGS-}\"; export CPPFLAGS\n", value
+	if (value != "") {
+		printf "CFLAGS='%s'${CFLAGS:+ }\"${CFLAGS-}\"; export CFLAGS\n", value
+		printf "CXXFLAGS='%s'${CXXFLAGS:+ }\"${CXXFLAGS-}\"; export CXXFLAGS\n", value
+	}
 	value = flags(node, "libdir", "-L")
 	if (environment_sysroot[node] != "") {
 		sysroot = environment_sysroot[node]

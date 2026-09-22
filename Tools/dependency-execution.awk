@@ -24,6 +24,16 @@ $1 == "dependency" {
 	dependency_requirement[consumer, dep_index] = $8
 	dependency_origin[consumer, dep_index] = $9
 	dependency_provider_kind[consumer, dep_index] = $10
+	dependency_provider_identity[consumer, dep_index] = $11
+	dependency_provider_context[consumer, dep_index] = $12
+	dependency_provider_opsys[consumer, dep_index] = $13
+	dependency_provider_arch[consumer, dep_index] = $14
+}
+
+$1 == "external-environment" {
+	key = $2 SUBSEP $3
+	for (field = 4; field <= 9; field++)
+		external_environment[key, field] = $field
 }
 
 $1 == "request" {
@@ -128,6 +138,15 @@ END {
 						unresolved_count++
 					continue
 				}
+				kind = dependency_provider_kind[consumer, i]
+				if (kind == "system" || kind == "sdk") {
+					if (dependency_provider_identity[consumer, i] == "") {
+						if (!unresolved[consumer, i]++)
+							unresolved_count++
+					} else
+						selected_edge[consumer, i] = 1
+					continue
+				}
 				provider = dependency_provider[consumer, i]
 				target = dependency_target[consumer, i]
 				phase = dependency_suffix[consumer, i]
@@ -162,6 +181,8 @@ END {
 			if (!selected_edge[consumer, i])
 				continue
 			provider = dependency_provider[consumer, i]
+			if (provider == "")
+				continue
 			edge_key = consumer SUBSEP provider
 			if (!(edge_key in edge_seen)) {
 				edge_seen[edge_key] = 1
@@ -207,6 +228,24 @@ END {
 			for (i = 1; i <= dependency_count[node]; i++) {
 				if (!selected_edge[node, i])
 					continue
+				kind = dependency_provider_kind[node, i]
+				if (kind == "system" || kind == "sdk") {
+					identity = dependency_provider_identity[node, i]
+					origin = dependency_origin[node, i]
+					key = identity SUBSEP origin
+					printf "dependency|%s|%s|%s|%s|%s|%s|external\n", node,
+					       dependency_type[node, i],
+					       dependency_requirement[node, i], origin, kind, identity
+					printf "external-environment|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n", node,
+					       identity, origin,
+					       dependency_provider_context[node, i],
+					       dependency_provider_opsys[node, i],
+					       dependency_provider_arch[node, i],
+					       external_environment[key, 4], external_environment[key, 5],
+					       external_environment[key, 6], external_environment[key, 7],
+					       external_environment[key, 8], external_environment[key, 9]
+					continue
+				}
 				printf "dependency|%s|%s|%s|%s|%s|%s|%s\n", node,
 				       dependency_type[node, i],
 				       dependency_requirement[node, i],

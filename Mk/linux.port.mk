@@ -849,8 +849,10 @@ endif
 # $(warning triplet=$(triplet))
 
 ifneq ($(LIB_DEPENDS),)
+ifneq ($(UPORTS_LIB_DEPENDS_USES_UPORTS),no)
 CFLAGS			+= -I$(DESTDIR)$(PREFIX)/include
 LDFLAGS			+= $(addprefix -L$(DESTDIR)$(PREFIX)/,$(libdirs))
+endif
 endif
 
 ifeq ($(OPSYS),darwin)
@@ -860,7 +862,9 @@ DARWIN_RPATH_LDFLAGS	?= -Wl,-not_for_dyld_shared_cache
 ifneq ($(USE_RPATH),no)
 LDFLAGS			+= $(DARWIN_RPATH_LDFLAGS)
 ifneq ($(LIB_DEPENDS),)
+ifneq ($(UPORTS_LIB_DEPENDS_USES_UPORTS),no)
 LDFLAGS			+= $(RPATH_LDFLAGS)
+endif
 endif
 endif
 endif

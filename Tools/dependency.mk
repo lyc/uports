@@ -33,6 +33,9 @@ define apply-dependency-provider-projection
   $(eval projection_record := $(call dependency-projection-field,2,$1))
   $(eval $(projection_record)_provider_kind := $(call dependency-projection-field,3,$1))
   $(eval $(projection_record)_provider_identity := $(call dependency-projection-field,4,$1))
+  $(eval $(projection_record)_provider_context := $(call dependency-projection-field,5,$1))
+  $(eval $(projection_record)_provider_opsys := $(call dependency-projection-field,6,$1))
+  $(eval $(projection_record)_provider_arch := $(call dependency-projection-field,7,$1))
   $(eval $(projection_record)_provider_instance :=)
   $(eval $(projection_record)_resolution := selected)
 endef
@@ -177,8 +180,10 @@ dependency-unresolved-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter-out selected,$($(d)_resolution)),$d))
 dependency-external-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter system sdk,$($(d)_provider_kind)),$d))
-dependency-execution-external-guard = $(if $(strip $(dependency-external-record-ids)),\
-	$(error external provider dispatch is not yet integrated))
+dependency-external-preflight = $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+	{ $(dependency-provider-environment-input) :; } | \
+	  awk -v environment=1 -v external_only=1 -v preflight=1 -v fail=1 \
+	    -f "$(portdir)/Tools/dependency-provider-selection.awk" >/dev/null &&)
 
 define dependency-graph-input
   $(foreach p,$(ports_all_group),				\
@@ -191,7 +196,9 @@ define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)';) \
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$($(d)_provider_context)|$($(d)_provider_opsys)|$($(d)_provider_arch)';) \
+  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),		\
+    printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)';) \
   $(foreach r,$(dependency-request-targets),			\
     printf '%s\n' 'request|$(call target-instance-key,$r)|$(call extract-suffix,$(call rm-group,$r))';)
 endef
@@ -248,6 +255,13 @@ dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-lifecycle-execute &&)
+dependency-consumer-environment-command = $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
+	trap 'rm -f "$$environment_file"' EXIT HUP INT TERM; \
+	$(MAKE) -s --no-print-directory \
+	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  dependency-provider-environment-export > "$$environment_file"; \
+	. "$$environment_file";)
 dependency-state-invalidate-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
@@ -377,7 +391,8 @@ dependency-lifecycle-check:
 
 # Keep execution opt-in while the dependency-aware canonical target behavior is
 # evaluated.  Tests may replace this command with a recorder.
-DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 UPORTS_DEPENDENCIES=no
+DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
+	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
 dependency-request-targets = $(foreach r,$(dependency-requests),$(call resolve-port-target,$r))
@@ -389,7 +404,7 @@ dependency-invalid-requests = $(strip $(foreach r,$(dependency-requests),\
 
 dependency-execution-plan:
 	@$(load-dependency-records)
-	@$(dependency-execution-external-guard)
+	@$(dependency-external-preflight) :
 	@if test -z "$(dependency-requests)" || \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
@@ -400,7 +415,7 @@ dependency-execution-plan:
 
 dependency-execution-state:
 	@$(load-dependency-records)
-	@$(dependency-execution-external-guard)
+	@$(dependency-external-preflight) :
 	@if test -z "$(dependency-requests)" || \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \
@@ -411,7 +426,7 @@ dependency-execution-state:
 
 define dependency-state-operation
 	@$(load-dependency-records)
-	@$(dependency-execution-external-guard)
+	@$(dependency-external-preflight) :
 	@if test "$(words $(dependency-requests))" -ne 1 || \
 	    test -n "$(dependency-invalid-requests)" || \
 	    test -z "$(call dependency-state-class,$(dependency-request-phase))"; then \
@@ -445,7 +460,7 @@ dependency-state-invalidate:
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
-	@$(dependency-execution-external-guard)
+	@$(dependency-external-preflight) :
 	@if test -n "$(dependency-requests)" && \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "invalid dependency execution request: $(dependency-invalid-requests)" >&2; \

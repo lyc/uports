@@ -239,17 +239,57 @@ assert_contains "external provider removes uports graph edge" \
 assert_not_contains "external provider has no uports graph edge" \
 	"$external_graph" "edge.dependency3 ="
 
-if external_plan=$(run_make "$resolved_provider_args" "$external_record_args" \
+external_plan=$(run_make "$resolved_provider_args" "$external_record_args" \
 	"$external_policy" "$external_validator" \
-	DEPENDENCY_REQUEST=target@devel/libffi.build \
-	dependency-execution-plan 2>&1); then
-	fail "external provider execution remains gated" \
-		"external provider execution was accepted"
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan)
+assert_contains "external provider is omitted from uports execution targets" \
+	"$external_plan" "dependency_execution_targets = host@pkg-config.install"
+
+external_state=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+assert_contains "external provider identity enters consumer state" \
+	"$external_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|external"
+assert_contains "external provider environment enters consumer state" \
+	"$external_state" \
+	"external-environment|target_libffi|linux-base|devel/autoconf|build|linux|x86_64||/opt/host/include"
+
+external_state_changed=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+if [ "$external_state" != "$external_state_changed" ]; then
+	pass "external provider path change alters consumer state"
 else
-	pass "external provider execution remains gated"
+	fail "external provider path change alters consumer state" \
+		"changed include path was not reflected"
 fi
-assert_contains "external provider gate is explicit" \
-	"$external_plan" "external provider dispatch is not yet integrated"
+
+external_execution=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-lifecycle-execute)
+assert_eq "external provider dispatches only remaining uports targets" \
+	"$external_execution" "host@pkg-config.install"
+
+if external_invalid_environment=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=relative/include' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-lifecycle-execute 2>&1); then
+	fail "invalid external environment blocks provider dispatch" \
+		"provider execution accepted invalid include path"
+else
+	pass "invalid external environment blocks provider dispatch"
+fi
+assert_contains "external preflight reports invalid path" \
+	"$external_invalid_environment" "state=invalid-path"
+assert_not_contains "external preflight dispatches no uports provider" \
+	"$external_invalid_environment" "host@pkg-config.install"
 
 if invalid_external=$(run_make "$resolved_provider_args" \
 	"$external_record_args" "$external_policy" \
@@ -335,6 +375,9 @@ cross_environment_export=$(run_make "$resolved_provider_args" \
 	dependency-provider-environment-export)
 assert_contains "cross SDK exports explicit sysroot" \
 	"$cross_environment_export" "SDKROOT='/SDKs/MacOSX.sdk'"
+assert_contains "external-only library suppresses uports library paths" \
+	"$cross_environment_export" \
+	"UPORTS_LIB_DEPENDS_USES_UPORTS=no"
 assert_contains "cross target runtime path stays out of host loader" \
 	"$cross_environment_export" \
 	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
@@ -358,6 +401,35 @@ assert_contains "mixed host tool and cross SDK retain target runtime identity" \
 	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
 assert_not_contains "mixed contexts never put target library on host loader" \
 	"$mixed_context_export" "LD_LIBRARY_PATH="
+
+mixed_library_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_not_contains "mixed library providers retain uports search paths" \
+	"$mixed_library_export" "UPORTS_LIB_DEPENDS_USES_UPORTS=no"
+
+port_library_probe='probe: ; @printf "%s\n" "CFLAGS=$(CFLAGS)" "LDFLAGS=$(LDFLAGS)"'
+default_library_paths=$(make --no-print-directory -s -C \
+	"$feeds/security/openssl" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/external-prefix" PREFIX=/usr/local \
+	--eval="$port_library_probe" probe)
+assert_contains "default library dependencies retain uports include path" \
+	"$default_library_paths" \
+	"$testdir/work/external-prefix/usr/local/include"
+external_library_paths=$(make --no-print-directory -s -C \
+	"$feeds/security/openssl" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/external-prefix" PREFIX=/usr/local \
+	UPORTS_LIB_DEPENDS_USES_UPORTS=no \
+	--eval="$port_library_probe" probe)
+assert_not_contains "external-only library omits uports include path" \
+	"$external_library_paths" \
+	"$testdir/work/external-prefix/usr/local/include"
+assert_not_contains "external-only library omits uports linker path" \
+	"$external_library_paths" \
+	"$testdir/work/external-prefix/usr/local/lib"
 
 if invalid_environment_run=$(run_make "$resolved_provider_args" \
 	"$external_record_args" "$external_policy" "$external_validator" \
@@ -999,6 +1071,63 @@ dispatch_state_file="$dispatch_state_dir/dependency.configure.state"
 rm -rf "$dispatch_state_dir"
 mkdir -p "$dispatch_state_dir"
 dispatch_state_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$dispatch_state_file CONFIGURE_COOKIE=$dispatch_state_dir/configure BUILD_COOKIE=$dispatch_state_dir/build STAGE_COOKIE=$dispatch_state_dir/stage PACKAGE_COOKIE=$dispatch_state_dir/package INSTALL_COOKIE=$dispatch_state_dir/install"
+
+external_dispatch_dir=$(mktemp -d "$testdir/work/external-dispatch.XXXXXX")
+external_dispatch_file="$external_dispatch_dir/dependency.configure.state"
+external_dispatch_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$external_dispatch_file CONFIGURE_COOKIE=$external_dispatch_dir/configure BUILD_COOKIE=$external_dispatch_dir/build STAGE_COOKIE=$external_dispatch_dir/stage PACKAGE_COOKIE=$external_dispatch_dir/package INSTALL_COOKIE=$external_dispatch_dir/install"
+external_dispatch=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+assert_eq "external provider dispatch runs remaining uports target first" \
+	"$external_dispatch" "host@pkg-config.install
+consumer=target@libffi.build"
+assert_contains "external provider identity is saved in consumer state" \
+	"$(cat "$external_dispatch_file")" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|external"
+assert_contains "external provider path is saved in consumer state" \
+	"$(cat "$external_dispatch_file")" \
+	"external-environment|target_libffi|linux-base|devel/autoconf|build|linux|x86_64||/opt/host/include"
+
+external_unchanged=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-state-check)
+assert_contains "unchanged external provider state is recognized" \
+	"$external_unchanged" "dependency_state = unchanged"
+
+external_changed=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-state-check)
+assert_contains "external provider path change invalidates consumer state" \
+	"$external_changed" "dependency_state = changed"
+
+cp "$external_dispatch_file" "$external_dispatch_dir/before-failure"
+if run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	--eval='override cmd_generate-port-target = false' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null 2>&1; then
+	fail "external consumer failure propagates" \
+		"failed consumer command was accepted"
+else
+	pass "external consumer failure propagates"
+fi
+if cmp -s "$external_dispatch_dir/before-failure" "$external_dispatch_file"; then
+	pass "external consumer failure retains last successful state"
+else
+	fail "external consumer failure retains last successful state" \
+		"failed consumer overwrote state"
+fi
+rm -rf "$external_dispatch_dir"
 
 dependency_aware_dispatch=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
