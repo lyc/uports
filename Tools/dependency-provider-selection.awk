@@ -41,6 +41,9 @@ $1 == "dependency" {
 
 END {
 	for (i = 1; i <= dependency_count; i++) {
+		if (exports && (consumer[i] != export_node ||
+		    !dependency_needed(export_phase, type[i])))
+			continue
 		context = (type[i] == "build") ? "build" : "target"
 		opsys = context_opsys[context, group[i]]
 		arch = context_arch[context, group[i]]
@@ -102,7 +105,25 @@ END {
 		exit 1
 }
 
+function dependency_needed(phase, type) {
+	if (phase == "configure" || phase == "build" || phase == "rebuild")
+		return type == "build" || type == "lib"
+	return phase == "stage" || phase == "package" ||
+	       phase == "install" || phase == "restage" ||
+	       phase == "reinstall" || phase == "generate-plist"
+}
+
+function valid_path(value) {
+	return value ~ /^\/[A-Za-z0-9_./+-]+$/ &&
+	       value !~ /(^|\/)\.\.(\/|$)/
+}
+
 function add_path(node, type, value, key) {
+	if (!valid_path(value)) {
+		invalid_count++
+		environment_error[node] = "invalid-path"
+		return
+	}
 	key = node SUBSEP type SUBSEP value
 	if (!(key in environment_path_seen)) {
 		environment_path_seen[key] = 1
@@ -125,6 +146,9 @@ function joined_paths(node, type, separator, result, j) {
 
 function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 	for (i = 1; i <= dependency_count; i++) {
+		if (exports && (consumer[i] != export_node ||
+		    !dependency_needed(export_phase, type[i])))
+			continue
 		if (resolved_resolution[i] != "selected" || resolved_state[i] != "validated")
 			continue
 		node = consumer[i]
@@ -133,12 +157,22 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 			environment_consumer_seen[node] = 1
 			environment_consumer[++consumer_count] = node
 			environment_opsys[node] = resolved_opsys[i]
+			environment_arch[node] = resolved_arch[i]
 		}
-		append_paths(node, identity, origin[i], "bindir")
+		if (resolved_context[i] == "target")
+			environment_target_opsys[node] = resolved_opsys[i]
+		if (!exports || resolved_context[i] == "build")
+			append_paths(node, identity, origin[i], "bindir")
 		append_paths(node, identity, origin[i], "includedir")
 		append_paths(node, identity, origin[i], "libdir")
 		append_paths(node, identity, origin[i], "pkgconfigdir")
-		append_paths(node, identity, origin[i], "runtimedir")
+		if (exports && resolved_context[i] == "target" &&
+		    (resolved_opsys[i] != build_opsys || resolved_arch[i] != build_arch)) {
+			key = identity SUBSEP origin[i] SUBSEP "runtimedir"
+			for (j = 1; j <= contribution_count[key]; j++)
+				add_path(node, "targetruntimedir", contribution[key, j])
+		} else
+			append_paths(node, identity, origin[i], "runtimedir")
 		key = identity SUBSEP origin[i] SUBSEP "sysroot"
 		if (resolved_kind[i] == "sdk" && contribution_count[key] == 0) {
 			invalid_count++
@@ -146,14 +180,27 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 		}
 		for (j = 1; j <= contribution_count[key]; j++) {
 			sysroot = contribution[key, j]
+			if (!valid_path(sysroot)) {
+				invalid_count++
+				environment_error[node] = "invalid-path"
+				continue
+			}
 			if (environment_sysroot[node] != "" && environment_sysroot[node] != sysroot) {
 				invalid_count++
 				environment_error[node] = "conflicting-sysroots"
 			} else
 				environment_sysroot[node] = sysroot
+			environment_sysroot_opsys[node] = resolved_opsys[i]
 		}
 	}
 
+	if (exports) {
+		if (invalid_count == 0 && (export_node in environment_consumer_seen))
+			emit_exports(export_node)
+		if (invalid_count)
+			printf "invalid external provider environment for %s\n", export_node > "/dev/stderr"
+		return
+	}
 	for (i = 1; i <= consumer_count; i++) {
 		node = environment_consumer[i]
 		printf "environment.%s = bindirs=%s includedirs=%s libdirs=%s pkgconfigdirs=%s runtimedirs=%s runtime_variable=%s sysroot=%s state=%s\n", \
@@ -162,10 +209,49 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 		       joined_paths(node, "libdir", ":"), \
 		       joined_paths(node, "pkgconfigdir", ":"), \
 		       joined_paths(node, "runtimedir", ":"), \
-		       (environment_opsys[node] == "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH"), \
+		       ((environment_target_opsys[node] == "darwin" ||
+		         (environment_target_opsys[node] == "" && environment_opsys[node] == "darwin")) ?
+		         "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH"), \
 		       (environment_sysroot[node] == "" ? "none" : environment_sysroot[node]), \
 		       (environment_error[node] == "" ? "valid" : environment_error[node])
 	}
 	printf "dependency_provider_environments = %d\n", consumer_count
 	printf "dependency_provider_environment_invalid = %d\n", invalid_count
+}
+
+function flags(node, type, prefix, result, j) {
+	result = ""
+	for (j = 1; j <= environment_path_count[node, type]; j++)
+		result = result (result == "" ? "" : " ") prefix environment_path[node, type, j]
+	return result
+}
+
+function emit_exports(node, value, sysroot, runtime) {
+	value = joined_paths(node, "bindir", ":")
+	if (value != "none")
+		printf "PATH='%s':\"${PATH-}\"; export PATH\n", value
+	value = flags(node, "includedir", "-I")
+	if (value != "")
+		printf "CPPFLAGS='%s'${CPPFLAGS:+ }\"${CPPFLAGS-}\"; export CPPFLAGS\n", value
+	value = flags(node, "libdir", "-L")
+	if (environment_sysroot[node] != "") {
+		sysroot = environment_sysroot[node]
+		value = value (value == "" ? "" : " ") \
+		        (environment_sysroot_opsys[node] == "darwin" ? "-isysroot " : "--sysroot=") sysroot
+		printf "SDKROOT='%s'; export SDKROOT\n", sysroot
+		printf "PKG_CONFIG_SYSROOT_DIR='%s'; export PKG_CONFIG_SYSROOT_DIR\n", sysroot
+	}
+	if (value != "")
+		printf "LDFLAGS='%s'${LDFLAGS:+ }\"${LDFLAGS-}\"; export LDFLAGS\n", value
+	value = joined_paths(node, "pkgconfigdir", ":")
+	if (value != "none")
+		printf "PKG_CONFIG_PATH='%s'${PKG_CONFIG_PATH:+:}\"${PKG_CONFIG_PATH-}\"; export PKG_CONFIG_PATH\n", value
+	runtime = joined_paths(node, "runtimedir", ":")
+	if (runtime != "none") {
+		value = (build_opsys == "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH")
+		printf "%s='%s'${%s:+:}\"${%s-}\"; export %s\n", value, runtime, value, value, value
+	}
+	runtime = joined_paths(node, "targetruntimedir", ":")
+	if (runtime != "none")
+		printf "UPORTS_TARGET_RUNTIME_DIRS='%s'; export UPORTS_TARGET_RUNTIME_DIRS\n", runtime
 }

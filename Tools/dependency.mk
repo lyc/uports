@@ -265,11 +265,13 @@ dependencies-list: info.debug.dependencies
 
 .PHONY: dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
-	dependency-provider-environment-list dependency-provider-environment-check
+	dependency-provider-environment-list dependency-provider-environment-check \
+	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-policy-list \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
-	dependency-provider-environment-check
+	dependency-provider-environment-check \
+	dependency-provider-environment-export dependency-provider-environment-run
 dependency-provider-policy-list:
 	@{ $(dependency-provider-policy-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-policy.awk"
@@ -299,6 +301,40 @@ dependency-provider-environment-check: dependency-provider-policy-check
 	@{ $(dependency-provider-environment-input) :; } | \
 	  awk -v environment=1 -v fail=1 \
 	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-export-awk = awk -v environment=1 -v exports=1 \
+	-v fail=1 -v export_node="$(dependency-request-instance)" \
+	-v export_phase="$(dependency-request-phase)" \
+	-v build_opsys="$(DEPENDENCY_BUILD_OPSYS)" \
+	-v build_arch="$(DEPENDENCY_BUILD_ARCH)" \
+	-f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-provider-environment-export:
+	@$(load-dependency-records)
+	@if test "$(DEPENDENCY_EXTERNAL_PROVIDERS)" != yes || \
+	    test "$(words $(dependency-requests))" -ne 1 || \
+	    test -n "$(dependency-invalid-requests)"; then \
+	  echo "external provider export requires opt-in and one valid request" >&2; \
+	  exit 1; \
+	fi
+	@{ $(dependency-provider-environment-input) :; } | \
+	  $(dependency-provider-export-awk)
+
+dependency-provider-environment-run:
+	@$(load-dependency-records)
+	@if test "$(DEPENDENCY_EXTERNAL_PROVIDERS)" != yes || \
+	    test "$(words $(dependency-requests))" -ne 1 || \
+	    test -n "$(dependency-invalid-requests)" || \
+	    test -z "$(strip $(DEPENDENCY_ENVIRONMENT_COMMAND))"; then \
+	  echo "external provider runner requires opt-in, one valid request, and DEPENDENCY_ENVIRONMENT_COMMAND" >&2; \
+	  exit 1; \
+	fi
+	@set -e; environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
+	  trap 'rm -f "$$environment_file"' EXIT HUP INT TERM; \
+	  { $(dependency-provider-environment-input) :; } | \
+	    $(dependency-provider-export-awk) > "$$environment_file"; \
+	  . "$$environment_file"; \
+	  $(DEPENDENCY_ENVIRONMENT_COMMAND)
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \

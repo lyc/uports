@@ -263,6 +263,118 @@ fi
 assert_contains "invalid external provider is explicit" \
 	"$invalid_external" "dependency provider validation failed"
 
+environment_export=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_BINDIRS.linux-base.devel_autoconf=/opt/host/bin' \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	'DEPENDENCY_PROVIDER_PKGCONFIGDIRS.linux-base.devel_autoconf=/opt/host/lib/pkgconfig' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "external provider exports build tool path" \
+	"$environment_export" "PATH='/opt/host/bin':"
+assert_contains "external provider exports include flags" \
+	"$environment_export" "CPPFLAGS='-I/opt/host/include'"
+assert_contains "external provider exports linker flags" \
+	"$environment_export" "LDFLAGS='-L/opt/host/lib'"
+assert_contains "external provider exports pkg-config path" \
+	"$environment_export" "PKG_CONFIG_PATH='/opt/host/lib/pkgconfig'"
+if sh -uc "unset CPPFLAGS LDFLAGS PKG_CONFIG_PATH; $environment_export"; then
+	pass "provider exports tolerate unset base variables"
+else
+	fail "provider exports tolerate unset base variables" \
+		"export failed under shell nounset mode"
+fi
+
+if run_make "$resolved_provider_args" "$external_policy" \
+	"$external_validator" DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export >/dev/null 2>&1; then
+	fail "provider export requires explicit opt-in" \
+		"export accepted without DEPENDENCY_EXTERNAL_PROVIDERS=yes"
+else
+	pass "provider export requires explicit opt-in"
+fi
+
+environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	'CPPFLAGS=-DKEEP' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=env' \
+	dependency-provider-environment-run)
+assert_contains "explicit runner injects consumer environment" \
+	"$environment_run" "CPPFLAGS=-I/opt/host/include -DKEEP"
+
+runtime_provider_args='DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@x86_64@devel/autoconf@linux-base'
+runtime_build_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := run' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_eq "build request excludes runtime-only provider environment" \
+	"$runtime_build_export" ""
+runtime_stage_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := run' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	DEPENDENCY_REQUEST=target@libffi.stage \
+	dependency-provider-environment-export)
+assert_contains "stage request includes native runtime path" \
+	"$runtime_stage_export" "LD_LIBRARY_PATH='/opt/host/lib'"
+
+cross_environment_export=$(run_make "$resolved_provider_args" \
+	"$external_record_args" \
+	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	DEPENDENCY_REQUEST=target@openssl.build \
+	dependency-provider-environment-export)
+assert_contains "cross SDK exports explicit sysroot" \
+	"$cross_environment_export" "SDKROOT='/SDKs/MacOSX.sdk'"
+assert_contains "cross target runtime path stays out of host loader" \
+	"$cross_environment_export" \
+	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
+assert_not_contains "cross SDK does not set host loader path" \
+	"$cross_environment_export" "DYLD_LIBRARY_PATH="
+
+mixed_context_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
+	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base sdk@target@target@darwin@arm64@devel/automake@macos-sdk' \
+	"$external_validator" \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.devel_automake=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.devel_automake=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.devel_automake=/SDKs/MacOSX.sdk/usr/lib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "mixed host tool and cross SDK retain target runtime identity" \
+	"$mixed_context_export" \
+	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
+assert_not_contains "mixed contexts never put target library on host loader" \
+	"$mixed_context_export" "LD_LIBRARY_PATH="
+
+if invalid_environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=relative/include' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=printf SHOULD-NOT-RUN' \
+	dependency-provider-environment-run 2>&1); then
+	fail "invalid provider path blocks explicit runner" \
+		"relative path was accepted"
+else
+	pass "invalid provider path blocks explicit runner"
+fi
+assert_contains "invalid provider path is explicit" \
+	"$invalid_environment_run" "invalid external provider environment"
+assert_not_contains "invalid path never invokes consumer command" \
+	"$invalid_environment_run" "SHOULD-NOT-RUN"
+
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
 assert_contains "short port names" "$snapshot" \
