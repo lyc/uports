@@ -96,7 +96,8 @@ PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 
 PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
 			  PREFIX=$(PREFIX)				\
-			  DESTDIR=$(DESTDIR)
+			  DESTDIR=$(DESTDIR)				\
+			  $(TEST_TARGET_ENVS)
 
 PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
 			  PREFIX=/usr/local				\

@@ -5,6 +5,7 @@ BEGIN {
 $1 == "context" {
 	context_opsys[$2, $3] = $4
 	context_arch[$2, $3] = $5
+	context_cross[$2, $3] = $6
 }
 
 $1 == "policy" {
@@ -64,7 +65,11 @@ END {
 			kind = policy_kind[key]
 			identity = policy_identity[key]
 			validator = validation[identity, origin[i]]
-			if (validator == "valid") {
+			if (kind == "system" && context == "target" &&
+			    context_cross[context, group[i]] == "yes") {
+				resolution = "invalid-provider"
+				state = "system-cross-provider"
+			} else if (validator == "valid") {
 				resolution = "selected"
 				state = "validated"
 			} else if (validator == "failed") {

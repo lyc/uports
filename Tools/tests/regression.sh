@@ -191,13 +191,59 @@ assert_contains "readiness exposes failed named probe despite passing validator"
 	"$probe_disagrees" "metadata=missing tool=unspecified state=probe-failed"
 
 sdk_selection=$(run_make "$resolved_provider_args" \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
 	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
 	dependency-provider-selection-list)
 assert_contains "group target platform selects validated SDK" \
 	"$sdk_selection" \
 	"consumer=target_openssl context=target opsys=linux arch=arm64 type=lib requirement=libz.so origin=archivers/zlib provider_kind=sdk provider_identity=target-sdk resolution=selected state=validated"
+
+global_cross_selection=$(run_make "$resolved_provider_args" \
+	'CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "global CROSS_COMPILE defines target provider context" \
+	"$global_cross_selection" \
+	"consumer=target_openssl context=target opsys=linux arch=arm64"
+
+cross_system_selection=$(run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@arm64@archivers/zlib@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "cross target rejects system provider" \
+	"$cross_system_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=system-cross-provider"
+
+native_system_selection=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "native target accepts validated system provider" \
+	"$native_system_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=selected state=validated"
+
+if run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_TARGET_ARCH.target=x86_64' \
+	dependency-provider-selection-list >/dev/null 2>&1; then
+	fail "explicit target override must match CROSS_COMPILE" \
+		"inconsistent target architecture was accepted"
+else
+	pass "explicit target override must match CROSS_COMPILE"
+fi
+
+if run_make "$resolved_provider_args" \
+	'PORTS_target_libffi_EXTRA_ENVS=WITH_TESTS=yes CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-selection-list >/dev/null 2>&1; then
+	fail "consumer group rejects mixed native and cross instances" \
+		"mixed CROSS_COMPILE values were accepted"
+else
+	pass "consumer group rejects mixed native and cross instances"
+fi
 
 system_environment=$(run_make "$resolved_provider_args" \
 	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
@@ -215,14 +261,14 @@ assert_contains "valid system provider environment passes" \
 	"$system_environment" "dependency_provider_environment_invalid = 0"
 
 missing_sdk_environment=$(run_make "$resolved_provider_args" \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
 	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
 	dependency-provider-environment-list)
 assert_contains "SDK provider without sysroot fails closed" \
 	"$missing_sdk_environment" "state=sdk-sysroot-missing"
 if run_make "$resolved_provider_args" \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
 	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
 	dependency-provider-environment-check >/dev/null 2>&1; then
@@ -233,8 +279,7 @@ else
 fi
 
 sdk_environment=$(run_make "$resolved_provider_args" \
-	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
 	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
 	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
@@ -460,8 +505,7 @@ assert_contains "stage request includes native runtime path" \
 
 cross_environment_export=$(run_make "$resolved_provider_args" \
 	"$external_record_args" \
-	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
 	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
 	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
 	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
@@ -482,8 +526,7 @@ assert_not_contains "cross SDK does not set host loader path" \
 mixed_context_export=$(run_make "$resolved_provider_args" \
 	--eval='override dependency4_type := lib' \
 	"$external_record_args" \
-	'DEPENDENCY_TARGET_OPSYS.target=darwin' \
-	'DEPENDENCY_TARGET_ARCH.target=arm64' \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
 	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base sdk@target@target@darwin@arm64@devel/automake@macos-sdk' \
 	"$external_validator" \
 	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.devel_automake=true' \

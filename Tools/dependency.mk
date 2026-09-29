@@ -20,8 +20,8 @@ $(error DEPENDENCY_EXTERNAL_PROVIDERS must be yes or no)
 endif
 DEPENDENCY_BUILD_OPSYS ?= $(info_ports_opsys)
 DEPENDENCY_BUILD_ARCH ?= $(info_ports_arch)
-DEPENDENCY_TARGET_OPSYS ?= $(DEPENDENCY_BUILD_OPSYS)
-DEPENDENCY_TARGET_ARCH ?= $(DEPENDENCY_BUILD_ARCH)
+DEPENDENCY_TARGET_OPSYS ?=
+DEPENDENCY_TARGET_ARCH ?=
 
 dependency-policy-field = $(word $1,$(subst $(AT), ,$2))
 dependency-policy-origin-key = $(subst /,_,$1)
@@ -30,11 +30,34 @@ dependency-policy-readiness-check = DEPENDENCY_PROVIDER_READY_$(1).$(call depend
 dependency-policy-readiness-probe = $(if $(strip $($(call dependency-policy-readiness-check,$1,$2))),if { $($(call dependency-policy-readiness-check,$1,$2)); } >/dev/null 2>&1; then printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|ready'; else printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|missing'; fi;,printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|unspecified';)
 dependency-provider-value = $(DEPENDENCY_PROVIDER_$1.$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2)))
 dependency-projection-field = $(word $1,$(subst $(VERTICAL_BAR), ,$2))
+dependency-env-value = $(patsubst $2=%,%,$(lastword $(filter $2=%,$1)))
+dependency-instance-cross-compile = $(strip $(or \
+	$(call dependency-env-value,$(call instance-field,$1,env),CROSS_COMPILE),\
+	$(CROSS_COMPILE)))
+dependency-group-target-keys = $(sort $(foreach p,$(groups_$1),\
+	$(or $(call dependency-instance-cross-compile,$(call instance-key,$1,$p)),native)))
+dependency-group-cross-compile = $(filter-out native,$(call dependency-group-target-keys,$1))
+dependency-cross-opsys = $(if $(findstring darwin,$1),darwin,$(if $(findstring linux,$1),linux))
+dependency-cross-arch = $(firstword $(subst -, ,$1))
+dependency-derived-target-opsys = $(strip $(if $(call dependency-group-cross-compile,$1),\
+	$(call dependency-cross-opsys,$(call dependency-group-cross-compile,$1)),$(DEPENDENCY_BUILD_OPSYS)))
+dependency-derived-target-arch = $(strip $(if $(call dependency-group-cross-compile,$1),\
+	$(call dependency-cross-arch,$(call dependency-group-cross-compile,$1)),$(DEPENDENCY_BUILD_ARCH)))
+dependency-configured-target-opsys = $(or $(DEPENDENCY_TARGET_OPSYS.$1),$(DEPENDENCY_TARGET_OPSYS))
+dependency-configured-target-arch = $(or $(DEPENDENCY_TARGET_ARCH.$1),$(DEPENDENCY_TARGET_ARCH))
+dependency-target-opsys = $(strip $(or $(call dependency-configured-target-opsys,$1),$(call dependency-derived-target-opsys,$1)))
+dependency-target-arch = $(strip $(or $(call dependency-configured-target-arch,$1),$(call dependency-derived-target-arch,$1)))
+dependency-group-cross-context-error = $(strip \
+	$(if $(filter-out 1,$(words $(call dependency-group-target-keys,$1))),$1:mixed-cross-compile) \
+	$(if $(and $(call dependency-group-cross-compile,$1),$(if $(call dependency-cross-opsys,$(call dependency-group-cross-compile,$1)),,yes)),$1:unknown-cross-triplet) \
+	$(if $(and $(call dependency-configured-target-opsys,$1),$(filter-out $(call dependency-derived-target-opsys,$1),$(call dependency-configured-target-opsys,$1))),$1:target-opsys-mismatch) \
+	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
+dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
 dependency-record-context = $(if $(filter build,$($1_type)),build,target)
 dependency-record-opsys = $(strip $(if $(filter build,$(call dependency-record-context,$1)),\
-	$(DEPENDENCY_BUILD_OPSYS),$(or $(DEPENDENCY_TARGET_OPSYS.$(call instance-field,$($1_consumer),group)),$(DEPENDENCY_TARGET_OPSYS))))
+	$(DEPENDENCY_BUILD_OPSYS),$(call dependency-target-opsys,$(call instance-field,$($1_consumer),group))))
 dependency-record-arch = $(strip $(if $(filter build,$(call dependency-record-context,$1)),\
-	$(DEPENDENCY_BUILD_ARCH),$(or $(DEPENDENCY_TARGET_ARCH.$(call instance-field,$($1_consumer),group)),$(DEPENDENCY_TARGET_ARCH))))
+	$(DEPENDENCY_BUILD_ARCH),$(call dependency-target-arch,$(call instance-field,$($1_consumer),group))))
 
 define apply-dependency-provider-projection
   $(eval projection_record := $(call dependency-projection-field,2,$1))
@@ -61,8 +84,8 @@ define dependency-provider-policy-input
 endef
 
 define dependency-provider-selection-input
-  $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)';) \
-  $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(or $(DEPENDENCY_TARGET_OPSYS.$g),$(DEPENDENCY_TARGET_OPSYS))|$(or $(DEPENDENCY_TARGET_ARCH.$g),$(DEPENDENCY_TARGET_ARCH))';) \
+  $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)|no';) \
+  $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(call dependency-target-opsys,$g)|$(call dependency-target-arch,$g)|$(if $(call dependency-group-cross-compile,$g),yes,no)';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';)) \
   $(foreach d,$(dependency_record_ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
@@ -172,6 +195,8 @@ endef
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(if $(dependency-cross-context-errors),			\
+	  $(error invalid dependency cross context: $(dependency-cross-context-errors))) \
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
 	  $(error dependency metadata collection failed),)		\
