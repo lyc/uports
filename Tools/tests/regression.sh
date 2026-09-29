@@ -302,6 +302,30 @@ else
 		"changed include path was not reflected"
 fi
 
+uports_provenance=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)
+assert_contains "provenance identifies its schema and request" \
+	"$uports_provenance" "provenance|1
+request|target_libffi|package"
+assert_contains "provenance records selected uports provider identity" \
+	"$uports_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|uports|host_pkg-config|build|linux|x86_64|host@pkg-config.install"
+
+external_provenance=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)
+assert_contains "provenance records external provider identity and platform" \
+	"$external_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|build|linux|x86_64|external"
+assert_contains "external provenance retains remaining uports providers" \
+	"$external_provenance" \
+	"provider|target_libffi|build|automake>=1.16.1|devel/automake|uports|host_pkg-config|build|linux|x86_64|host@pkg-config.install"
+assert_eq "provider provenance is deterministic" \
+	"$(run_make "$resolved_provider_args" "$external_record_args" \
+	  "$external_policy" "$external_validator" \
+	  DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)" \
+	"$external_provenance"
+
 external_execution=$(run_make "$resolved_provider_args" \
 	"$external_record_args" "$external_policy" "$external_validator" \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \

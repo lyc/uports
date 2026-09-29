@@ -215,6 +215,31 @@ END {
 		exit 1
 	}
 
+	if (provenance) {
+		print "provenance|1"
+		for (r = 1; r <= request_count; r++)
+			printf "request|%s|%s\n", request_node[r], request_phase[r]
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			for (i = 1; i <= dependency_count[node]; i++) {
+				if (!selected_edge[node, i])
+					continue
+				kind = dependency_provider_kind[node, i]
+				identity = dependency_provider_identity[node, i]
+				if (kind == "uports")
+					identity = dependency_provider[node, i]
+				printf "provider|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n", node,
+				       dependency_type[node, i], dependency_requirement[node, i],
+				       dependency_origin[node, i], kind, identity,
+				       dependency_provider_context[node, i],
+				       dependency_provider_opsys[node, i],
+				       dependency_provider_arch[node, i],
+				       (kind == "uports" ? dependency_target[node, i] : "external")
+			}
+		}
+		exit 0
+	}
+
 	if (state) {
 		for (r = 1; r <= request_count; r++)
 			printf "request|%s|%s\n", request_node[r],

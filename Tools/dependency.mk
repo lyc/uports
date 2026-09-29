@@ -30,6 +30,11 @@ dependency-policy-readiness-check = DEPENDENCY_PROVIDER_READY_$(1).$(call depend
 dependency-policy-readiness-probe = $(if $(strip $($(call dependency-policy-readiness-check,$1,$2))),if { $($(call dependency-policy-readiness-check,$1,$2)); } >/dev/null 2>&1; then printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|ready'; else printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|missing'; fi;,printf '%s\n' 'readiness|$(call dependency-policy-field,7,$2)|$(call dependency-policy-field,6,$2)|$1|unspecified';)
 dependency-provider-value = $(DEPENDENCY_PROVIDER_$1.$(call dependency-policy-field,7,$2).$(call dependency-policy-origin-key,$(call dependency-policy-field,6,$2)))
 dependency-projection-field = $(word $1,$(subst $(VERTICAL_BAR), ,$2))
+dependency-record-context = $(if $(filter build,$($1_type)),build,target)
+dependency-record-opsys = $(strip $(if $(filter build,$(call dependency-record-context,$1)),\
+	$(DEPENDENCY_BUILD_OPSYS),$(or $(DEPENDENCY_TARGET_OPSYS.$(call instance-field,$($1_consumer),group)),$(DEPENDENCY_TARGET_OPSYS))))
+dependency-record-arch = $(strip $(if $(filter build,$(call dependency-record-context,$1)),\
+	$(DEPENDENCY_BUILD_ARCH),$(or $(DEPENDENCY_TARGET_ARCH.$(call instance-field,$($1_consumer),group)),$(DEPENDENCY_TARGET_ARCH))))
 
 define apply-dependency-provider-projection
   $(eval projection_record := $(call dependency-projection-field,2,$1))
@@ -206,7 +211,7 @@ define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$($(d)_provider_context)|$($(d)_provider_opsys)|$($(d)_provider_arch)';) \
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),		\
     printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)';) \
   $(foreach r,$(dependency-request-targets),			\
@@ -376,13 +381,13 @@ dependency-provider-environment-run:
 
 .PHONY: dependency-graph-list dependency-order-list dependency-lifecycle-list \
 	dependency-lifecycle-check dependency-execution-plan \
-	dependency-execution-state \
+	dependency-execution-state dependency-provider-provenance \
 	dependency-state-check dependency-state-save dependency-state-invalidate \
 	dependency-lifecycle-execute dependencies-check
 depends_exclude_targets	+= dependency-graph-list dependency-order-list \
 			   dependency-lifecycle-list \
 			   dependency-lifecycle-check dependency-execution-plan \
-			   dependency-execution-state \
+			   dependency-execution-state dependency-provider-provenance \
 			   dependency-state-check dependency-state-save \
 			   dependency-state-invalidate \
 			   dependency-lifecycle-execute dependencies-check
@@ -447,6 +452,17 @@ dependency-execution-state:
 	fi
 	@{ $(dependency-execution-input) :; } | \
 	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk"
+
+dependency-provider-provenance:
+	@$(load-dependency-records)
+	@$(dependency-external-preflight) :
+	@if test -z "$(dependency-requests)" || \
+	    test -n "$(dependency-invalid-requests)"; then \
+	  echo "invalid dependency provenance request: $(dependency-invalid-requests)" >&2; \
+	  exit 1; \
+	fi
+	@{ $(dependency-execution-input) :; } | \
+	  awk -v provenance=1 -f "$(portdir)/Tools/dependency-execution.awk"
 
 define dependency-state-operation
 	@$(load-dependency-records)
