@@ -523,6 +523,87 @@ assert_contains "cross target runtime path stays out of host loader" \
 assert_not_contains "cross SDK does not set host loader path" \
 	"$cross_environment_export" "DYLD_LIBRARY_PATH="
 
+sdk_test_dir=$(mktemp -d "$testdir/work/sdk-environment.XXXXXX")
+sdk_sysroot="$sdk_test_dir/sysroot"
+mkdir -p "$sdk_sysroot/usr/include" "$sdk_sysroot/usr/lib/pkgconfig"
+sdk_policy='DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@test-sdk'
+sdk_validator="DEPENDENCY_PROVIDER_CHECK.test-sdk.archivers_zlib=test -d $sdk_sysroot/usr/include -a -d $sdk_sysroot/usr/lib"
+sdk_args="DEPENDENCY_PROVIDER_SYSROOT.test-sdk.archivers_zlib=$sdk_sysroot"
+sdk_include="DEPENDENCY_PROVIDER_INCLUDEDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/include"
+sdk_library="DEPENDENCY_PROVIDER_LIBDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/lib"
+sdk_pkgconfig="DEPENDENCY_PROVIDER_PKGCONFIGDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/lib/pkgconfig"
+sdk_environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" "$sdk_include" \
+	"$sdk_library" "$sdk_pkgconfig" \
+	DEPENDENCY_REQUEST=target@openssl.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=env' \
+	dependency-provider-environment-run)
+assert_contains "SDK runner exports compiler sysroot flags" \
+	"$sdk_environment_run" \
+	"CFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports C++ sysroot flags" \
+	"$sdk_environment_run" \
+	"CXXFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports preprocessor sysroot flags" \
+	"$sdk_environment_run" \
+	"CPPFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports linker sysroot flags" \
+	"$sdk_environment_run" \
+	"LDFLAGS=-L$sdk_sysroot/usr/lib --sysroot=$sdk_sysroot"
+assert_contains "SDK runner exports pkg-config sysroot" \
+	"$sdk_environment_run" "PKG_CONFIG_SYSROOT_DIR=$sdk_sysroot"
+assert_contains "SDK runner exports pkg-config search path" \
+	"$sdk_environment_run" \
+	"PKG_CONFIG_PATH=$sdk_sysroot/usr/lib/pkgconfig"
+
+sdk_state=$(run_make "$resolved_provider_args" "$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" "$sdk_include" \
+	"$sdk_library" "$sdk_pkgconfig" \
+	DEPENDENCY_REQUEST=target@openssl.build dependency-execution-state)
+assert_contains "SDK identity and sysroot enter dependency state" "$sdk_state" \
+	"external-environment|target_openssl|test-sdk|archivers/zlib|target|linux|arm64||$sdk_sysroot/usr/include|$sdk_sysroot/usr/lib|$sdk_sysroot/usr/lib/pkgconfig||$sdk_sysroot"
+sdk_provenance=$(run_make "$resolved_provider_args" "$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" \
+	DEPENDENCY_REQUEST=target@openssl.package dependency-provider-provenance)
+assert_contains "SDK identity and platform enter provider provenance" \
+	"$sdk_provenance" \
+	"provider|target_openssl|lib|libz.so|archivers/zlib|sdk|test-sdk|target|linux|arm64|external"
+
+conflicting_sdk=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@devel/autoconf@sdk-one sdk@target@target@darwin@arm64@devel/automake@sdk-two' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-one.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-two.devel_automake=true' \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-one.devel_autoconf=$sdk_test_dir/sdk-one" \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-two.devel_automake=$sdk_test_dir/sdk-two" \
+	dependency-provider-environment-list)
+assert_contains "conflicting SDK sysroots are explicit" "$conflicting_sdk" \
+	"state=conflicting-sysroots"
+if run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@devel/autoconf@sdk-one sdk@target@target@darwin@arm64@devel/automake@sdk-two' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-one.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-two.devel_automake=true' \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-one.devel_autoconf=$sdk_test_dir/sdk-one" \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-two.devel_automake=$sdk_test_dir/sdk-two" \
+	dependency-provider-environment-check >/dev/null 2>&1; then
+	fail "conflicting SDK sysroots fail preflight" \
+		"conflicting sysroots were accepted"
+else
+	pass "conflicting SDK sysroots fail preflight"
+fi
+rm -rf "$sdk_test_dir"
+
 mixed_context_export=$(run_make "$resolved_provider_args" \
 	--eval='override dependency4_type := lib' \
 	"$external_record_args" \

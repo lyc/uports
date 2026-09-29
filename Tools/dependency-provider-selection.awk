@@ -278,13 +278,23 @@ function flags(node, type, prefix, result, j) {
 	return result
 }
 
-function emit_exports(node, value, sysroot, runtime) {
+function emit_exports(node, value, sysroot, sysroot_flag, runtime) {
 	if (external_library_count && !uports_library_count)
 		print "UPORTS_LIB_DEPENDS_USES_UPORTS=no; export UPORTS_LIB_DEPENDS_USES_UPORTS"
 	value = joined_paths(node, "bindir", ":")
 	if (value != "none")
 		printf "PATH='%s':\"${PATH-}\"; export PATH\n", value
+	sysroot_flag = ""
+	if (environment_sysroot[node] != "") {
+		sysroot = environment_sysroot[node]
+		sysroot_flag = (environment_sysroot_opsys[node] == "darwin" ?
+		               "-isysroot " : "--sysroot=") sysroot
+		printf "SDKROOT='%s'; export SDKROOT\n", sysroot
+		printf "PKG_CONFIG_SYSROOT_DIR='%s'; export PKG_CONFIG_SYSROOT_DIR\n", sysroot
+	}
 	value = flags(node, "includedir", "-I")
+	if (sysroot_flag != "")
+		value = sysroot_flag (value == "" ? "" : " ") value
 	if (value != "")
 		printf "CPPFLAGS='%s'${CPPFLAGS:+ }\"${CPPFLAGS-}\"; export CPPFLAGS\n", value
 	if (value != "") {
@@ -292,13 +302,8 @@ function emit_exports(node, value, sysroot, runtime) {
 		printf "CXXFLAGS='%s'${CXXFLAGS:+ }\"${CXXFLAGS-}\"; export CXXFLAGS\n", value
 	}
 	value = flags(node, "libdir", "-L")
-	if (environment_sysroot[node] != "") {
-		sysroot = environment_sysroot[node]
-		value = value (value == "" ? "" : " ") \
-		        (environment_sysroot_opsys[node] == "darwin" ? "-isysroot " : "--sysroot=") sysroot
-		printf "SDKROOT='%s'; export SDKROOT\n", sysroot
-		printf "PKG_CONFIG_SYSROOT_DIR='%s'; export PKG_CONFIG_SYSROOT_DIR\n", sysroot
-	}
+	if (sysroot_flag != "")
+		value = value (value == "" ? "" : " ") sysroot_flag
 	if (value != "")
 		printf "LDFLAGS='%s'${LDFLAGS:+ }\"${LDFLAGS-}\"; export LDFLAGS\n", value
 	value = joined_paths(node, "pkgconfigdir", ":")
