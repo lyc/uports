@@ -53,6 +53,16 @@ dependency-group-cross-context-error = $(strip \
 	$(if $(and $(call dependency-configured-target-opsys,$1),$(filter-out $(call dependency-derived-target-opsys,$1),$(call dependency-configured-target-opsys,$1))),$1:target-opsys-mismatch) \
 	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
 dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
+DEPENDENCY_CROSS_TOOLCHAIN_TOOLS ?= gcc g++ ld as ar nm objdump ranlib strip
+dependency-cross-groups = $(foreach g,$(groups_all),\
+	$(if $(call dependency-group-cross-compile,$g),$g))
+define dependency-cross-toolchain-input
+  $(foreach g,$(dependency-cross-groups),printf '%s\n' 'toolchain|$g|$(call dependency-group-cross-compile,$g)'; \
+    $(foreach t,$(DEPENDENCY_CROSS_TOOLCHAIN_TOOLS),command='$(call dependency-group-cross-compile,$g)-$t'; path=$$(command -v "$$command" 2>/dev/null || :); if test -n "$$path" && test -x "$$path"; then printf '%s\n' 'tool|$g|$t|'"$$command"'|ready|'"$$path"; else printf '%s\n' 'tool|$g|$t|'"$$command"'|missing|none'; fi;))
+endef
+dependency-cross-toolchain-preflight = $(if $(dependency-cross-groups),\
+	{ $(dependency-cross-toolchain-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-cross-toolchain.awk" >/dev/null &&)
 dependency-record-context = $(if $(filter build,$($1_type)),build,target)
 dependency-record-opsys = $(strip $(if $(filter build,$(call dependency-record-context,$1)),\
 	$(DEPENDENCY_BUILD_OPSYS),$(call dependency-target-opsys,$(call instance-field,$($1_consumer),group))))
@@ -332,12 +342,14 @@ dependencies-list: info.debug.dependencies
 .PHONY: dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
+	dependency-cross-toolchain-list dependency-cross-toolchain-check \
 	dependency-provider-environment-list dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-policy-list \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
+	dependency-cross-toolchain-list dependency-cross-toolchain-check \
 	dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 dependency-provider-policy-list:
@@ -369,6 +381,18 @@ dependency-provider-readiness-check: dependency-provider-policy-check
 	@{ $(dependency-provider-readiness-input) :; } | \
 	  awk -v readiness_report=1 -v fail=1 \
 	    -f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+dependency-cross-toolchain-list:
+	@$(if $(dependency-cross-context-errors),\
+	  $(error invalid dependency cross context: $(dependency-cross-context-errors)))
+	@{ $(dependency-cross-toolchain-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-cross-toolchain.awk"
+
+dependency-cross-toolchain-check:
+	@$(if $(dependency-cross-context-errors),\
+	  $(error invalid dependency cross context: $(dependency-cross-context-errors)))
+	@{ $(dependency-cross-toolchain-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-cross-toolchain.awk"
 
 dependency-provider-environment-list:
 	@$(load-dependency-records)
@@ -537,6 +561,7 @@ dependency-state-invalidate:
 
 dependency-lifecycle-execute:
 	@$(load-dependency-records)
+	@$(dependency-cross-toolchain-preflight) :
 	@$(dependency-external-preflight) :
 	@if test -n "$(dependency-requests)" && \
 	    test -n "$(dependency-invalid-requests)"; then \

@@ -245,6 +245,56 @@ else
 	pass "consumer group rejects mixed native and cross instances"
 fi
 
+toolchain_test_dir=$(mktemp -d "$testdir/work/cross-toolchain.XXXXXX")
+for tool in gcc g++ ld as ar nm objdump ranlib strip; do
+	command="$toolchain_test_dir/test-cross-linux-gnu-$tool"
+	printf '%s\n' '#!/bin/sh' 'exit 0' > "$command"
+	chmod +x "$command"
+done
+toolchain_list=$(run_make \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-list)
+assert_contains "cross toolchain diagnostic derives prefixed command" \
+	"$toolchain_list" \
+	"toolchain.target.gcc = command=test-cross-linux-gnu-gcc path=$toolchain_test_dir/test-cross-linux-gnu-gcc state=ready"
+assert_contains "complete cross toolchain is ready" "$toolchain_list" \
+	"dependency_cross_toolchain_missing = 0"
+if run_make "PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-check >/dev/null 2>&1; then
+	pass "complete cross toolchain passes readiness check"
+else
+	fail "complete cross toolchain passes readiness check" \
+		"synthetic tools were rejected"
+fi
+
+rm -f "$toolchain_test_dir/test-cross-linux-gnu-strip"
+missing_toolchain=$(run_make \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-list)
+assert_contains "incomplete cross toolchain identifies missing command" \
+	"$missing_toolchain" \
+	"toolchain.target.strip = command=test-cross-linux-gnu-strip path=none state=missing"
+if missing_toolchain_execution=$(run_make "$resolved_provider_args" \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-lifecycle-execute 2>&1); then
+	fail "missing cross tool blocks dependency execution" \
+		"execution accepted incomplete toolchain"
+else
+	pass "missing cross tool blocks dependency execution"
+fi
+assert_contains "cross execution failure names missing tool" \
+	"$missing_toolchain_execution" \
+	"cross toolchain missing: group=target command=test-cross-linux-gnu-strip"
+assert_not_contains "cross toolchain preflight dispatches no provider" \
+	"$missing_toolchain_execution" "host@pkg-config.install"
+rm -rf "$toolchain_test_dir"
+
 system_environment=$(run_make "$resolved_provider_args" \
 	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
 	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
