@@ -326,6 +326,43 @@ assert_eq "provider provenance is deterministic" \
 	  DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)" \
 	"$external_provenance"
 
+package_test_dir=$(mktemp -d "$testdir/work/package-provenance.XXXXXX")
+mkdir -p "$package_test_dir/stage/usr/local" "$package_test_dir/pkg" \
+	"$package_test_dir/install"
+printf '%s\n' payload > "$package_test_dir/stage/usr/local/payload.txt"
+printf '%s\n' payload.txt > "$package_test_dir/plist"
+printf '%s\n' "$external_provenance" > "$package_test_dir/provenance"
+package_file="$package_test_dir/pkg/test.pkg"
+STAGEDIR="$package_test_dir/stage" PKGNAME=test VERSION=1 ORIGIN=test/test \
+	PREFIX=/usr/local INDEX=test COMPRESS=XZ EXT=linux \
+	PLIST="$package_test_dir/plist" \
+	PROVENANCE="$package_test_dir/provenance" \
+	WRKDIR_PKGFILE="$package_file" \
+	"$portdir/Mk/Scripts/pkg.sh" create
+assert_eq "package with provenance uses format version two" \
+	"$(sed -n '1p' "$package_file")" "PVER: 2"
+assert_contains "package embeds deterministic provider provenance" \
+	"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$package_file")" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|build|linux|x86_64|external"
+DESTDIR="$package_test_dir/install" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$package_file"
+assert_eq "version-two package remains installable" \
+	"$(cat "$package_test_dir/install/usr/local/payload.txt")" "payload"
+
+legacy_package_file="$package_test_dir/pkg/legacy.pkg"
+STAGEDIR="$package_test_dir/stage" PKGNAME=legacy VERSION=1 \
+	ORIGIN=test/legacy PREFIX=/usr/local INDEX=test COMPRESS=XZ EXT=linux \
+	PLIST="$package_test_dir/plist" WRKDIR_PKGFILE="$legacy_package_file" \
+	"$portdir/Mk/Scripts/pkg.sh" create
+assert_eq "dependency-neutral package retains legacy format" \
+	"$(sed -n '1p' "$legacy_package_file")" "PVER: 1"
+mkdir -p "$package_test_dir/install-legacy"
+DESTDIR="$package_test_dir/install-legacy" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$legacy_package_file"
+assert_eq "legacy package remains installable" \
+	"$(cat "$package_test_dir/install-legacy/usr/local/payload.txt")" "payload"
+rm -rf "$package_test_dir"
+
 external_execution=$(run_make "$resolved_provider_args" \
 	"$external_record_args" "$external_policy" "$external_validator" \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \

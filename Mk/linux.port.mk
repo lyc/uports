@@ -999,6 +999,7 @@ PKG_ENV			+=						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
+	PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE_FILE)			\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #

@@ -542,6 +542,8 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolve
 	  $(call rm-group,$(resolved-port-target)));			\
 	envs="$(call get-envs,$(resolved-port-target))";			\
 	$(dependency-consumer-environment-command)			\
+	$(dependency-consumer-provenance-command)			\
+	$(dependency-consumer-cleanup-command)				\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
 depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all) \

@@ -272,11 +272,23 @@ dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	  dependency-lifecycle-execute &&)
 dependency-consumer-environment-command = $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
-	trap 'rm -f "$$environment_file"' EXIT HUP INT TERM; \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
 	. "$$environment_file";)
+dependency-consumer-provenance-command = $(if $(and \
+	$(filter yes,$(UPORTS_DEPENDENCIES)),\
+	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target))))),\
+	provenance_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-provenance.XXXXXX"); \
+	$(MAKE) -s --no-print-directory \
+	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  dependency-provider-provenance > "$$provenance_file"; \
+	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
+dependency-consumer-cleanup-command = $(if $(or \
+	$(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+	$(and $(filter yes,$(UPORTS_DEPENDENCIES)),\
+	  $(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))),\
+	trap 'rm -f $${environment_file:+"$$environment_file"} $${provenance_file:+"$$provenance_file"}' EXIT HUP INT TERM;)
 dependency-state-invalidate-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
