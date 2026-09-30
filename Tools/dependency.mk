@@ -18,6 +18,15 @@ DEPENDENCY_EXTERNAL_PROVIDERS ?= no
 ifneq ($(filter $(DEPENDENCY_EXTERNAL_PROVIDERS),yes no),$(DEPENDENCY_EXTERNAL_PROVIDERS))
 $(error DEPENDENCY_EXTERNAL_PROVIDERS must be yes or no)
 endif
+DEPENDENCY_PROVIDER_MODE ?= $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),explicit,uports)
+dependency-provider-modes = uports host system-only explicit
+ifneq ($(filter $(DEPENDENCY_PROVIDER_MODE),$(dependency-provider-modes)),$(DEPENDENCY_PROVIDER_MODE))
+$(error DEPENDENCY_PROVIDER_MODE must be one of: $(dependency-provider-modes))
+endif
+ifneq ($(and $(filter uports,$(DEPENDENCY_PROVIDER_MODE)),$(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS))),)
+$(error DEPENDENCY_PROVIDER_MODE=uports conflicts with DEPENDENCY_EXTERNAL_PROVIDERS=yes)
+endif
+dependency-external-providers-enabled = $(if $(filter host system-only explicit,$(DEPENDENCY_PROVIDER_MODE)),yes,no)
 DEPENDENCY_BUILD_OPSYS ?= $(info_ports_opsys)
 DEPENDENCY_BUILD_ARCH ?= $(info_ports_arch)
 DEPENDENCY_TARGET_OPSYS ?=
@@ -53,6 +62,10 @@ dependency-group-cross-context-error = $(strip \
 	$(if $(and $(call dependency-configured-target-opsys,$1),$(filter-out $(call dependency-derived-target-opsys,$1),$(call dependency-configured-target-opsys,$1))),$1:target-opsys-mismatch) \
 	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
 dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
+dependency-provider-mode-context-errors = $(strip $(if \
+	$(and $(filter host system-only,$(DEPENDENCY_PROVIDER_MODE)),\
+	  $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-compile,$g)))),\
+	$(DEPENDENCY_PROVIDER_MODE):cross-target-requires-explicit))
 DEPENDENCY_CROSS_TOOLCHAIN_TOOLS ?= gcc g++ ld as ar nm objdump ranlib strip
 dependency-cross-groups = $(foreach g,$(groups_all),\
 	$(if $(call dependency-group-cross-compile,$g),$g))
@@ -207,6 +220,8 @@ endef
 load-dependency-records = 						\
 	$(if $(dependency-cross-context-errors),			\
 	  $(error invalid dependency cross context: $(dependency-cross-context-errors))) \
+	$(if $(dependency-provider-mode-context-errors),		\
+	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors))) \
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
 	  $(error dependency metadata collection failed),)		\
@@ -216,13 +231,16 @@ load-dependency-records = 						\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
-	$(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),		\
+	$(if $(filter yes,$(dependency-external-providers-enabled)),	\
 	  $(eval dependency_policy_result := $(shell { $(dependency-provider-policy-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-policy.awk" >/dev/null))\
 	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider policy validation failed))\
 	  $(eval dependency_provider_projection := $(shell { $(dependency-provider-selection-input) :; } | awk -v records=1 -f "$(portdir)/Tools/dependency-provider-selection.awk"))\
 	  $(foreach p,$(dependency_provider_projection),		\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
-	      $(call apply-dependency-provider-projection,$p))))
+	      $(call apply-dependency-provider-projection,$p))))		\
+	$(if $(and $(filter system-only,$(DEPENDENCY_PROVIDER_MODE)),\
+	  $(filter uports,$(foreach d,$(dependency_record_ids),$($(d)_provider_kind)))),\
+	  $(error system-only provider mode has dependencies without external providers))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(and $(filter selected,$($(d)_resolution)),$(filter uports,$($(d)_provider_kind))),$d))
@@ -230,7 +248,7 @@ dependency-unresolved-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter-out selected,$($(d)_resolution)),$d))
 dependency-external-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(filter system sdk,$($(d)_provider_kind)),$d))
-dependency-external-preflight = $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+dependency-external-preflight = $(if $(filter yes,$(dependency-external-providers-enabled)),\
 	{ $(dependency-provider-environment-input) :; } | \
 	  awk -v environment=1 -v external_only=1 -v preflight=1 -v fail=1 \
 	    -f "$(portdir)/Tools/dependency-provider-selection.awk" >/dev/null &&)
@@ -305,7 +323,7 @@ dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-lifecycle-execute &&)
-dependency-consumer-environment-command = $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+dependency-consumer-environment-command = $(if $(filter yes,$(dependency-external-providers-enabled)),\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
@@ -320,7 +338,7 @@ dependency-consumer-provenance-command = $(if $(and \
 	  dependency-provider-provenance > "$$provenance_file"; \
 	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
 dependency-consumer-cleanup-command = $(if $(or \
-	$(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),\
+	$(filter yes,$(dependency-external-providers-enabled)),\
 	$(and $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	  $(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))),\
 	trap 'rm -f $${environment_file:+"$$environment_file"} $${provenance_file:+"$$provenance_file"}' EXIT HUP INT TERM;)
@@ -338,6 +356,19 @@ dependency-state-save-command = $(if $(and \
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
+
+.PHONY: dependency-provider-mode-list dependency-provider-mode-check
+depends_exclude_targets += dependency-provider-mode-list dependency-provider-mode-check
+dependency-provider-mode-list:
+	@printf '%s\n' \
+	  'dependency_provider_mode = $(DEPENDENCY_PROVIDER_MODE)' \
+	  'dependency_external_providers = $(dependency-external-providers-enabled)' \
+	  'dependency_provider_cross_target = $(if $(filter host system-only,$(DEPENDENCY_PROVIDER_MODE)),rejected,allowed)' \
+	  'dependency_provider_fallback = $(if $(filter system-only,$(DEPENDENCY_PROVIDER_MODE)),none,uports)'
+
+dependency-provider-mode-check: dependency-provider-mode-list
+	@$(if $(dependency-provider-mode-context-errors),\
+	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))
 
 .PHONY: dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
@@ -415,7 +446,7 @@ dependency-provider-export-awk = awk -v environment=1 -v exports=1 \
 
 dependency-provider-environment-export:
 	@$(load-dependency-records)
-	@if test "$(DEPENDENCY_EXTERNAL_PROVIDERS)" != yes || \
+	@if test "$(dependency-external-providers-enabled)" != yes || \
 	    test "$(words $(dependency-requests))" -ne 1 || \
 	    test -n "$(dependency-invalid-requests)"; then \
 	  echo "external provider export requires opt-in and one valid request" >&2; \
@@ -426,7 +457,7 @@ dependency-provider-environment-export:
 
 dependency-provider-environment-run:
 	@$(load-dependency-records)
-	@if test "$(DEPENDENCY_EXTERNAL_PROVIDERS)" != yes || \
+	@if test "$(dependency-external-providers-enabled)" != yes || \
 	    test "$(words $(dependency-requests))" -ne 1 || \
 	    test -n "$(dependency-invalid-requests)" || \
 	    test -z "$(strip $(DEPENDENCY_ENVIRONMENT_COMMAND))"; then \
@@ -482,7 +513,7 @@ dependency-lifecycle-check:
 # Keep execution opt-in while the dependency-aware canonical target behavior is
 # evaluated.  Tests may replace this command with a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
-	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),UPORTS_DEPENDENCY_STATE=yes)
+	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
 dependency-request-targets = $(foreach r,$(dependency-requests),$(call resolve-port-target,$r))

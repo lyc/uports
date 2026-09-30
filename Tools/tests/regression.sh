@@ -67,6 +67,60 @@ run_make()
 
 snapshot=$(run_make regression.snapshot)
 
+default_provider_mode=$(run_make dependency-provider-mode-check)
+assert_contains "uports is the default provider mode" "$default_provider_mode" \
+	"dependency_provider_mode = uports"
+assert_contains "default provider mode disables external providers" \
+	"$default_provider_mode" "dependency_external_providers = no"
+
+legacy_provider_mode=$(run_make DEPENDENCY_EXTERNAL_PROVIDERS=yes \
+	dependency-provider-mode-check)
+assert_contains "legacy external opt-in maps to explicit mode" \
+	"$legacy_provider_mode" "dependency_provider_mode = explicit"
+
+host_provider_mode=$(run_make DEPENDENCY_PROVIDER_MODE=host \
+	dependency-provider-mode-check)
+assert_contains "host mode enables external provider machinery" \
+	"$host_provider_mode" "dependency_external_providers = yes"
+assert_contains "host mode retains uports fallback" "$host_provider_mode" \
+	"dependency_provider_fallback = uports"
+
+system_provider_mode=$(run_make DEPENDENCY_PROVIDER_MODE=system-only \
+	dependency-provider-mode-check)
+assert_contains "system-only mode has no uports fallback" \
+	"$system_provider_mode" "dependency_provider_fallback = none"
+
+if run_make DEPENDENCY_PROVIDER_MODE=invalid \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "unknown provider mode is rejected" "invalid mode was accepted"
+else
+	pass "unknown provider mode is rejected"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=host \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "host mode rejects cross targets" "cross target was accepted"
+else
+	pass "host mode rejects cross targets"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=system-only \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "system-only mode rejects cross targets" "cross target was accepted"
+else
+	pass "system-only mode rejects cross targets"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	pass "explicit mode accepts cross targets"
+else
+	fail "explicit mode accepts cross targets" "cross target was rejected"
+fi
+
 empty_provider_policy=$(run_make dependency-provider-policy-list)
 assert_contains "empty provider policy is valid" "$empty_provider_policy" \
 	"dependency_provider_policies = 0
@@ -107,6 +161,15 @@ assert_contains "malformed provider policy is rejected" \
 	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
 
 resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+
+if run_make "$resolved_provider_args" DEPENDENCY_PROVIDER_MODE=system-only \
+	info.debug.dependencies >/dev/null 2>&1; then
+	fail "system-only mode rejects uports fallback" \
+		"uports dependencies were accepted"
+else
+	pass "system-only mode rejects uports fallback"
+fi
+
 provider_selection=$(run_make "$resolved_provider_args" \
 	dependency-provider-selection-list)
 assert_contains "uports provider selection remains the default" \
