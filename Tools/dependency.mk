@@ -373,6 +373,7 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))
 
 .PHONY: dependency-provider-registry-list dependency-provider-registry-check \
+	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
@@ -381,6 +382,7 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-registry-list \
 	dependency-provider-registry-check dependency-provider-policy-list \
+	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-discovery-list dependency-provider-discovery-check \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
@@ -388,6 +390,19 @@ depends_exclude_targets += dependency-provider-registry-list \
 	dependency-cross-toolchain-list dependency-cross-toolchain-check \
 	dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
+dependency-provider-profile-list:
+	@printf '%s\n' \
+	  'dependency_provider_profile = $(or $(dependency-provider-profile),none)' \
+	  'dependency_provider_profile_opsys = $(or $(dependency-provider-profile-opsys),none)' \
+	  'dependency_provider_profile_pkg_config_candidates = $(or $(DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES),none)' \
+	  'dependency_provider_profile_cc_candidates = $(or $(DEPENDENCY_PROVIDER_CC_CANDIDATES),none)' \
+	  'dependency_provider_profile_prefixes = $(or $(DEPENDENCY_PROVIDER_PREFIXES),none)' \
+	  'dependency_provider_profile_state = $(if $(dependency-provider-profile-error),invalid:$(dependency-provider-profile-error),valid)'
+
+dependency-provider-profile-check: dependency-provider-profile-list
+	@$(if $(dependency-provider-profile-error),\
+	  $(error invalid dependency provider profile: $(dependency-provider-profile-error)))
+
 dependency-provider-registry-list:
 	@{ $(dependency-provider-registry-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-registry.awk"

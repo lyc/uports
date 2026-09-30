@@ -3,8 +3,22 @@
 set -eu
 set -f
 
-pkg_config=${DEPENDENCY_PROVIDER_PKG_CONFIG:-pkg-config}
-cc=${DEPENDENCY_PROVIDER_CC:-cc}
+pkg_config=${DEPENDENCY_PROVIDER_PKG_CONFIG:-}
+cc=${DEPENDENCY_PROVIDER_CC:-}
+pkg_config_candidates=${DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES:-pkg-config pkgconf}
+cc_candidates=${DEPENDENCY_PROVIDER_CC_CANDIDATES:-cc}
+provider_prefixes=${DEPENDENCY_PROVIDER_PREFIXES:-}
+
+find_command()
+{
+	for candidate do
+		if command -v "$candidate" >/dev/null 2>&1; then
+			command -v "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
 
 safe_path_list()
 {
@@ -35,12 +49,35 @@ normalize_flags()
 	printf '%s\n' "${result:-none}"
 }
 
-if ! command -v "$pkg_config" >/dev/null 2>&1; then
+if [ -z "$pkg_config" ]; then
+	pkg_config=$(find_command $pkg_config_candidates || :)
+fi
+if [ -z "$cc" ]; then
+	cc=$(find_command $cc_candidates || :)
+fi
+
+profile_pkg_config_path=
+for prefix in $provider_prefixes; do
+	safe_path_list "$prefix" || continue
+	for directory in "$prefix/lib/pkgconfig" "$prefix/share/pkgconfig"; do
+		[ -d "$directory" ] || continue
+		case ":$profile_pkg_config_path:" in
+			*":$directory:"*) ;;
+			*) profile_pkg_config_path=${profile_pkg_config_path:+$profile_pkg_config_path:}$directory ;;
+		esac
+	done
+done
+if [ -n "$profile_pkg_config_path" ]; then
+	PKG_CONFIG_PATH=$profile_pkg_config_path${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+	export PKG_CONFIG_PATH
+fi
+
+if [ -z "$pkg_config" ] || ! command -v "$pkg_config" >/dev/null 2>&1; then
 	pkg_config_available=no
 else
 	pkg_config_available=yes
 fi
-if ! command -v "$cc" >/dev/null 2>&1; then
+if [ -z "$cc" ] || ! command -v "$cc" >/dev/null 2>&1; then
 	cc_available=no
 else
 	cc_available=yes

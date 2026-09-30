@@ -121,6 +121,34 @@ else
 	fail "explicit mode accepts cross targets" "cross target was rejected"
 fi
 
+linux_provider_profile=$(run_make dependency-provider-profile-check)
+assert_contains "Linux host selects Linux provider profile" \
+	"$linux_provider_profile" \
+	"dependency_provider_profile = linux
+dependency_provider_profile_opsys = linux"
+assert_contains "Linux profile declares native command candidates" \
+	"$linux_provider_profile" \
+	"dependency_provider_profile_pkg_config_candidates = pkg-config pkgconf
+dependency_provider_profile_cc_candidates = cc gcc clang"
+
+macos_provider_profile=$(run_make DEPENDENCY_BUILD_OPSYS=darwin \
+	DEPENDENCY_BUILD_ARCH=arm64 dependency-provider-profile-check)
+assert_contains "Darwin host selects macOS provider profile" \
+	"$macos_provider_profile" \
+	"dependency_provider_profile = macos
+dependency_provider_profile_opsys = darwin"
+assert_contains "macOS profile declares system and package-manager prefixes" \
+	"$macos_provider_profile" \
+	"dependency_provider_profile_prefixes = /usr /usr/local /opt/homebrew /opt/local"
+
+if run_make DEPENDENCY_PROVIDER_PROFILE=macos \
+	dependency-provider-profile-check >/dev/null 2>&1; then
+	fail "provider profile must match build operating system" \
+		"macOS profile was accepted for Linux"
+else
+	pass "provider profile must match build operating system"
+fi
+
 provider_registry=$(run_make dependency-provider-registry-check)
 assert_contains "built-in provider registry is valid" "$provider_registry" \
 	"dependency_provider_registry_entries = 4
@@ -211,6 +239,14 @@ assert_contains "pkg-config discovery validates required interface" \
 	"$provider_discovery" \
 	"discovery|example|devel/autoconf|available|validated|$discovery_test_dir/include|$discovery_test_dir/lib|$discovery_test_dir/pkgconfig"
 
+provider_candidate_discovery=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=missing-pkg-config $fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC_CANDIDATES=missing-cc $fake_cc" \
+	dependency-provider-discovery-check)
+assert_contains "profile command candidates select the first available tools" \
+	"$provider_candidate_discovery" \
+	"discovery|example|devel/autoconf|available|validated"
+
 missing_pkg_config="$discovery_test_dir/pkg-config-missing"
 printf '%s\n' '#!/bin/sh' 'exit 1' > "$missing_pkg_config"
 chmod +x "$missing_pkg_config"
@@ -270,7 +306,17 @@ host_discovery_selection=$(run_make "$resolved_provider_args" \
 	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
 assert_contains "host mode projects discovered provider into selection" \
 	"$host_discovery_selection" \
-	"origin=devel/autoconf provider_kind=system provider_identity=pkg-config-linux-x86_64 resolution=selected state=validated"
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-pkg-config-x86_64 resolution=selected state=validated"
+
+macos_discovery_selection=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_BUILD_OPSYS=darwin DEPENDENCY_BUILD_ARCH=arm64 \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "macOS profile gives discovery a platform identity" \
+	"$macos_discovery_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=macos-pkg-config-arm64 resolution=selected state=validated"
 
 host_discovery_fallback=$(run_make "$resolved_provider_args" \
 	$discovery_registry_args \
