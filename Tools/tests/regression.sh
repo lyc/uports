@@ -182,6 +182,46 @@ else
 	pass "invalid provider registry fails validation"
 fi
 
+discovery_test_dir=$(mktemp -d "$testdir/work/provider-discovery.XXXXXX")
+mkdir -p "$discovery_test_dir/include" "$discovery_test_dir/lib" \
+	"$discovery_test_dir/pkgconfig"
+fake_pkg_config="$discovery_test_dir/pkg-config"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'case "$1" in' \
+	'  --exists) exit 0 ;;' \
+	"  --cflags) echo '-I$discovery_test_dir/include' ;;" \
+	"  --libs) echo '-L$discovery_test_dir/lib -lexample' ;;" \
+	"  --cflags-only-I) echo '-I$discovery_test_dir/include' ;;" \
+	"  --libs-only-L) echo '-L$discovery_test_dir/lib' ;;" \
+	"  --libs-only-l) echo '-lexample' ;;" \
+	"  --path) echo '$discovery_test_dir/pkgconfig/example.pc' ;;" \
+	'  *) exit 1 ;;' \
+	'esac' > "$fake_pkg_config"
+chmod +x "$fake_pkg_config"
+fake_cc="$discovery_test_dir/cc"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$fake_cc"
+chmod +x "$fake_cc"
+discovery_registry_args="DEPENDENCY_PROVIDER_REGISTRY=example DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.example=devel/autoconf DEPENDENCY_PROVIDER_REGISTRY_METHOD.example=pkg-config DEPENDENCY_PROVIDER_REGISTRY_MODULE.example=example DEPENDENCY_PROVIDER_REGISTRY_HEADER.example=example/example.h DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.example=example"
+provider_discovery=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-check)
+assert_contains "pkg-config discovery validates required interface" \
+	"$provider_discovery" \
+	"discovery|example|devel/autoconf|available|validated|$discovery_test_dir/include|$discovery_test_dir/lib|$discovery_test_dir/pkgconfig"
+
+missing_pkg_config="$discovery_test_dir/pkg-config-missing"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "$missing_pkg_config"
+chmod +x "$missing_pkg_config"
+provider_discovery_missing=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-list)
+assert_contains "missing pkg-config module is an unavailable provider" \
+	"$provider_discovery_missing" \
+	"discovery|example|devel/autoconf|unavailable|module-missing|none|none|none"
+
 empty_provider_policy=$(run_make dependency-provider-policy-list)
 assert_contains "empty provider policy is valid" "$empty_provider_policy" \
 	"dependency_provider_policies = 0
@@ -222,6 +262,26 @@ assert_contains "malformed provider policy is rejected" \
 	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
 
 resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+
+host_discovery_selection=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode projects discovered provider into selection" \
+	"$host_discovery_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=pkg-config-linux-x86_64 resolution=selected state=validated"
+
+host_discovery_fallback=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode falls back when discovery is unavailable" \
+	"$host_discovery_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+
+rm -rf "$discovery_test_dir"
 
 if run_make "$resolved_provider_args" DEPENDENCY_PROVIDER_MODE=system-only \
 	info.debug.dependencies >/dev/null 2>&1; then

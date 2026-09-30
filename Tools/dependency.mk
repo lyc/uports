@@ -226,6 +226,7 @@ load-dependency-records = 						\
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
 	  $(error dependency metadata collection failed),)		\
+	$(load-dependency-provider-discovery)				\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-capability,$d)))			\
@@ -380,6 +381,7 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-registry-list \
 	dependency-provider-registry-check dependency-provider-policy-list \
+	dependency-provider-discovery-list dependency-provider-discovery-check \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
@@ -393,6 +395,21 @@ dependency-provider-registry-list:
 dependency-provider-registry-check:
 	@{ $(dependency-provider-registry-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk"
+
+.PHONY: dependency-provider-discovery-list dependency-provider-discovery-check
+
+dependency-provider-discovery-list:
+	@{ $(dependency-provider-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@{ $(dependency-provider-registry-input) :; } | \
+	  $(dependency-provider-discovery-command)
+
+dependency-provider-discovery-check:
+	@{ $(dependency-provider-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@{ $(dependency-provider-registry-input) :; } | \
+	  $(dependency-provider-discovery-command) | \
+	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
 
 dependency-provider-policy-list:
 	@{ $(dependency-provider-policy-input) :; } | \
