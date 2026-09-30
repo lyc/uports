@@ -121,6 +121,67 @@ else
 	fail "explicit mode accepts cross targets" "cross target was rejected"
 fi
 
+provider_registry=$(run_make dependency-provider-registry-check)
+assert_contains "built-in provider registry is valid" "$provider_registry" \
+	"dependency_provider_registry_entries = 4
+dependency_provider_registry_invalid = 0"
+assert_contains "ncurses registry declares its required interface" \
+	"$provider_registry" \
+	"key=ncurses origin=devel/ncurses method=pkg-config module=ncurses header=ncurses.h link_name=ncurses state=valid"
+assert_contains "readline registry accepts a nested header" \
+	"$provider_registry" \
+	"key=readline origin=devel/readline method=pkg-config module=readline header=readline/readline.h link_name=readline state=valid"
+
+empty_provider_registry=$(run_make DEPENDENCY_PROVIDER_REGISTRY= \
+	dependency-provider-registry-check)
+assert_contains "empty provider registry remains valid" \
+	"$empty_provider_registry" \
+	"dependency_provider_registry_entries = 0
+dependency_provider_registry_invalid = 0"
+
+invalid_provider_registry=$(run_make \
+	'DEPENDENCY_PROVIDER_REGISTRY=one two three four' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.one=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.one=unknown' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.one=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.one=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.one=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.two=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.two=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.two=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.two=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.two=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.three=devel/other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.three=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.three=other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.three=../other.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.three=other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.four=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.four=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.four=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.four=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.four=example' \
+	dependency-provider-registry-list)
+assert_contains "registry rejects unknown discovery method" \
+	"$invalid_provider_registry" "registry.1 = key=one origin=devel/example method=unknown module=example header=example.h link_name=example state=invalid-method"
+assert_contains "registry rejects unsafe header path" \
+	"$invalid_provider_registry" "registry.3 = key=three origin=devel/other method=pkg-config module=other header=../other.h link_name=other state=invalid-header"
+assert_contains "registry rejects duplicate origins" \
+	"$invalid_provider_registry" "registry.4 = key=four origin=devel/example method=pkg-config module=example header=example.h link_name=example state=duplicate-origin"
+if run_make \
+	'DEPENDENCY_PROVIDER_REGISTRY=bad' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.bad=invalid' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.bad=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.bad=bad' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.bad=bad.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.bad=bad' \
+	dependency-provider-registry-check >/dev/null 2>&1; then
+	fail "invalid provider registry fails validation" \
+		"invalid registry was accepted"
+else
+	pass "invalid provider registry fails validation"
+fi
+
 empty_provider_policy=$(run_make dependency-provider-policy-list)
 assert_contains "empty provider policy is valid" "$empty_provider_policy" \
 	"dependency_provider_policies = 0

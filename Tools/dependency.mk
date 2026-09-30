@@ -27,6 +27,7 @@ ifneq ($(and $(filter uports,$(DEPENDENCY_PROVIDER_MODE)),$(filter yes,$(DEPENDE
 $(error DEPENDENCY_PROVIDER_MODE=uports conflicts with DEPENDENCY_EXTERNAL_PROVIDERS=yes)
 endif
 dependency-external-providers-enabled = $(if $(filter host system-only explicit,$(DEPENDENCY_PROVIDER_MODE)),yes,no)
+include $(portdir)/Tools/Providers/registry.mk
 DEPENDENCY_BUILD_OPSYS ?= $(info_ports_opsys)
 DEPENDENCY_BUILD_ARCH ?= $(info_ports_arch)
 DEPENDENCY_TARGET_OPSYS ?=
@@ -370,19 +371,29 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\
 	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))
 
-.PHONY: dependency-provider-policy-list dependency-provider-policy-check \
+.PHONY: dependency-provider-registry-list dependency-provider-registry-check \
+	dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
 	dependency-cross-toolchain-list dependency-cross-toolchain-check \
 	dependency-provider-environment-list dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
-depends_exclude_targets += dependency-provider-policy-list \
+depends_exclude_targets += dependency-provider-registry-list \
+	dependency-provider-registry-check dependency-provider-policy-list \
 	dependency-provider-policy-check dependency-provider-selection-list \
 	dependency-provider-selection-check dependency-provider-environment-list \
 	dependency-provider-readiness-list dependency-provider-readiness-check \
 	dependency-cross-toolchain-list dependency-cross-toolchain-check \
 	dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
+dependency-provider-registry-list:
+	@{ $(dependency-provider-registry-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-registry.awk"
+
+dependency-provider-registry-check:
+	@{ $(dependency-provider-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk"
+
 dependency-provider-policy-list:
 	@{ $(dependency-provider-policy-input) :; } | \
 	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-policy.awk"

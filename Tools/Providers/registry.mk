@@ -1,0 +1,34 @@
+# Native provider discovery registry.
+#
+# This file declares interfaces that may be satisfied by a validated native
+# provider.  It does not inspect the host or select a provider.
+
+DEPENDENCY_PROVIDER_REGISTRY ?= ncurses readline libffi zlib
+
+DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.ncurses ?= devel/ncurses
+DEPENDENCY_PROVIDER_REGISTRY_METHOD.ncurses ?= pkg-config
+DEPENDENCY_PROVIDER_REGISTRY_MODULE.ncurses ?= ncurses
+DEPENDENCY_PROVIDER_REGISTRY_HEADER.ncurses ?= ncurses.h
+DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.ncurses ?= ncurses
+
+DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.readline ?= devel/readline
+DEPENDENCY_PROVIDER_REGISTRY_METHOD.readline ?= pkg-config
+DEPENDENCY_PROVIDER_REGISTRY_MODULE.readline ?= readline
+DEPENDENCY_PROVIDER_REGISTRY_HEADER.readline ?= readline/readline.h
+DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.readline ?= readline
+
+DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.libffi ?= devel/libffi
+DEPENDENCY_PROVIDER_REGISTRY_METHOD.libffi ?= pkg-config
+DEPENDENCY_PROVIDER_REGISTRY_MODULE.libffi ?= libffi
+DEPENDENCY_PROVIDER_REGISTRY_HEADER.libffi ?= ffi.h
+DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.libffi ?= ffi
+
+DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.zlib ?= archivers/zlib
+DEPENDENCY_PROVIDER_REGISTRY_METHOD.zlib ?= pkg-config
+DEPENDENCY_PROVIDER_REGISTRY_MODULE.zlib ?= zlib
+DEPENDENCY_PROVIDER_REGISTRY_HEADER.zlib ?= zlib.h
+DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.zlib ?= z
+
+define dependency-provider-registry-input
+  $(foreach r,$(DEPENDENCY_PROVIDER_REGISTRY),printf '%s\n' 'registry|$r|$(DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_REGISTRY_METHOD.$r)|$(DEPENDENCY_PROVIDER_REGISTRY_MODULE.$r)|$(DEPENDENCY_PROVIDER_REGISTRY_HEADER.$r)|$(DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.$r)';)
+endef
