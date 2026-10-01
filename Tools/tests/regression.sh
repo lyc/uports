@@ -60,9 +60,21 @@ assert_eq()
 	fi
 }
 
+platform_test_dir=$(mktemp -d "${TMPDIR:-/tmp}/uports-regression-platform.XXXXXX")
+printf '%s\n' \
+	'#!/bin/sh' \
+	'case "$1" in' \
+	'  -s) printf "%s\\n" Linux ;;' \
+	'  -m) printf "%s\\n" x86_64 ;;' \
+	'  *) exec /usr/bin/uname "$@" ;;' \
+	'esac' > "$platform_test_dir/uname"
+chmod +x "$platform_test_dir/uname"
+trap 'rm -rf "$platform_test_dir"' EXIT HUP INT TERM
+
 run_make()
 {
-	make --no-print-directory -s -C "$testdir" USE_HOSTTOOLS= "$@"
+	DEPENDENCY_PROVIDER_POLICIES= PATH="$platform_test_dir:$PATH" \
+		make --no-print-directory -s -C "$testdir" USE_HOSTTOOLS= "$@"
 }
 
 snapshot=$(run_make regression.snapshot)
@@ -238,6 +250,26 @@ provider_discovery=$(run_make $discovery_registry_args \
 assert_contains "pkg-config discovery validates required interface" \
 	"$provider_discovery" \
 	"discovery|example|devel/autoconf|available|validated|$discovery_test_dir/include|$discovery_test_dir/lib|$discovery_test_dir/pkgconfig"
+
+header_order_cc="$discovery_test_dir/header-order-cc"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'source_file=' \
+	'for argument do' \
+	'  case "$argument" in *.c) source_file=$argument ;; esac' \
+	'done' \
+	'[ -n "$source_file" ] || exit 1' \
+	'[ "$(sed -n "1p" "$source_file")" = "#include <stdio.h>" ] || exit 1' \
+	'[ "$(sed -n "2p" "$source_file")" = "#include <example/example.h>" ]' \
+	> "$header_order_cc"
+chmod +x "$header_order_cc"
+provider_header_order=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$header_order_cc" \
+	dependency-provider-discovery-check)
+assert_contains "native probe supplies standard I/O before registered header" \
+	"$provider_header_order" \
+	"discovery|example|devel/autoconf|available|validated"
 
 provider_candidate_discovery=$(run_make $discovery_registry_args \
 	"DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=missing-pkg-config $fake_pkg_config" \

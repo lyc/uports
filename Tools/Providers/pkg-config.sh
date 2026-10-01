@@ -107,7 +107,7 @@ while IFS='|' read -r record key origin method module header link_name extra; do
 			*" -l$link_name "*)
 				tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/uports-provider.XXXXXX") || exit 1
 				trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
-				printf '#include <%s>\nint main(void) { return 0; }\n' "$header" > "$tmpdir/probe.c"
+				printf '#include <stdio.h>\n#include <%s>\nint main(void) { return 0; }\n' "$header" > "$tmpdir/probe.c"
 				# Registry tokens and pkg-config output are restricted by the
 				# surrounding validation.  Splitting flags here is intentional.
 				if "$cc" $cflags "$tmpdir/probe.c" $libs -o "$tmpdir/probe" >/dev/null 2>&1; then

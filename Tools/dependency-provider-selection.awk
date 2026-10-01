@@ -146,8 +146,9 @@ END {
 }
 
 function readiness_value(identity, origin, category) {
-	return ((identity SUBSEP origin SUBSEP category) in readiness) ?
-	       readiness[identity, origin, category] : "unspecified"
+	if ((identity SUBSEP origin SUBSEP category) in readiness)
+		return readiness[identity, origin, category]
+	return "unspecified"
 }
 
 function dependency_needed(phase, type) {
@@ -159,7 +160,7 @@ function dependency_needed(phase, type) {
 }
 
 function valid_path(value) {
-	return value ~ /^\/[A-Za-z0-9_./+-]+$/ &&
+	return value ~ /^\/[A-Za-z0-9_.\/+-]+$/ &&
 	       value !~ /(^|\/)\.\.(\/|$)/
 }
 
@@ -189,7 +190,7 @@ function joined_paths(node, type, separator, result, j) {
 	return (result == "" ? "none" : result)
 }
 
-function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
+function emit_environments(consumer_count, i, node, identity, key, sysroot, j, runtime_variable) {
 	for (i = 1; i <= dependency_count; i++) {
 		if (exports && (consumer[i] != export_node ||
 		    !dependency_needed(export_phase, type[i])))
@@ -255,15 +256,17 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j) {
 	}
 	for (i = 1; i <= consumer_count; i++) {
 		node = environment_consumer[i]
+		runtime_variable = "LD_LIBRARY_PATH"
+		if (environment_target_opsys[node] == "darwin" ||
+		    (environment_target_opsys[node] == "" && environment_opsys[node] == "darwin"))
+			runtime_variable = "DYLD_LIBRARY_PATH"
 		printf "environment.%s = bindirs=%s includedirs=%s libdirs=%s pkgconfigdirs=%s runtimedirs=%s runtime_variable=%s sysroot=%s state=%s\n", \
 		       node, joined_paths(node, "bindir", ":"), \
 		       joined_paths(node, "includedir", ":"), \
 		       joined_paths(node, "libdir", ":"), \
 		       joined_paths(node, "pkgconfigdir", ":"), \
 		       joined_paths(node, "runtimedir", ":"), \
-		       ((environment_target_opsys[node] == "darwin" ||
-		         (environment_target_opsys[node] == "" && environment_opsys[node] == "darwin")) ?
-		         "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH"), \
+		       runtime_variable, \
 		       (environment_sysroot[node] == "" ? "none" : environment_sysroot[node]), \
 		       (environment_error[node] == "" ? "valid" : environment_error[node])
 	}
@@ -287,8 +290,10 @@ function emit_exports(node, value, sysroot, sysroot_flag, runtime) {
 	sysroot_flag = ""
 	if (environment_sysroot[node] != "") {
 		sysroot = environment_sysroot[node]
-		sysroot_flag = (environment_sysroot_opsys[node] == "darwin" ?
-		               "-isysroot " : "--sysroot=") sysroot
+		if (environment_sysroot_opsys[node] == "darwin")
+			sysroot_flag = "-isysroot " sysroot
+		else
+			sysroot_flag = "--sysroot=" sysroot
 		printf "SDKROOT='%s'; export SDKROOT\n", sysroot
 		printf "PKG_CONFIG_SYSROOT_DIR='%s'; export PKG_CONFIG_SYSROOT_DIR\n", sysroot
 	}
