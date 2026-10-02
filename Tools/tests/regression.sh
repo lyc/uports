@@ -229,6 +229,7 @@ fake_pkg_config="$discovery_test_dir/pkg-config"
 printf '%s\n' \
 	'#!/bin/sh' \
 	'case "$1" in' \
+	'  --version) echo "1.0" ;;' \
 	'  --exists) exit 0 ;;' \
 	"  --cflags) echo '-I$discovery_test_dir/include' ;;" \
 	"  --libs) echo '-L$discovery_test_dir/lib -lexample' ;;" \
@@ -250,6 +251,9 @@ provider_discovery=$(run_make $discovery_registry_args \
 assert_contains "pkg-config discovery validates required interface" \
 	"$provider_discovery" \
 	"discovery|example|devel/autoconf|available|validated|$discovery_test_dir/include|$discovery_test_dir/lib|$discovery_test_dir/pkgconfig"
+assert_contains "selected pkg-config command is a native tool provider" \
+	"$provider_discovery" \
+	"discovery|pkg-config-tool|devel/pkg-config|available|validated|none|none|none|$discovery_test_dir|build"
 
 header_order_cc="$discovery_test_dir/header-order-cc"
 printf '%s\n' \
@@ -330,6 +334,84 @@ assert_contains "malformed provider policy is rejected" \
 	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
 
 resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+
+native_tool_selection=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode projects the pkg-config command as a build tool" \
+	"$native_tool_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-pkg-config-x86_64 resolution=selected state=validated"
+
+native_tool_environment=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-environment-list)
+assert_contains "native pkg-config provider exports its command directory" \
+	"$native_tool_environment" "bindirs=$discovery_test_dir"
+
+native_tool_state=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-state)
+assert_contains "native tool identity enters consumer state" \
+	"$native_tool_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-pkg-config-x86_64|external"
+assert_contains "native tool directory enters consumer state" \
+	"$native_tool_state" \
+	"external-environment|target_libffi|linux-pkg-config-x86_64|devel/autoconf|build|linux|x86_64|$discovery_test_dir"
+
+native_tool_provenance=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.package \
+	dependency-provider-provenance)
+assert_contains "native tool identity enters provider provenance" \
+	"$native_tool_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-pkg-config-x86_64|build|linux|x86_64|external"
+
+alternate_tool_dir="$discovery_test_dir/alternate/bin"
+mkdir -p "$alternate_tool_dir"
+cp "$fake_pkg_config" "$alternate_tool_dir/pkg-config"
+native_tool_state_changed=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$alternate_tool_dir/pkg-config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-state)
+if [ "$native_tool_state" != "$native_tool_state_changed" ]; then
+	pass "native tool path change alters consumer state"
+else
+	fail "native tool path change alters consumer state" \
+		"changed command directory was not reflected"
+fi
+
+explicit_tool_selection=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	'--eval=DEPENDENCY_PROVIDER_POLICIES := system@build@target@linux@x86_64@devel/autoconf@explicit-tool' \
+	'DEPENDENCY_PROVIDER_CHECK.explicit-tool.devel_autoconf=true' \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "explicit policy takes precedence over native tool discovery" \
+	"$explicit_tool_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=explicit-tool resolution=selected state=validated"
+assert_contains "explicit tool precedence keeps provider selection valid" \
+	"$explicit_tool_selection" "dependency_provider_selection_invalid = 0"
+
+native_tool_fallback=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode falls back when the pkg-config command is invalid" \
+	"$native_tool_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
 
 host_discovery_selection=$(run_make "$resolved_provider_args" \
 	$discovery_registry_args \

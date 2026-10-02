@@ -83,6 +83,30 @@ else
 	cc_available=yes
 fi
 
+tool_state=unavailable
+tool_reason=pkg-config-missing
+tool_bindir=none
+if [ "$pkg_config_available" = yes ]; then
+	tool_path=$(command -v "$pkg_config")
+	case "$tool_path" in
+		/*)
+			if ! safe_path_list "$tool_path"; then
+				tool_reason=unsafe-command-path
+			elif "$pkg_config" --version >/dev/null 2>&1; then
+				tool_bindir=$(dirname "$tool_path")
+				tool_state=available
+				tool_reason=validated
+			else
+				tool_reason=version-check-failed
+			fi
+			;;
+		*) tool_reason=unsafe-command-path ;;
+	esac
+fi
+printf 'discovery|pkg-config-tool|%s|%s|%s|none|none|none|%s|build\n' \
+	"${DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN:-devel/pkg-config}" \
+	"$tool_state" "$tool_reason" "$tool_bindir"
+
 while IFS='|' read -r record key origin method module header link_name extra; do
 	[ "$record" = registry ] || continue
 	state=unavailable
@@ -140,7 +164,7 @@ while IFS='|' read -r record key origin method module header link_name extra; do
 		esac
 	fi
 
-	printf 'discovery|%s|%s|%s|%s|%s|%s|%s\n' \
+	printf 'discovery|%s|%s|%s|%s|%s|%s|%s|none|both\n' \
 		"$key" "$origin" "$state" "$reason" \
 		"$include_dirs" "$library_dirs" "$pkgconfig_dirs"
 done
