@@ -9,13 +9,20 @@ pkg_config_candidates=${DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES:-pkg-config pk
 cc_candidates=${DEPENDENCY_PROVIDER_CC_CANDIDATES:-cc}
 provider_prefixes=${DEPENDENCY_PROVIDER_PREFIXES:-}
 
-find_command()
+find_profile_command()
 {
 	for candidate do
-		if command -v "$candidate" >/dev/null 2>&1; then
-			command -v "$candidate"
-			return 0
-		fi
+		case "$candidate" in
+			*/*) continue ;;
+		esac
+		for prefix in $provider_prefixes; do
+			safe_path_list "$prefix" || continue
+			path=$prefix/bin/$candidate
+			if [ -x "$path" ]; then
+				printf '%s\n' "$path"
+				return 0
+			fi
+		done
 	done
 	return 1
 }
@@ -50,10 +57,10 @@ normalize_flags()
 }
 
 if [ -z "$pkg_config" ]; then
-	pkg_config=$(find_command $pkg_config_candidates || :)
+	pkg_config=$(find_profile_command $pkg_config_candidates || :)
 fi
 if [ -z "$cc" ]; then
-	cc=$(find_command $cc_candidates || :)
+	cc=$(find_profile_command $cc_candidates || :)
 fi
 
 profile_pkg_config_path=

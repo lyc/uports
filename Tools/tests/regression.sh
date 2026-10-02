@@ -275,13 +275,34 @@ assert_contains "native probe supplies standard I/O before registered header" \
 	"$provider_header_order" \
 	"discovery|example|devel/autoconf|available|validated"
 
+profile_prefix="$discovery_test_dir/profile"
+mkdir -p "$profile_prefix/bin"
+cp "$fake_pkg_config" "$profile_prefix/bin/pkg-config"
+cp "$fake_cc" "$profile_prefix/bin/cc"
 provider_candidate_discovery=$(run_make $discovery_registry_args \
-	"DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=missing-pkg-config $fake_pkg_config" \
-	"DEPENDENCY_PROVIDER_CC_CANDIDATES=missing-cc $fake_cc" \
+	"DEPENDENCY_PROVIDER_PREFIXES=$profile_prefix" \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=missing-pkg-config pkg-config" \
+	"DEPENDENCY_PROVIDER_CC_CANDIDATES=missing-cc cc" \
 	dependency-provider-discovery-check)
 assert_contains "profile command candidates select the first available tools" \
 	"$provider_candidate_discovery" \
 	"discovery|example|devel/autoconf|available|validated"
+assert_contains "profile command candidates stay within native prefixes" \
+	"$provider_candidate_discovery" \
+	"discovery|pkg-config-tool|devel/pkg-config|available|validated|none|none|none|$profile_prefix/bin|build"
+
+unrecognized_tool_dir="$discovery_test_dir/project-local/bin"
+mkdir -p "$unrecognized_tool_dir"
+cp "$fake_pkg_config" "$unrecognized_tool_dir/pkg-config"
+provider_unrecognized_tool=$(PATH="$unrecognized_tool_dir:$PATH" run_make \
+	$discovery_registry_args \
+	'DEPENDENCY_PROVIDER_PREFIXES=/nonexistent-native-prefix' \
+	'DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=pkg-config' \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-list)
+assert_contains "automatic discovery ignores project-local pkg-config" \
+	"$provider_unrecognized_tool" \
+	"discovery|pkg-config-tool|devel/pkg-config|unavailable|pkg-config-missing|none|none|none|none|build"
 
 missing_pkg_config="$discovery_test_dir/pkg-config-missing"
 printf '%s\n' '#!/bin/sh' 'exit 1' > "$missing_pkg_config"
