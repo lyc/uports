@@ -1574,10 +1574,12 @@ assert_contains "port target reads saved dependency state" \
 
 dependency_cookie_fixture="$dependency_state_fixture/cookies"
 mkdir -p "$dependency_cookie_fixture"
+dependency_package_artifact="$dependency_state_fixture/test.pkg"
 for cookie in extract configure build stage package install
 do
 	touch "$dependency_cookie_fixture/$cookie"
 done
+touch "$dependency_package_artifact"
 port_state_unchanged=$(make --no-print-directory -s -C \
 	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
 	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
@@ -1589,15 +1591,17 @@ port_state_unchanged=$(make --no-print-directory -s -C \
 	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
 	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
 	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
 	uports-dependency-state-invalidate)
 assert_contains "unchanged state reports no invalidation" \
 	"$port_state_unchanged" "dependency_state = unchanged"
 if test -f "$dependency_cookie_fixture/configure" && \
-	   test -f "$dependency_cookie_fixture/install"; then
-	pass "unchanged state preserves downstream cookies"
+	   test -f "$dependency_cookie_fixture/install" && \
+	   test -f "$dependency_package_artifact"; then
+	pass "unchanged state preserves downstream cookies and package artifact"
 else
-	fail "unchanged state preserves downstream cookies" \
-		"configure or install cookie was removed"
+	fail "unchanged state preserves downstream cookies and package artifact" \
+		"configure/install cookie or package artifact was removed"
 fi
 
 printf '%s\n' 'provider=uports:other-provider:/usr/local' \
@@ -1613,6 +1617,7 @@ port_state_invalidated=$(make --no-print-directory -s -C \
 	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
 	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
 	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
 	uports-dependency-state-invalidate)
 assert_contains "changed configure state reports invalidation" \
 	"$port_state_invalidated" "dependency_state = changed"
@@ -1626,6 +1631,12 @@ else
 	fail "configure state removes configure and downstream cookies" \
 		"one or more downstream cookies remain"
 fi
+if test ! -f "$dependency_package_artifact"; then
+	pass "configure state removes stale work package"
+else
+	fail "configure state removes stale work package" \
+		"work package remains"
+fi
 if test -f "$dependency_cookie_fixture/extract"; then
 	pass "configure state preserves source cookies"
 else
@@ -1637,6 +1648,7 @@ for cookie in configure build stage package install
 do
 	touch "$dependency_cookie_fixture/$cookie"
 done
+touch "$dependency_package_artifact"
 rm -f "$dependency_state_saved"
 port_stage_invalidated=$(make --no-print-directory -s -C \
 	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
@@ -1647,6 +1659,7 @@ port_stage_invalidated=$(make --no-print-directory -s -C \
 	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
 	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
 	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
 	uports-dependency-state-invalidate)
 assert_contains "new stage state reports invalidation" \
 	"$port_stage_invalidated" "dependency_state = new"
@@ -1657,6 +1670,12 @@ if test ! -f "$dependency_cookie_fixture/stage" && \
 else
 	fail "stage state removes stage and downstream cookies" \
 		"one or more stage cookies remain"
+fi
+if test ! -f "$dependency_package_artifact"; then
+	pass "stage state removes stale work package"
+else
+	fail "stage state removes stale work package" \
+		"work package remains"
 fi
 if test -f "$dependency_cookie_fixture/configure" && \
 	   test -f "$dependency_cookie_fixture/build"; then

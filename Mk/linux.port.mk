@@ -406,6 +406,7 @@ DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
 dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
 	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
 	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
+dependency-state-artifacts = $(WRKDIR_PKGFILE)
 
 ifneq ($(filter $(DEPENDENCY_STATE_CLASS),configure stage),$(DEPENDENCY_STATE_CLASS))
 $(error DEPENDENCY_STATE_CLASS must be configure or stage)
@@ -422,6 +423,7 @@ uports-dependency-state-invalidate:
 	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
 	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
+	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
 	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
 	  $(patsubst uports-dependency-state-%,%,$@)
 

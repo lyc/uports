@@ -36,6 +36,10 @@ printf 'dependency_state = %s\n' "$state"
 	do
 		rm -f -- "$cookie"
 	done
+	for artifact in ${DEPENDENCY_STATE_ARTIFACTS:-}
+	do
+		rm -f -- "$artifact"
+	done
 	exit 0
 }
 
