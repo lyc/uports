@@ -350,6 +350,29 @@ assert_contains "macOS profile gives discovery a platform identity" \
 	"$macos_discovery_selection" \
 	"origin=devel/autoconf provider_kind=system provider_identity=macos-pkg-config-arm64 resolution=selected state=validated"
 
+host_discovery_environment=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-environment-list)
+assert_contains "native discovery exports its library directory for runtime" \
+	"$host_discovery_environment" \
+	"runtimedirs=$discovery_test_dir/lib runtime_variable=LD_LIBRARY_PATH"
+
+macos_discovery_environment=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_BUILD_OPSYS=darwin DEPENDENCY_BUILD_ARCH=arm64 \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "macOS native discovery exports a durable loader path" \
+	"$macos_discovery_environment" \
+	"LDFLAGS='-L$discovery_test_dir/lib -Wl,-rpath,$discovery_test_dir/lib'"
+assert_contains "macOS native discovery also exports the loader environment" \
+	"$macos_discovery_environment" \
+	"DYLD_LIBRARY_PATH='$discovery_test_dir/lib'"
+
 host_discovery_fallback=$(run_make "$resolved_provider_args" \
 	$discovery_registry_args \
 	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \

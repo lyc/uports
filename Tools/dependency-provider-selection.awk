@@ -307,6 +307,11 @@ function emit_exports(node, value, sysroot, sysroot_flag, runtime) {
 		printf "CXXFLAGS='%s'${CXXFLAGS:+ }\"${CXXFLAGS-}\"; export CXXFLAGS\n", value
 	}
 	value = flags(node, "libdir", "-L")
+	if (build_opsys == "darwin") {
+		runtime = flags(node, "runtimedir", "-Wl,-rpath,")
+		if (runtime != "")
+			value = value (value == "" ? "" : " ") runtime
+	}
 	if (sysroot_flag != "")
 		value = value (value == "" ? "" : " ") sysroot_flag
 	if (value != "")

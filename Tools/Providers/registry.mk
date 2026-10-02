@@ -76,6 +76,7 @@ define apply-dependency-provider-discovery
   $(eval DEPENDENCY_PROVIDER_CHECK.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := true)
   $(eval DEPENDENCY_PROVIDER_INCLUDEDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,6,$1)))
   $(eval DEPENDENCY_PROVIDER_LIBDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,7,$1)))
+  $(eval DEPENDENCY_PROVIDER_RUNTIMEDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,7,$1)))
   $(eval DEPENDENCY_PROVIDER_PKGCONFIGDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,8,$1)))
   $(foreach g,$(groups_all),$(eval DEPENDENCY_PROVIDER_POLICIES += system@build@$g@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity)))
   $(foreach g,$(groups_all),$(eval DEPENDENCY_PROVIDER_POLICIES += system@target@$g@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity)))
