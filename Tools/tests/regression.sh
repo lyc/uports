@@ -1897,13 +1897,25 @@ assert_not_contains "canonical provider failure blocks consumer" \
 legacy_dispatch=$(run_make \
 	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 if [ "$legacy_dispatch" = "consumer=target@libffi.build" ]; then
-	pass "normal canonical dispatch remains dependency-neutral by default"
+	pass "explicit dependency disable keeps canonical dispatch dependency-neutral"
 else
-	fail "normal canonical dispatch remains dependency-neutral by default" \
+	fail "explicit dependency disable keeps canonical dispatch dependency-neutral" \
 		"unexpected dispatch: $legacy_dispatch"
 fi
+
+default_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCY_STATE=no target@libffi.build)
+assert_eq "canonical dispatch enables dependency execution by default" \
+	"$default_dispatch" "host@pkg-config.install
+target@openssl.install
+consumer=target@libffi.build"
 
 if run_make UPORTS_DEPENDENCIES=invalid target@libffi.build \
 	>/dev/null 2>&1; then
@@ -2172,6 +2184,7 @@ rm -rf "$synthetic_dir"
 trap - EXIT HUP INT TERM
 
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \
 	"dir=$feeds"
@@ -2215,12 +2228,14 @@ rm -f "$unknown_suffix_file"
 
 touch "$testdir/target@libffi.build"
 forced_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 rm -f "$testdir/target@libffi.build"
 assert_contains "canonical dispatch ignores matching filesystem file" \
 	"$forced_dispatch" "target@devel/libffi build"
 
 alias_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	openssl.build)
 assert_contains "default alias selects default group" "$alias_dispatch" \
 	"target@security/openssl build"
@@ -2240,6 +2255,7 @@ rm -f "$unknown_alias_file"
 
 touch "$testdir/libffi.build"
 forced_alias=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	libffi.build)
 rm -f "$testdir/libffi.build"
 assert_contains "short alias ignores matching filesystem file" \
@@ -2265,6 +2281,7 @@ rm -rf "$ambiguous_dir"
 rm -f "$ambiguous_file"
 
 group_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target.build)
 assert_contains "group aggregate includes expat2" "$group_dispatch" \
 	"target@textproc/expat2 build"
@@ -2274,6 +2291,7 @@ assert_contains "group aggregate includes libffi" "$group_dispatch" \
 	"target@devel/libffi build"
 
 category_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	devel.build)
 assert_contains "category aggregate includes built-in port" "$category_dispatch" \
 	"host@devel/pkg-config build"
@@ -2282,8 +2300,10 @@ assert_contains "category aggregate includes feed port" "$category_dispatch" \
 
 touch "$testdir/target.build" "$testdir/devel.build"
 forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target.build)
 forced_category=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	devel.build)
 rm -f "$testdir/target.build" "$testdir/devel.build"
 assert_contains "group aggregate ignores matching filesystem file" \
@@ -2292,7 +2312,7 @@ assert_contains "category aggregate ignores matching filesystem file" \
 	"$forced_category" "target@devel/libffi build"
 
 collision_dispatch=$(make --no-print-directory -n -C "$testdir" \
-	USE_HOSTTOOLS= \
+	USE_HOSTTOOLS= UPORTS_DEPENDENCIES=no \
 	PORTS_LISTS='textproc@textproc/expat2 textproc@devel/libffi' \
 	textproc.build)
 assert_contains "aggregate name collision includes category members" \

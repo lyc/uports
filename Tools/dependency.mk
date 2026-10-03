@@ -4,9 +4,9 @@
 #
 # normalized dependency records...
 #
-# Dependency collection is deliberately opt-in during this read-only phase.
-# It is enabled by the dependency diagnostics below, avoiding recursive port
-# metadata probes during ordinary planner startup.
+# Dependency collection is demand-driven. Dependency-aware lifecycle and
+# diagnostic targets collect it, avoiding recursive port metadata probes during
+# unrelated planner startup.
 
 dependency-instance-key = $(call instance-key,$(call get-group,$1),$(call get-port,$1))
 dependency-instance-directory = $(call instance-field,$(call dependency-instance-key,$1),root)/$(call instance-field,$(call dependency-instance-key,$1),origin)
@@ -330,7 +330,7 @@ dependency-lifecycle-consumer-target = $(call dependency-instance-target,\
 dependency-lifecycle-provider-target = $(call dependency-instance-target,\
 	$($1_provider_instance),$(call dependency-lifecycle-provider-suffix,$1))
 
-UPORTS_DEPENDENCIES	?= no
+UPORTS_DEPENDENCIES	?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
 $(error UPORTS_DEPENDENCIES must be yes or no)
 endif
@@ -580,8 +580,9 @@ dependency-lifecycle-check:
 	@{ $(dependency-graph-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-graph.awk"
 
-# Keep execution opt-in while the dependency-aware canonical target behavior is
-# evaluated.  Tests may replace this command with a recorder.
+# Recursive provider execution is dependency-neutral because the parent planner
+# has already ordered the complete closure. Tests may replace this command with
+# a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
