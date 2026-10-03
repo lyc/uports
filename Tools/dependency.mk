@@ -146,7 +146,7 @@ $(foreach p,$(ports_all_group),					\
 depends_exclude_targets += dependency-metadata-probes $(dependency_metadata_probe_targets)
 dependency-metadata-probes: $(dependency_metadata_probe_targets)
 
-dependency-metadata-command = 						\
+dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
 	$(MAKE) -s --no-print-directory -j$(DEPENDENCY_METADATA_JOBS) 	\
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
@@ -160,6 +160,28 @@ dependency-metadata-command = 						\
 	    rmdir "$$metadata_dir";;					\
 	esac;								\
 	exit $$status
+
+UPORTS_DEPENDENCY_INVOCATION ?= no
+ifneq ($(filter $(UPORTS_DEPENDENCY_INVOCATION),yes no),$(UPORTS_DEPENDENCY_INVOCATION))
+$(error UPORTS_DEPENDENCY_INVOCATION must be yes or no)
+endif
+DEPENDENCY_METADATA_SOURCE ?=
+dependency-metadata-command = $(if $(and \
+	$(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),\
+	$(strip $(DEPENDENCY_METADATA_SOURCE))),\
+	cat "$(DEPENDENCY_METADATA_SOURCE)",\
+	$(dependency-metadata-collect-command))
+
+define dependency-invocation-command
+	set -e; \
+	invocation_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependency-invocation.XXXXXX"); \
+	trap 'exit 1' HUP INT TERM; \
+	trap 'status=$$?; trap - EXIT HUP INT TERM; case "$$invocation_dir" in "$${TMPDIR:-/tmp}"/uports-dependency-invocation.*) if test -d "$$invocation_dir"; then find "$$invocation_dir" -type f -delete; rmdir "$$invocation_dir"; fi;; esac; exit $$status' EXIT; \
+	metadata_source="$$invocation_dir/metadata"; \
+	$(MAKE) -s --no-print-directory dependency-metadata-snapshot > "$$metadata_source"; \
+	$(MAKE) --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
+	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" $1
+endef
 
 dependency_metadata_raw =
 
@@ -358,6 +380,11 @@ dependency-state-save-command = $(if $(and \
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
+
+.PHONY: dependency-metadata-snapshot
+depends_exclude_targets += dependency-metadata-snapshot
+dependency-metadata-snapshot:
+	@$(dependency-metadata-collect-command)
 
 .PHONY: dependency-provider-mode-list dependency-provider-mode-check
 depends_exclude_targets += dependency-provider-mode-list dependency-provider-mode-check

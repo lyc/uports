@@ -1827,6 +1827,39 @@ else
 		"missing saved state: $dispatch_state_file"
 fi
 
+metadata_reuse_dir=$(mktemp -d "$testdir/work/metadata-reuse.XXXXXX")
+mkdir -p "$metadata_reuse_dir/tmp"
+run_make dependency-metadata-snapshot > "$metadata_reuse_dir/snapshot"
+metadata_collector="$metadata_reuse_dir/collect"
+printf '%s\n' \
+	'#!/bin/sh' \
+	"count_file='$metadata_reuse_dir/count'" \
+	"snapshot='$metadata_reuse_dir/snapshot'" \
+	'count=0' \
+	'[ ! -f "$count_file" ] || count=$(cat "$count_file")' \
+	'count=$((count + 1))' \
+	'printf "%s\n" "$count" > "$count_file"' \
+	'cat "$snapshot"' > "$metadata_collector"
+chmod +x "$metadata_collector"
+run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env" \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	"dependency-metadata-collect-command=$metadata_collector" \
+	"TMPDIR=$metadata_reuse_dir/tmp" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null
+assert_eq "canonical invocation collects dependency metadata once" \
+	"$(cat "$metadata_reuse_dir/count")" "1"
+if find "$metadata_reuse_dir/tmp" -mindepth 1 -print -quit | grep -q .; then
+	fail "canonical invocation removes temporary metadata snapshot" \
+		"temporary invocation directory remains"
+else
+	pass "canonical invocation removes temporary metadata snapshot"
+fi
+rm -rf "$metadata_reuse_dir"
+
 cp "$dispatch_state_file" "$dispatch_state_dir/before-failure"
 if run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
@@ -1916,6 +1949,32 @@ assert_contains "aggregate dispatch runs consumers after providers" \
 	"consumer=target@expat2.build
 consumer=target@openssl.build
 consumer=target@libffi.build"
+
+aggregate_reuse_dir=$(mktemp -d "$testdir/work/aggregate-metadata-reuse.XXXXXX")
+mkdir -p "$aggregate_reuse_dir/tmp"
+run_make dependency-metadata-snapshot > "$aggregate_reuse_dir/snapshot"
+aggregate_collector="$aggregate_reuse_dir/collect"
+printf '%s\n' \
+	'#!/bin/sh' \
+	"count_file='$aggregate_reuse_dir/count'" \
+	"snapshot='$aggregate_reuse_dir/snapshot'" \
+	'count=0' \
+	'[ ! -f "$count_file" ] || count=$(cat "$count_file")' \
+	'count=$((count + 1))' \
+	'printf "%s\n" "$count" > "$count_file"' \
+	'cat "$snapshot"' > "$aggregate_collector"
+chmod +x "$aggregate_collector"
+run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	"dependency-metadata-collect-command=$aggregate_collector" \
+	"TMPDIR=$aggregate_reuse_dir/tmp" \
+	UPORTS_DEPENDENCIES=yes target.build >/dev/null
+assert_eq "aggregate invocation collects dependency metadata once" \
+	"$(cat "$aggregate_reuse_dir/count")" "1"
+rm -rf "$aggregate_reuse_dir"
 
 if failed_aggregate_dispatch=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \

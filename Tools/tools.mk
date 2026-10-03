@@ -564,6 +564,7 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 # dependency execution enabled, validate and prepare the union first, then let a
 # dependency-neutral recursive make dispatch the consumers.
 ifeq ($(UPORTS_DEPENDENCIES),yes)
+ifeq ($(UPORTS_DEPENDENCY_INVOCATION),yes)
 $(ports_aggregate_target_unique): %: uports-force
 	@roots="$(call aggregate-prerequisites,$@)"; \
 	  if test -n "$$roots"; then \
@@ -573,6 +574,10 @@ $(ports_aggregate_target_unique): %: uports-force
 	      UPORTS_DEPENDENCY_STATE=yes $$roots; \
 	  fi
 else
+$(ports_aggregate_target_unique): %: uports-force
+	@$(call dependency-invocation-command,$@)
+endif
+else
 $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
 endif
 
@@ -580,9 +585,15 @@ endif
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
+ifeq ($$(UPORTS_DEPENDENCY_INVOCATION),yes)
 	@$$(dependency-dispatch-command) $$(dependency-state-invalidate-command) :
 	$$(call cmd,generate-port-target)
 	@$$(dependency-state-save-command) :
+else
+	@$$(if $$(filter yes,$$(UPORTS_DEPENDENCIES)),\
+	  $$(call dependency-invocation-command,$$@),\
+	  $$(call cmd,generate-port-target))
+endif
 endef
 
 $(foreach s,$(filter-out $(suffix_special_all),$(suffix_all_lists)),	\
