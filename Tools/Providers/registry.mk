@@ -102,7 +102,7 @@ define apply-dependency-provider-discovery
 endef
 
 define load-dependency-provider-discovery
-  $(if $(filter host system-only,$(DEPENDENCY_PROVIDER_MODE)),
+  $(if $(filter yes,$(dependency-provider-discovery-enabled)),
     $(if $(dependency-provider-profile-error),$(error invalid dependency provider profile: $(dependency-provider-profile-error)))
     $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command)))
     $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider discovery failed))

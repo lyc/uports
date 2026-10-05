@@ -36,10 +36,29 @@ dependency-provider-modes = uports host system-only explicit
 ifneq ($(filter $(DEPENDENCY_PROVIDER_MODE),$(dependency-provider-modes)),$(DEPENDENCY_PROVIDER_MODE))
 $(error DEPENDENCY_PROVIDER_MODE must be one of: $(dependency-provider-modes))
 endif
+dependency-provider-mode-external.uports = no
+dependency-provider-mode-external.host = yes
+dependency-provider-mode-external.system-only = yes
+dependency-provider-mode-external.explicit = yes
+dependency-provider-mode-discovery.uports = no
+dependency-provider-mode-discovery.host = yes
+dependency-provider-mode-discovery.system-only = yes
+dependency-provider-mode-discovery.explicit = no
+dependency-provider-mode-cross.uports = allowed
+dependency-provider-mode-cross.host = rejected
+dependency-provider-mode-cross.system-only = rejected
+dependency-provider-mode-cross.explicit = allowed
+dependency-provider-mode-fallback.uports = uports
+dependency-provider-mode-fallback.host = uports
+dependency-provider-mode-fallback.system-only = none
+dependency-provider-mode-fallback.explicit = uports
 ifneq ($(and $(filter uports,$(DEPENDENCY_PROVIDER_MODE)),$(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS))),)
 $(error DEPENDENCY_PROVIDER_MODE=uports conflicts with DEPENDENCY_EXTERNAL_PROVIDERS=yes)
 endif
-dependency-external-providers-enabled = $(if $(filter host system-only explicit,$(DEPENDENCY_PROVIDER_MODE)),yes,no)
+dependency-external-providers-enabled = $(dependency-provider-mode-external.$(DEPENDENCY_PROVIDER_MODE))
+dependency-provider-discovery-enabled = $(dependency-provider-mode-discovery.$(DEPENDENCY_PROVIDER_MODE))
+dependency-provider-cross-target = $(dependency-provider-mode-cross.$(DEPENDENCY_PROVIDER_MODE))
+dependency-provider-fallback = $(dependency-provider-mode-fallback.$(DEPENDENCY_PROVIDER_MODE))
 include $(portdir)/Tools/Providers/registry.mk
 DEPENDENCY_BUILD_OPSYS ?= $(info_ports_opsys)
 DEPENDENCY_BUILD_ARCH ?= $(info_ports_arch)
@@ -77,7 +96,7 @@ dependency-group-cross-context-error = $(strip \
 	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
 dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
 dependency-provider-mode-context-errors = $(strip $(if \
-	$(and $(filter host system-only,$(DEPENDENCY_PROVIDER_MODE)),\
+	$(and $(filter rejected,$(dependency-provider-cross-target)),\
 	  $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-compile,$g)))),\
 	$(DEPENDENCY_PROVIDER_MODE):cross-target-requires-explicit))
 DEPENDENCY_CROSS_TOOLCHAIN_TOOLS ?= gcc g++ ld as ar nm objdump ranlib strip
@@ -275,7 +294,7 @@ load-dependency-records = 						\
 	  $(foreach p,$(dependency_provider_projection),		\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
 	      $(call apply-dependency-provider-projection,$p))))		\
-	$(if $(and $(filter system-only,$(DEPENDENCY_PROVIDER_MODE)),\
+	$(if $(and $(filter none,$(dependency-provider-fallback)),\
 	  $(filter uports,$(foreach d,$(dependency_record_ids),$($(d)_provider_kind)))),\
 	  $(error system-only provider mode has dependencies without external providers))
 
@@ -405,8 +424,9 @@ dependency-provider-mode-list:
 	@printf '%s\n' \
 	  'dependency_provider_mode = $(DEPENDENCY_PROVIDER_MODE)' \
 	  'dependency_external_providers = $(dependency-external-providers-enabled)' \
-	  'dependency_provider_cross_target = $(if $(filter host system-only,$(DEPENDENCY_PROVIDER_MODE)),rejected,allowed)' \
-	  'dependency_provider_fallback = $(if $(filter system-only,$(DEPENDENCY_PROVIDER_MODE)),none,uports)'
+	  'dependency_provider_discovery = $(dependency-provider-discovery-enabled)' \
+	  'dependency_provider_cross_target = $(dependency-provider-cross-target)' \
+	  'dependency_provider_fallback = $(dependency-provider-fallback)'
 
 dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\

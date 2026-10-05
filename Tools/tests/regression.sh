@@ -93,11 +93,58 @@ assert_contains "project policy file supplies provider mode" \
 	"$policy_provider_mode" "dependency_provider_mode = host"
 assert_contains "project policy file enables external provider machinery" \
 	"$policy_provider_mode" "dependency_external_providers = yes"
+assert_contains "host project policy enables native discovery" \
+	"$policy_provider_mode" "dependency_provider_discovery = yes"
+
+policy_project_default=$(run_make \
+	--eval='DEPENDENCY_PROVIDER_MODE = system-only' \
+	UPORTS_DEPENDENCY_POLICY="$policy_file" dependency-provider-mode-check)
+assert_contains "project policy overrides an earlier project default" \
+	"$policy_project_default" "dependency_provider_mode = host"
 
 policy_command_line_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
 	DEPENDENCY_PROVIDER_MODE=uports dependency-provider-mode-check)
 assert_contains "command line overrides project policy file" \
 	"$policy_command_line_mode" "dependency_provider_mode = uports"
+
+printf '%s\n' \
+	'DEPENDENCY_PROVIDER_MODE = explicit' \
+	'DEPENDENCY_TARGET_OPSYS.target = linux' \
+	'DEPENDENCY_TARGET_ARCH.target = x86_64' \
+	'DEPENDENCY_PROVIDER_POLICIES = system@target@target@linux@x86_64@devel/autoconf@policy-host' \
+	'DEPENDENCY_PROVIDER_CHECK.policy-host.devel_autoconf = true' \
+	>"$policy_file"
+explicit_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "explicit project policy disables native discovery" \
+	"$explicit_policy_mode" "dependency_provider_mode = explicit
+dependency_external_providers = yes
+dependency_provider_discovery = no"
+explicit_policy_list=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-policy-list)
+assert_contains "explicit project policy supplies a valid provider record" \
+	"$explicit_policy_list" \
+	"kind=system context=target consumer_group=target opsys=linux arch=x86_64 origin=devel/autoconf identity=policy-host state=valid"
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = system-only' >"$policy_file"
+system_only_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "system-only project policy has discovery without fallback" \
+	"$system_only_policy_mode" "dependency_provider_mode = system-only
+dependency_external_providers = yes
+dependency_provider_discovery = yes
+dependency_provider_cross_target = rejected
+dependency_provider_fallback = none"
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = uports' >"$policy_file"
+uports_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "uports project policy disables external providers" \
+	"$uports_policy_mode" "dependency_provider_mode = uports
+dependency_external_providers = no
+dependency_provider_discovery = no
+dependency_provider_cross_target = allowed
+dependency_provider_fallback = uports"
 
 if run_make \
 	UPORTS_DEPENDENCY_POLICY="$platform_test_dir/missing-policy.mk" \
