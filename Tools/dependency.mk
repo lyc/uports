@@ -11,6 +11,19 @@
 dependency-instance-key = $(call instance-key,$(call get-group,$1),$(call get-port,$1))
 dependency-instance-directory = $(call instance-field,$(call dependency-instance-key,$1),root)/$(call instance-field,$(call dependency-instance-key,$1),origin)
 
+UPORTS_DEPENDENCY_POLICY ?=
+dependency-policy-file := $(strip $(UPORTS_DEPENDENCY_POLICY))
+ifneq ($(dependency-policy-file),)
+ifneq ($(words $(dependency-policy-file)),1)
+$(error UPORTS_DEPENDENCY_POLICY must name one makefile)
+endif
+dependency-policy-file := $(abspath $(dependency-policy-file))
+ifeq ($(wildcard $(dependency-policy-file)),)
+$(error dependency policy file not found: $(dependency-policy-file))
+endif
+include $(dependency-policy-file)
+endif
+
 VERTICAL_BAR := |
 DEPENDENCY_METADATA_JOBS ?= 4
 DEPENDENCY_PROVIDER_POLICIES ?=

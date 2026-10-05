@@ -85,6 +85,42 @@ assert_contains "uports is the default provider mode" "$default_provider_mode" \
 assert_contains "default provider mode disables external providers" \
 	"$default_provider_mode" "dependency_external_providers = no"
 
+policy_file="$platform_test_dir/dependency-policy.mk"
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = host' >"$policy_file"
+policy_provider_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "project policy file supplies provider mode" \
+	"$policy_provider_mode" "dependency_provider_mode = host"
+assert_contains "project policy file enables external provider machinery" \
+	"$policy_provider_mode" "dependency_external_providers = yes"
+
+policy_command_line_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	DEPENDENCY_PROVIDER_MODE=uports dependency-provider-mode-check)
+assert_contains "command line overrides project policy file" \
+	"$policy_command_line_mode" "dependency_provider_mode = uports"
+
+if run_make \
+	UPORTS_DEPENDENCY_POLICY="$platform_test_dir/missing-policy.mk" \
+	dependency-provider-mode-check >"$platform_test_dir/missing-policy.out" 2>&1; then
+	fail "missing project policy file is rejected" \
+		"missing policy file was accepted"
+else
+	missing_policy_output=$(cat "$platform_test_dir/missing-policy.out")
+	assert_contains "missing project policy file is rejected" \
+		"$missing_policy_output" "dependency policy file not found:"
+fi
+
+if run_make 'UPORTS_DEPENDENCY_POLICY=one.mk two.mk' \
+	dependency-provider-mode-check >"$platform_test_dir/multiple-policy.out" 2>&1; then
+	fail "multiple project policy paths are rejected" \
+		"multiple policy paths were accepted"
+else
+	multiple_policy_output=$(cat "$platform_test_dir/multiple-policy.out")
+	assert_contains "multiple project policy paths are rejected" \
+		"$multiple_policy_output" \
+		"UPORTS_DEPENDENCY_POLICY must name one makefile"
+fi
+
 legacy_provider_mode=$(run_make DEPENDENCY_EXTERNAL_PROVIDERS=yes \
 	dependency-provider-mode-check)
 assert_contains "legacy external opt-in maps to explicit mode" \
