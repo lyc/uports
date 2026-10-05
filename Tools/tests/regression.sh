@@ -82,6 +82,11 @@ snapshot=$(run_make regression.snapshot)
 default_provider_mode=$(run_make dependency-provider-mode-check)
 assert_contains "uports is the default provider mode" "$default_provider_mode" \
 	"dependency_provider_mode = uports"
+assert_contains "default provider mode reports framework provenance" \
+	"$default_provider_mode" "dependency_policy_file = none"
+assert_contains "default provider source is framework default" \
+	"$default_provider_mode" \
+	"dependency_provider_mode_source = framework-default"
 assert_contains "default provider mode disables external providers" \
 	"$default_provider_mode" "dependency_external_providers = no"
 
@@ -91,6 +96,10 @@ policy_provider_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
 	dependency-provider-mode-check)
 assert_contains "project policy file supplies provider mode" \
 	"$policy_provider_mode" "dependency_provider_mode = host"
+assert_contains "provider diagnostics report selected policy and provenance" \
+	"$policy_provider_mode" "dependency_policy_file = $policy_file"
+assert_contains "provider diagnostics attribute policy mode" \
+	"$policy_provider_mode" "dependency_provider_mode_source = policy-file"
 assert_contains "project policy file enables external provider machinery" \
 	"$policy_provider_mode" "dependency_external_providers = yes"
 assert_contains "host project policy enables native discovery" \
@@ -102,10 +111,21 @@ policy_project_default=$(run_make \
 assert_contains "project policy overrides an earlier project default" \
 	"$policy_project_default" "dependency_provider_mode = host"
 
+project_provider_mode=$(run_make \
+	--eval='DEPENDENCY_PROVIDER_MODE = system-only' \
+	dependency-provider-mode-check)
+assert_contains "earlier project provider mode reports project provenance" \
+	"$project_provider_mode" "dependency_provider_mode = system-only"
+assert_contains "earlier project provider mode is attributed to project" \
+	"$project_provider_mode" "dependency_provider_mode_source = project"
+
 policy_command_line_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
 	DEPENDENCY_PROVIDER_MODE=uports dependency-provider-mode-check)
 assert_contains "command line overrides project policy file" \
 	"$policy_command_line_mode" "dependency_provider_mode = uports"
+assert_contains "command-line mode reports command-line provenance" \
+	"$policy_command_line_mode" \
+	"dependency_provider_mode_source = command-line"
 
 printf '%s\n' \
 	'DEPENDENCY_PROVIDER_MODE = explicit' \
@@ -125,6 +145,30 @@ explicit_policy_list=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
 assert_contains "explicit project policy supplies a valid provider record" \
 	"$explicit_policy_list" \
 	"kind=system context=target consumer_group=target opsys=linux arch=x86_64 origin=devel/autoconf identity=policy-host state=valid"
+
+printf '%s\n' \
+	'DEPENDENCY_PROVIDER_MODE = explicit' \
+	'DEPENDENCY_TARGET_OPSYS.target = linux' \
+	'DEPENDENCY_TARGET_ARCH.target = arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES = sdk@target@target@linux@arm64@devel/libffi@embedded-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.embedded-sdk.devel_libffi = true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.embedded-sdk.devel_libffi = /opt/embedded/sysroot' \
+	>"$policy_file"
+cross_sdk_policy=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-policy-list)
+assert_contains "cross SDK project policy validates target identity" \
+	"$cross_sdk_policy" \
+	"kind=sdk context=target consumer_group=target opsys=linux arch=arm64 origin=devel/libffi identity=embedded-sdk state=valid"
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = host' >"$policy_file"
+if run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "native policy profile rejects cross target" \
+		"host policy accepted a cross target"
+else
+	pass "native policy profile rejects cross target"
+fi
 
 printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = system-only' >"$policy_file"
 system_only_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \

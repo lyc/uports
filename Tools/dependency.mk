@@ -13,6 +13,8 @@ dependency-instance-directory = $(call instance-field,$(call dependency-instance
 
 UPORTS_DEPENDENCY_POLICY ?=
 dependency-policy-file := $(strip $(UPORTS_DEPENDENCY_POLICY))
+dependency-provider-mode-origin-before-policy := $(origin DEPENDENCY_PROVIDER_MODE)
+dependency-provider-mode-value-before-policy := $(value DEPENDENCY_PROVIDER_MODE)
 ifneq ($(dependency-policy-file),)
 ifneq ($(words $(dependency-policy-file)),1)
 $(error UPORTS_DEPENDENCY_POLICY must name one makefile)
@@ -23,6 +25,12 @@ $(error dependency policy file not found: $(dependency-policy-file))
 endif
 include $(dependency-policy-file)
 endif
+dependency-provider-mode-policy-assigned := no
+ifneq ($(origin DEPENDENCY_PROVIDER_MODE),$(dependency-provider-mode-origin-before-policy))
+dependency-provider-mode-policy-assigned := yes
+else ifneq ($(value DEPENDENCY_PROVIDER_MODE),$(dependency-provider-mode-value-before-policy))
+dependency-provider-mode-policy-assigned := yes
+endif
 
 VERTICAL_BAR := |
 DEPENDENCY_METADATA_JOBS ?= 4
@@ -32,6 +40,10 @@ ifneq ($(filter $(DEPENDENCY_EXTERNAL_PROVIDERS),yes no),$(DEPENDENCY_EXTERNAL_P
 $(error DEPENDENCY_EXTERNAL_PROVIDERS must be yes or no)
 endif
 DEPENDENCY_PROVIDER_MODE ?= $(if $(filter yes,$(DEPENDENCY_EXTERNAL_PROVIDERS)),explicit,uports)
+dependency-provider-mode-source := $(strip $(if \
+	$(filter command line,$(origin DEPENDENCY_PROVIDER_MODE)),command-line,\
+	$(if $(filter yes,$(dependency-provider-mode-policy-assigned)),policy-file,\
+	  $(if $(filter undefined,$(dependency-provider-mode-origin-before-policy)),framework-default,project))))
 dependency-provider-modes = uports host system-only explicit
 ifneq ($(filter $(DEPENDENCY_PROVIDER_MODE),$(dependency-provider-modes)),$(DEPENDENCY_PROVIDER_MODE))
 $(error DEPENDENCY_PROVIDER_MODE must be one of: $(dependency-provider-modes))
@@ -422,11 +434,13 @@ dependency-metadata-snapshot:
 depends_exclude_targets += dependency-provider-mode-list dependency-provider-mode-check
 dependency-provider-mode-list:
 	@printf '%s\n' \
+	  'dependency_policy_file = $(or $(dependency-policy-file),none)' \
 	  'dependency_provider_mode = $(DEPENDENCY_PROVIDER_MODE)' \
 	  'dependency_external_providers = $(dependency-external-providers-enabled)' \
 	  'dependency_provider_discovery = $(dependency-provider-discovery-enabled)' \
 	  'dependency_provider_cross_target = $(dependency-provider-cross-target)' \
-	  'dependency_provider_fallback = $(dependency-provider-fallback)'
+	  'dependency_provider_fallback = $(dependency-provider-fallback)' \
+	  'dependency_provider_mode_source = $(dependency-provider-mode-source)'
 
 dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\
