@@ -60,12 +60,1176 @@ assert_eq()
 	fi
 }
 
+platform_test_dir=$(mktemp -d "${TMPDIR:-/tmp}/uports-regression-platform.XXXXXX")
+printf '%s\n' \
+	'#!/bin/sh' \
+	'case "$1" in' \
+	'  -s) printf "%s\\n" Linux ;;' \
+	'  -m) printf "%s\\n" x86_64 ;;' \
+	'  *) exec /usr/bin/uname "$@" ;;' \
+	'esac' > "$platform_test_dir/uname"
+chmod +x "$platform_test_dir/uname"
+trap 'rm -rf "$platform_test_dir"' EXIT HUP INT TERM
+
 run_make()
 {
-	make --no-print-directory -s -C "$testdir" USE_HOSTTOOLS= "$@"
+	DEPENDENCY_PROVIDER_POLICIES= PATH="$platform_test_dir:$PATH" \
+		make --no-print-directory -s -C "$testdir" USE_HOSTTOOLS= "$@"
 }
 
 snapshot=$(run_make regression.snapshot)
+
+default_provider_mode=$(run_make dependency-provider-mode-check)
+assert_contains "uports is the default provider mode" "$default_provider_mode" \
+	"dependency_provider_mode = uports"
+assert_contains "default provider mode reports framework provenance" \
+	"$default_provider_mode" "dependency_policy_file = none"
+assert_contains "default provider source is framework default" \
+	"$default_provider_mode" \
+	"dependency_provider_mode_source = framework-default"
+assert_contains "default provider mode disables external providers" \
+	"$default_provider_mode" "dependency_external_providers = no"
+
+policy_file="$platform_test_dir/dependency-policy.mk"
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = host' >"$policy_file"
+policy_provider_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "project policy file supplies provider mode" \
+	"$policy_provider_mode" "dependency_provider_mode = host"
+assert_contains "provider diagnostics report selected policy and provenance" \
+	"$policy_provider_mode" "dependency_policy_file = $policy_file"
+assert_contains "provider diagnostics attribute policy mode" \
+	"$policy_provider_mode" "dependency_provider_mode_source = policy-file"
+assert_contains "project policy file enables external provider machinery" \
+	"$policy_provider_mode" "dependency_external_providers = yes"
+assert_contains "host project policy enables native discovery" \
+	"$policy_provider_mode" "dependency_provider_discovery = yes"
+
+policy_project_default=$(run_make \
+	--eval='DEPENDENCY_PROVIDER_MODE = system-only' \
+	UPORTS_DEPENDENCY_POLICY="$policy_file" dependency-provider-mode-check)
+assert_contains "project policy overrides an earlier project default" \
+	"$policy_project_default" "dependency_provider_mode = host"
+
+project_provider_mode=$(run_make \
+	--eval='DEPENDENCY_PROVIDER_MODE = system-only' \
+	dependency-provider-mode-check)
+assert_contains "earlier project provider mode reports project provenance" \
+	"$project_provider_mode" "dependency_provider_mode = system-only"
+assert_contains "earlier project provider mode is attributed to project" \
+	"$project_provider_mode" "dependency_provider_mode_source = project"
+
+policy_command_line_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	DEPENDENCY_PROVIDER_MODE=uports dependency-provider-mode-check)
+assert_contains "command line overrides project policy file" \
+	"$policy_command_line_mode" "dependency_provider_mode = uports"
+assert_contains "command-line mode reports command-line provenance" \
+	"$policy_command_line_mode" \
+	"dependency_provider_mode_source = command-line"
+
+printf '%s\n' \
+	'DEPENDENCY_PROVIDER_MODE = explicit' \
+	'DEPENDENCY_TARGET_OPSYS.target = linux' \
+	'DEPENDENCY_TARGET_ARCH.target = x86_64' \
+	'DEPENDENCY_PROVIDER_POLICIES = system@target@target@linux@x86_64@devel/autoconf@policy-host' \
+	'DEPENDENCY_PROVIDER_CHECK.policy-host.devel_autoconf = true' \
+	>"$policy_file"
+explicit_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "explicit project policy disables native discovery" \
+	"$explicit_policy_mode" "dependency_provider_mode = explicit
+dependency_external_providers = yes
+dependency_provider_discovery = no"
+explicit_policy_list=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-policy-list)
+assert_contains "explicit project policy supplies a valid provider record" \
+	"$explicit_policy_list" \
+	"kind=system context=target consumer_group=target opsys=linux arch=x86_64 origin=devel/autoconf identity=policy-host state=valid"
+
+printf '%s\n' \
+	'DEPENDENCY_PROVIDER_MODE = explicit' \
+	'DEPENDENCY_TARGET_OPSYS.target = linux' \
+	'DEPENDENCY_TARGET_ARCH.target = arm64' \
+	'DEPENDENCY_PROVIDER_POLICIES = sdk@target@target@linux@arm64@devel/libffi@embedded-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.embedded-sdk.devel_libffi = true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.embedded-sdk.devel_libffi = /opt/embedded/sysroot' \
+	>"$policy_file"
+cross_sdk_policy=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-policy-list)
+assert_contains "cross SDK project policy validates target identity" \
+	"$cross_sdk_policy" \
+	"kind=sdk context=target consumer_group=target opsys=linux arch=arm64 origin=devel/libffi identity=embedded-sdk state=valid"
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = host' >"$policy_file"
+if run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "native policy profile rejects cross target" \
+		"host policy accepted a cross target"
+else
+	pass "native policy profile rejects cross target"
+fi
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = system-only' >"$policy_file"
+system_only_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "system-only project policy has discovery without fallback" \
+	"$system_only_policy_mode" "dependency_provider_mode = system-only
+dependency_external_providers = yes
+dependency_provider_discovery = yes
+dependency_provider_cross_target = rejected
+dependency_provider_fallback = none"
+
+printf '%s\n' 'DEPENDENCY_PROVIDER_MODE = uports' >"$policy_file"
+uports_policy_mode=$(run_make UPORTS_DEPENDENCY_POLICY="$policy_file" \
+	dependency-provider-mode-check)
+assert_contains "uports project policy disables external providers" \
+	"$uports_policy_mode" "dependency_provider_mode = uports
+dependency_external_providers = no
+dependency_provider_discovery = no
+dependency_provider_cross_target = allowed
+dependency_provider_fallback = uports"
+
+if run_make \
+	UPORTS_DEPENDENCY_POLICY="$platform_test_dir/missing-policy.mk" \
+	dependency-provider-mode-check >"$platform_test_dir/missing-policy.out" 2>&1; then
+	fail "missing project policy file is rejected" \
+		"missing policy file was accepted"
+else
+	missing_policy_output=$(cat "$platform_test_dir/missing-policy.out")
+	assert_contains "missing project policy file is rejected" \
+		"$missing_policy_output" "dependency policy file not found:"
+fi
+
+if run_make 'UPORTS_DEPENDENCY_POLICY=one.mk two.mk' \
+	dependency-provider-mode-check >"$platform_test_dir/multiple-policy.out" 2>&1; then
+	fail "multiple project policy paths are rejected" \
+		"multiple policy paths were accepted"
+else
+	multiple_policy_output=$(cat "$platform_test_dir/multiple-policy.out")
+	assert_contains "multiple project policy paths are rejected" \
+		"$multiple_policy_output" \
+		"UPORTS_DEPENDENCY_POLICY must name one makefile"
+fi
+
+legacy_provider_mode=$(run_make DEPENDENCY_EXTERNAL_PROVIDERS=yes \
+	dependency-provider-mode-check)
+assert_contains "legacy external opt-in maps to explicit mode" \
+	"$legacy_provider_mode" "dependency_provider_mode = explicit"
+
+host_provider_mode=$(run_make DEPENDENCY_PROVIDER_MODE=host \
+	dependency-provider-mode-check)
+assert_contains "host mode enables external provider machinery" \
+	"$host_provider_mode" "dependency_external_providers = yes"
+assert_contains "host mode retains uports fallback" "$host_provider_mode" \
+	"dependency_provider_fallback = uports"
+
+system_provider_mode=$(run_make DEPENDENCY_PROVIDER_MODE=system-only \
+	dependency-provider-mode-check)
+assert_contains "system-only mode has no uports fallback" \
+	"$system_provider_mode" "dependency_provider_fallback = none"
+
+if run_make DEPENDENCY_PROVIDER_MODE=invalid \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "unknown provider mode is rejected" "invalid mode was accepted"
+else
+	pass "unknown provider mode is rejected"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=host \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "host mode rejects cross targets" "cross target was accepted"
+else
+	pass "host mode rejects cross targets"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=system-only \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	fail "system-only mode rejects cross targets" "cross target was accepted"
+else
+	pass "system-only mode rejects cross targets"
+fi
+
+if run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-mode-check >/dev/null 2>&1; then
+	pass "explicit mode accepts cross targets"
+else
+	fail "explicit mode accepts cross targets" "cross target was rejected"
+fi
+
+linux_provider_profile=$(run_make dependency-provider-profile-check)
+assert_contains "Linux host selects Linux provider profile" \
+	"$linux_provider_profile" \
+	"dependency_provider_profile = linux
+dependency_provider_profile_opsys = linux"
+assert_contains "Linux profile declares native command candidates" \
+	"$linux_provider_profile" \
+	"dependency_provider_profile_pkg_config_candidates = pkg-config pkgconf
+dependency_provider_profile_cc_candidates = cc gcc clang"
+
+macos_provider_profile=$(run_make DEPENDENCY_BUILD_OPSYS=darwin \
+	DEPENDENCY_BUILD_ARCH=arm64 dependency-provider-profile-check)
+assert_contains "Darwin host selects macOS provider profile" \
+	"$macos_provider_profile" \
+	"dependency_provider_profile = macos
+dependency_provider_profile_opsys = darwin"
+assert_contains "macOS profile declares system and package-manager prefixes" \
+	"$macos_provider_profile" \
+	"dependency_provider_profile_prefixes = /usr /usr/local /opt/homebrew /opt/local"
+
+if run_make DEPENDENCY_PROVIDER_PROFILE=macos \
+	dependency-provider-profile-check >/dev/null 2>&1; then
+	fail "provider profile must match build operating system" \
+		"macOS profile was accepted for Linux"
+else
+	pass "provider profile must match build operating system"
+fi
+
+provider_registry=$(run_make dependency-provider-registry-check)
+assert_contains "built-in provider registry is valid" "$provider_registry" \
+	"dependency_provider_registry_entries = 4
+dependency_provider_registry_invalid = 0"
+assert_contains "ncurses registry declares its required interface" \
+	"$provider_registry" \
+	"key=ncurses origin=devel/ncurses method=pkg-config module=ncurses header=ncurses.h link_name=ncurses state=valid"
+assert_contains "readline registry accepts a nested header" \
+	"$provider_registry" \
+	"key=readline origin=devel/readline method=pkg-config module=readline header=readline/readline.h link_name=readline state=valid"
+
+empty_provider_registry=$(run_make DEPENDENCY_PROVIDER_REGISTRY= \
+	dependency-provider-registry-check)
+assert_contains "empty provider registry remains valid" \
+	"$empty_provider_registry" \
+	"dependency_provider_registry_entries = 0
+dependency_provider_registry_invalid = 0"
+
+invalid_provider_registry=$(run_make \
+	'DEPENDENCY_PROVIDER_REGISTRY=one two three four' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.one=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.one=unknown' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.one=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.one=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.one=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.two=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.two=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.two=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.two=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.two=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.three=devel/other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.three=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.three=other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.three=../other.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.three=other' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.four=devel/example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.four=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.four=example' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.four=example.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.four=example' \
+	dependency-provider-registry-list)
+assert_contains "registry rejects unknown discovery method" \
+	"$invalid_provider_registry" "registry.1 = key=one origin=devel/example method=unknown module=example header=example.h link_name=example state=invalid-method"
+assert_contains "registry rejects unsafe header path" \
+	"$invalid_provider_registry" "registry.3 = key=three origin=devel/other method=pkg-config module=other header=../other.h link_name=other state=invalid-header"
+assert_contains "registry rejects duplicate origins" \
+	"$invalid_provider_registry" "registry.4 = key=four origin=devel/example method=pkg-config module=example header=example.h link_name=example state=duplicate-origin"
+if run_make \
+	'DEPENDENCY_PROVIDER_REGISTRY=bad' \
+	'DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.bad=invalid' \
+	'DEPENDENCY_PROVIDER_REGISTRY_METHOD.bad=pkg-config' \
+	'DEPENDENCY_PROVIDER_REGISTRY_MODULE.bad=bad' \
+	'DEPENDENCY_PROVIDER_REGISTRY_HEADER.bad=bad.h' \
+	'DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.bad=bad' \
+	dependency-provider-registry-check >/dev/null 2>&1; then
+	fail "invalid provider registry fails validation" \
+		"invalid registry was accepted"
+else
+	pass "invalid provider registry fails validation"
+fi
+
+discovery_test_dir=$(mktemp -d "$testdir/work/provider-discovery.XXXXXX")
+mkdir -p "$discovery_test_dir/include" "$discovery_test_dir/lib" \
+	"$discovery_test_dir/pkgconfig"
+fake_pkg_config="$discovery_test_dir/pkg-config"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'case "$1" in' \
+	'  --version) echo "1.0" ;;' \
+	'  --exists) exit 0 ;;' \
+	"  --cflags) echo '-I$discovery_test_dir/include' ;;" \
+	"  --libs) echo '-L$discovery_test_dir/lib -lexample' ;;" \
+	"  --cflags-only-I) echo '-I$discovery_test_dir/include' ;;" \
+	"  --libs-only-L) echo '-L$discovery_test_dir/lib' ;;" \
+	"  --libs-only-l) echo '-lexample' ;;" \
+	"  --path) echo '$discovery_test_dir/pkgconfig/example.pc' ;;" \
+	'  *) exit 1 ;;' \
+	'esac' > "$fake_pkg_config"
+chmod +x "$fake_pkg_config"
+fake_cc="$discovery_test_dir/cc"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$fake_cc"
+chmod +x "$fake_cc"
+discovery_registry_args="DEPENDENCY_PROVIDER_REGISTRY=example DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.example=devel/autoconf DEPENDENCY_PROVIDER_REGISTRY_METHOD.example=pkg-config DEPENDENCY_PROVIDER_REGISTRY_MODULE.example=example DEPENDENCY_PROVIDER_REGISTRY_HEADER.example=example/example.h DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.example=example"
+provider_discovery=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-check)
+assert_contains "pkg-config discovery validates required interface" \
+	"$provider_discovery" \
+	"discovery|example|devel/autoconf|available|validated|$discovery_test_dir/include|$discovery_test_dir/lib|$discovery_test_dir/pkgconfig"
+assert_contains "selected pkg-config command is a native tool provider" \
+	"$provider_discovery" \
+	"discovery|pkg-config-tool|devel/pkg-config|available|validated|none|none|none|$discovery_test_dir|build"
+
+header_order_cc="$discovery_test_dir/header-order-cc"
+printf '%s\n' \
+	'#!/bin/sh' \
+	'source_file=' \
+	'for argument do' \
+	'  case "$argument" in *.c) source_file=$argument ;; esac' \
+	'done' \
+	'[ -n "$source_file" ] || exit 1' \
+	'[ "$(sed -n "1p" "$source_file")" = "#include <stdio.h>" ] || exit 1' \
+	'[ "$(sed -n "2p" "$source_file")" = "#include <example/example.h>" ]' \
+	> "$header_order_cc"
+chmod +x "$header_order_cc"
+provider_header_order=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$header_order_cc" \
+	dependency-provider-discovery-check)
+assert_contains "native probe supplies standard I/O before registered header" \
+	"$provider_header_order" \
+	"discovery|example|devel/autoconf|available|validated"
+
+profile_prefix="$discovery_test_dir/profile"
+mkdir -p "$profile_prefix/bin"
+cp "$fake_pkg_config" "$profile_prefix/bin/pkg-config"
+cp "$fake_cc" "$profile_prefix/bin/cc"
+provider_candidate_discovery=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PREFIXES=$profile_prefix" \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=missing-pkg-config pkg-config" \
+	"DEPENDENCY_PROVIDER_CC_CANDIDATES=missing-cc cc" \
+	dependency-provider-discovery-check)
+assert_contains "profile command candidates select the first available tools" \
+	"$provider_candidate_discovery" \
+	"discovery|example|devel/autoconf|available|validated"
+assert_contains "profile command candidates stay within native prefixes" \
+	"$provider_candidate_discovery" \
+	"discovery|pkg-config-tool|devel/pkg-config|available|validated|none|none|none|$profile_prefix/bin|build"
+
+unrecognized_tool_dir="$discovery_test_dir/project-local/bin"
+mkdir -p "$unrecognized_tool_dir"
+cp "$fake_pkg_config" "$unrecognized_tool_dir/pkg-config"
+provider_unrecognized_tool=$(PATH="$unrecognized_tool_dir:$PATH" run_make \
+	$discovery_registry_args \
+	'DEPENDENCY_PROVIDER_PREFIXES=/nonexistent-native-prefix' \
+	'DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES=pkg-config' \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-list)
+assert_contains "automatic discovery ignores project-local pkg-config" \
+	"$provider_unrecognized_tool" \
+	"discovery|pkg-config-tool|devel/pkg-config|unavailable|pkg-config-missing|none|none|none|none|build"
+
+missing_pkg_config="$discovery_test_dir/pkg-config-missing"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "$missing_pkg_config"
+chmod +x "$missing_pkg_config"
+provider_discovery_missing=$(run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	dependency-provider-discovery-list)
+assert_contains "missing pkg-config module is an unavailable provider" \
+	"$provider_discovery_missing" \
+	"discovery|example|devel/autoconf|unavailable|module-missing|none|none|none"
+
+empty_provider_policy=$(run_make dependency-provider-policy-list)
+assert_contains "empty provider policy is valid" "$empty_provider_policy" \
+	"dependency_provider_policies = 0
+dependency_provider_policy_invalid = 0"
+
+valid_provider_policy='system@target@target@linux@amd64@devel/ncurses@linux-base sdk@target@target@darwin@arm64@devel/libffi@macos-sdk'
+provider_policy=$(run_make \
+	"DEPENDENCY_PROVIDER_POLICIES=$valid_provider_policy" \
+	dependency-provider-policy-list)
+assert_contains "system provider policy is normalized" "$provider_policy" \
+	"policy.1 = kind=system context=target consumer_group=target opsys=linux arch=amd64 origin=devel/ncurses identity=linux-base state=valid"
+assert_contains "SDK provider policy is normalized" "$provider_policy" \
+	"policy.2 = kind=sdk context=target consumer_group=target opsys=darwin arch=arm64 origin=devel/libffi identity=macos-sdk state=valid"
+if run_make "DEPENDENCY_PROVIDER_POLICIES=$valid_provider_policy" \
+	dependency-provider-policy-check >/dev/null 2>&1; then
+	pass "valid provider policy passes validation"
+else
+	fail "valid provider policy passes validation" \
+		"dependency-provider-policy-check failed"
+fi
+
+invalid_provider_policy='sdk@build@target@darwin@arm64@devel/libffi@macos-sdk system@target@missing@linux@amd64@devel/ncurses@linux-base system@target@target@linux@amd64@devel/ncurses@linux-one sdk@target@target@linux@amd64@devel/ncurses@linux-two malformed'
+if invalid_provider_policy_output=$(run_make \
+	"DEPENDENCY_PROVIDER_POLICIES=$invalid_provider_policy" \
+	dependency-provider-policy-check 2>&1); then
+	fail "invalid provider policy fails validation" \
+		"invalid policy was accepted"
+else
+	pass "invalid provider policy fails validation"
+fi
+assert_contains "SDK build context is rejected" \
+	"$invalid_provider_policy_output" "state=sdk-requires-target-context"
+assert_contains "unknown provider consumer group is rejected" \
+	"$invalid_provider_policy_output" "state=unknown-consumer-group"
+assert_contains "duplicate provider selection key is rejected" \
+	"$invalid_provider_policy_output" "state=duplicate-selection-key"
+assert_contains "malformed provider policy is rejected" \
+	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
+
+resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+
+native_tool_selection=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode projects the pkg-config command as a build tool" \
+	"$native_tool_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-pkg-config-x86_64 resolution=selected state=validated"
+
+native_tool_environment=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-environment-list)
+assert_contains "native pkg-config provider exports its command directory" \
+	"$native_tool_environment" "bindirs=$discovery_test_dir"
+
+native_tool_state=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-state)
+assert_contains "native tool identity enters consumer state" \
+	"$native_tool_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-pkg-config-x86_64|external"
+assert_contains "native tool directory enters consumer state" \
+	"$native_tool_state" \
+	"external-environment|target_libffi|linux-pkg-config-x86_64|devel/autoconf|build|linux|x86_64|$discovery_test_dir"
+
+native_tool_provenance=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.package \
+	dependency-provider-provenance)
+assert_contains "native tool identity enters provider provenance" \
+	"$native_tool_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-pkg-config-x86_64|build|linux|x86_64|external"
+
+alternate_tool_dir="$discovery_test_dir/alternate/bin"
+mkdir -p "$alternate_tool_dir"
+cp "$fake_pkg_config" "$alternate_tool_dir/pkg-config"
+native_tool_state_changed=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$alternate_tool_dir/pkg-config" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-state)
+if [ "$native_tool_state" != "$native_tool_state_changed" ]; then
+	pass "native tool path change alters consumer state"
+else
+	fail "native tool path change alters consumer state" \
+		"changed command directory was not reflected"
+fi
+
+explicit_tool_selection=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	'--eval=DEPENDENCY_PROVIDER_POLICIES := system@build@target@linux@x86_64@devel/autoconf@explicit-tool' \
+	'DEPENDENCY_PROVIDER_CHECK.explicit-tool.devel_autoconf=true' \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "explicit policy takes precedence over native tool discovery" \
+	"$explicit_tool_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=explicit-tool resolution=selected state=validated"
+assert_contains "explicit tool precedence keeps provider selection valid" \
+	"$explicit_tool_selection" "dependency_provider_selection_invalid = 0"
+
+native_tool_fallback=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode falls back when the pkg-config command is invalid" \
+	"$native_tool_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+
+host_discovery_selection=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode projects discovered provider into selection" \
+	"$host_discovery_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-pkg-config-x86_64 resolution=selected state=validated"
+
+macos_discovery_selection=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_BUILD_OPSYS=darwin DEPENDENCY_BUILD_ARCH=arm64 \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "macOS profile gives discovery a platform identity" \
+	"$macos_discovery_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=macos-pkg-config-arm64 resolution=selected state=validated"
+
+host_discovery_environment=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-environment-list)
+assert_contains "native discovery exports its library directory for runtime" \
+	"$host_discovery_environment" \
+	"runtimedirs=$discovery_test_dir/lib runtime_variable=LD_LIBRARY_PATH"
+
+macos_discovery_environment=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_BUILD_OPSYS=darwin DEPENDENCY_BUILD_ARCH=arm64 \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "macOS native discovery exports a durable loader path" \
+	"$macos_discovery_environment" \
+	"LDFLAGS='-L$discovery_test_dir/lib -Wl,-rpath,$discovery_test_dir/lib'"
+assert_contains "macOS native discovery also exports the loader environment" \
+	"$macos_discovery_environment" \
+	"DYLD_LIBRARY_PATH='$discovery_test_dir/lib'"
+
+host_discovery_fallback=$(run_make "$resolved_provider_args" \
+	$discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode falls back when discovery is unavailable" \
+	"$host_discovery_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+
+rm -rf "$discovery_test_dir"
+
+if run_make "$resolved_provider_args" DEPENDENCY_PROVIDER_MODE=system-only \
+	info.debug.dependencies >/dev/null 2>&1; then
+	fail "system-only mode rejects uports fallback" \
+		"uports dependencies were accepted"
+else
+	pass "system-only mode rejects uports fallback"
+fi
+
+provider_selection=$(run_make "$resolved_provider_args" \
+	dependency-provider-selection-list)
+assert_contains "uports provider selection remains the default" \
+	"$provider_selection" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+assert_contains "resolved provider selection has no invalid records" \
+	"$provider_selection" "dependency_provider_selection_invalid = 0"
+
+system_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "validated system provider replaces uports selection" \
+	"$system_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-base resolution=selected state=validated"
+
+missing_validator_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	dependency-provider-selection-list)
+assert_contains "explicit provider without validator fails closed" \
+	"$missing_validator_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=validator-missing"
+
+failed_validator_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	dependency-provider-selection-list)
+assert_contains "failed explicit provider validation is visible" \
+	"$failed_validator_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=validation-failed"
+
+if run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	dependency-provider-selection-check >/dev/null 2>&1; then
+	fail "invalid explicit provider fails selection check" \
+		"failed validator was accepted"
+else
+	pass "invalid explicit provider fails selection check"
+fi
+
+platform_mismatch_selection=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@darwin@arm64@devel/autoconf@macos-base' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "nonmatching platform policy does not replace uports" \
+	"$platform_mismatch_selection" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
+
+readiness_policy='DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base'
+ready_provider=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_LIBRARY.linux-base.devel_autoconf=true' \
+	dependency-provider-readiness-check)
+assert_contains "readiness reports passing named checks" "$ready_provider" \
+	"header=ready library=ready metadata=unspecified tool=unspecified state=ready"
+assert_contains "readiness check counts matching dependencies" "$ready_provider" \
+	"dependency_provider_readiness_invalid = 0"
+
+missing_provider=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_LIBRARY.linux-base.devel_autoconf=true' \
+	dependency-provider-readiness-list)
+assert_contains "readiness names a missing header check" "$missing_provider" \
+	"header=missing library=ready metadata=unspecified tool=unspecified state=validation-failed"
+if run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	'DEPENDENCY_PROVIDER_READY_HEADER.linux-base.devel_autoconf=false' \
+	dependency-provider-readiness-check >/dev/null 2>&1; then
+	fail "readiness check fails for missing provider" "failed validator was accepted"
+else
+	pass "readiness check fails for missing provider"
+fi
+
+probe_disagrees=$(run_make "$resolved_provider_args" "$readiness_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_READY_METADATA.linux-base.devel_autoconf=false' \
+	dependency-provider-readiness-list)
+assert_contains "readiness exposes failed named probe despite passing validator" \
+	"$probe_disagrees" "metadata=missing tool=unspecified state=probe-failed"
+
+sdk_selection=$(run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "group target platform selects validated SDK" \
+	"$sdk_selection" \
+	"consumer=target_openssl context=target opsys=linux arch=arm64 type=lib requirement=libz.so origin=archivers/zlib provider_kind=sdk provider_identity=target-sdk resolution=selected state=validated"
+
+global_cross_selection=$(run_make "$resolved_provider_args" \
+	'CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "global CROSS_COMPILE defines target provider context" \
+	"$global_cross_selection" \
+	"consumer=target_openssl context=target opsys=linux arch=arm64"
+
+cross_system_selection=$(run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@arm64@archivers/zlib@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.archivers_zlib=true' \
+	dependency-provider-selection-list)
+assert_contains "cross target rejects system provider" \
+	"$cross_system_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=invalid-provider state=system-cross-provider"
+
+native_system_selection=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	dependency-provider-selection-list)
+assert_contains "native target accepts validated system provider" \
+	"$native_system_selection" \
+	"provider_kind=system provider_identity=linux-base resolution=selected state=validated"
+
+if run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_TARGET_ARCH.target=x86_64' \
+	dependency-provider-selection-list >/dev/null 2>&1; then
+	fail "explicit target override must match CROSS_COMPILE" \
+		"inconsistent target architecture was accepted"
+else
+	pass "explicit target override must match CROSS_COMPILE"
+fi
+
+if run_make "$resolved_provider_args" \
+	'PORTS_target_libffi_EXTRA_ENVS=WITH_TESTS=yes CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	dependency-provider-selection-list >/dev/null 2>&1; then
+	fail "consumer group rejects mixed native and cross instances" \
+		"mixed CROSS_COMPILE values were accepted"
+else
+	pass "consumer group rejects mixed native and cross instances"
+fi
+
+toolchain_test_dir=$(mktemp -d "$testdir/work/cross-toolchain.XXXXXX")
+for tool in gcc g++ ld as ar nm objdump ranlib strip; do
+	command="$toolchain_test_dir/test-cross-linux-gnu-$tool"
+	printf '%s\n' '#!/bin/sh' 'exit 0' > "$command"
+	chmod +x "$command"
+done
+toolchain_list=$(run_make \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-list)
+assert_contains "cross toolchain diagnostic derives prefixed command" \
+	"$toolchain_list" \
+	"toolchain.target.gcc = command=test-cross-linux-gnu-gcc path=$toolchain_test_dir/test-cross-linux-gnu-gcc state=ready"
+assert_contains "complete cross toolchain is ready" "$toolchain_list" \
+	"dependency_cross_toolchain_missing = 0"
+if run_make "PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-check >/dev/null 2>&1; then
+	pass "complete cross toolchain passes readiness check"
+else
+	fail "complete cross toolchain passes readiness check" \
+		"synthetic tools were rejected"
+fi
+
+rm -f "$toolchain_test_dir/test-cross-linux-gnu-strip"
+missing_toolchain=$(run_make \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	dependency-cross-toolchain-list)
+assert_contains "incomplete cross toolchain identifies missing command" \
+	"$missing_toolchain" \
+	"toolchain.target.strip = command=test-cross-linux-gnu-strip path=none state=missing"
+if missing_toolchain_execution=$(run_make "$resolved_provider_args" \
+	"PATH=$toolchain_test_dir:$PATH" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=test-cross-linux-gnu' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-lifecycle-execute 2>&1); then
+	fail "missing cross tool blocks dependency execution" \
+		"execution accepted incomplete toolchain"
+else
+	pass "missing cross tool blocks dependency execution"
+fi
+assert_contains "cross execution failure names missing tool" \
+	"$missing_toolchain_execution" \
+	"cross toolchain missing: group=target command=test-cross-linux-gnu-strip"
+assert_not_contains "cross toolchain preflight dispatches no provider" \
+	"$missing_toolchain_execution" "host@pkg-config.install"
+rm -rf "$toolchain_test_dir"
+
+system_environment=$(run_make "$resolved_provider_args" \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base' \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_BINDIRS.linux-base.devel_autoconf=/usr/bin /opt/tools/bin /usr/bin' \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/usr/include' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.linux-base.devel_autoconf=/usr/lib' \
+	'DEPENDENCY_PROVIDER_PKGCONFIGDIRS.linux-base.devel_autoconf=/usr/lib/pkgconfig' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/usr/lib' \
+	dependency-provider-environment-list)
+assert_contains "system provider paths are normalized and deduplicated" \
+	"$system_environment" \
+	"environment.target_libffi = bindirs=/usr/bin:/opt/tools/bin includedirs=/usr/include libdirs=/usr/lib pkgconfigdirs=/usr/lib/pkgconfig runtimedirs=/usr/lib runtime_variable=LD_LIBRARY_PATH sysroot=none state=valid"
+assert_contains "valid system provider environment passes" \
+	"$system_environment" "dependency_provider_environment_invalid = 0"
+
+missing_sdk_environment=$(run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-environment-list)
+assert_contains "SDK provider without sysroot fails closed" \
+	"$missing_sdk_environment" "state=sdk-sysroot-missing"
+if run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@target-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.target-sdk.archivers_zlib=true' \
+	dependency-provider-environment-check >/dev/null 2>&1; then
+	fail "missing SDK sysroot fails environment check" \
+		"SDK without sysroot was accepted"
+else
+	pass "missing SDK sysroot fails environment check"
+fi
+
+sdk_environment=$(run_make "$resolved_provider_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	dependency-provider-environment-list)
+assert_contains "SDK environment records sysroot and Darwin runtime variable" \
+	"$sdk_environment" \
+	"libdirs=/SDKs/MacOSX.sdk/usr/lib pkgconfigdirs=none runtimedirs=/SDKs/MacOSX.sdk/usr/lib runtime_variable=DYLD_LIBRARY_PATH sysroot=/SDKs/MacOSX.sdk state=valid"
+
+external_record_args='DEPENDENCY_EXTERNAL_PROVIDERS=yes'
+external_policy='DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base'
+external_validator='DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=true'
+external_records=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependencies)
+assert_contains "external provider replaces normalized record" \
+	"$external_records" \
+	"origin=devel/autoconf provider_kind=system provider_instance=none resolution=selected provider_identity=linux-base"
+
+external_unknown_record=$(run_make "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependencies)
+assert_contains "explicit external provider resolves otherwise unknown origin" \
+	"$external_unknown_record" \
+	"origin=devel/autoconf provider_kind=system provider_instance=none resolution=selected provider_identity=linux-base"
+
+opt_in_without_policy=$(run_make "$resolved_provider_args" \
+	"$external_record_args" info.debug.dependencies)
+assert_contains "opt-in without policy preserves uports selection" \
+	"$opt_in_without_policy" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=host_pkg-config resolution=selected"
+
+external_graph=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" info.debug.dependency-graph)
+assert_contains "external provider removes uports graph edge" \
+	"$external_graph" "dependency_graph_edges = 3"
+assert_not_contains "external provider has no uports graph edge" \
+	"$external_graph" "edge.dependency3 ="
+
+external_plan=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan)
+assert_contains "external provider is omitted from uports execution targets" \
+	"$external_plan" "dependency_execution_targets = host@pkg-config.install"
+
+external_state=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+assert_contains "external provider identity enters consumer state" \
+	"$external_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|external"
+assert_contains "external provider environment enters consumer state" \
+	"$external_state" \
+	"external-environment|target_libffi|linux-base|devel/autoconf|build|linux|x86_64||/opt/host/include"
+
+external_state_changed=$(run_make "$resolved_provider_args" "$external_record_args" \
+	"$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+if [ "$external_state" != "$external_state_changed" ]; then
+	pass "external provider path change alters consumer state"
+else
+	fail "external provider path change alters consumer state" \
+		"changed include path was not reflected"
+fi
+
+uports_provenance=$(run_make "$resolved_provider_args" \
+	DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)
+assert_contains "provenance identifies its schema and request" \
+	"$uports_provenance" "provenance|1
+request|target_libffi|package"
+assert_contains "provenance records selected uports provider identity" \
+	"$uports_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|uports|host_pkg-config|build|linux|x86_64|host@pkg-config.install"
+
+external_provenance=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)
+assert_contains "provenance records external provider identity and platform" \
+	"$external_provenance" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|build|linux|x86_64|external"
+assert_contains "external provenance retains remaining uports providers" \
+	"$external_provenance" \
+	"provider|target_libffi|build|automake>=1.16.1|devel/automake|uports|host_pkg-config|build|linux|x86_64|host@pkg-config.install"
+assert_eq "provider provenance is deterministic" \
+	"$(run_make "$resolved_provider_args" "$external_record_args" \
+	  "$external_policy" "$external_validator" \
+	  DEPENDENCY_REQUEST=target@libffi.package dependency-provider-provenance)" \
+	"$external_provenance"
+
+package_test_dir=$(mktemp -d "$testdir/work/package-provenance.XXXXXX")
+mkdir -p "$package_test_dir/stage/usr/local" "$package_test_dir/pkg" \
+	"$package_test_dir/install"
+printf '%s\n' payload > "$package_test_dir/stage/usr/local/payload.txt"
+printf '%s\n' payload.txt > "$package_test_dir/plist"
+printf '%s\n' "$external_provenance" > "$package_test_dir/provenance"
+package_file="$package_test_dir/pkg/test.pkg"
+STAGEDIR="$package_test_dir/stage" PKGNAME=test VERSION=1 ORIGIN=test/test \
+	PREFIX=/usr/local INDEX=test COMPRESS=XZ EXT=linux \
+	PLIST="$package_test_dir/plist" \
+	PROVENANCE="$package_test_dir/provenance" \
+	WRKDIR_PKGFILE="$package_file" \
+	"$portdir/Mk/Scripts/pkg.sh" create
+assert_eq "package with provenance uses format version two" \
+	"$(sed -n '1p' "$package_file")" "PVER: 2"
+assert_contains "package embeds deterministic provider provenance" \
+	"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$package_file")" \
+	"provider|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|build|linux|x86_64|external"
+DESTDIR="$package_test_dir/install" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$package_file"
+assert_eq "version-two package remains installable" \
+	"$(cat "$package_test_dir/install/usr/local/payload.txt")" "payload"
+
+legacy_package_file="$package_test_dir/pkg/legacy.pkg"
+STAGEDIR="$package_test_dir/stage" PKGNAME=legacy VERSION=1 \
+	ORIGIN=test/legacy PREFIX=/usr/local INDEX=test COMPRESS=XZ EXT=linux \
+	PLIST="$package_test_dir/plist" WRKDIR_PKGFILE="$legacy_package_file" \
+	"$portdir/Mk/Scripts/pkg.sh" create
+assert_eq "dependency-neutral package retains legacy format" \
+	"$(sed -n '1p' "$legacy_package_file")" "PVER: 1"
+mkdir -p "$package_test_dir/install-legacy"
+DESTDIR="$package_test_dir/install-legacy" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$legacy_package_file"
+assert_eq "legacy package remains installable" \
+	"$(cat "$package_test_dir/install-legacy/usr/local/payload.txt")" "payload"
+rm -rf "$package_test_dir"
+
+external_execution=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-lifecycle-execute)
+assert_eq "external provider dispatches only remaining uports targets" \
+	"$external_execution" "host@pkg-config.install"
+
+if external_invalid_environment=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=relative/include' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-lifecycle-execute 2>&1); then
+	fail "invalid external environment blocks provider dispatch" \
+		"provider execution accepted invalid include path"
+else
+	pass "invalid external environment blocks provider dispatch"
+fi
+assert_contains "external preflight reports invalid path" \
+	"$external_invalid_environment" "state=invalid-path"
+assert_not_contains "external preflight dispatches no uports provider" \
+	"$external_invalid_environment" "host@pkg-config.install"
+
+if invalid_external=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" \
+	'DEPENDENCY_PROVIDER_CHECK.linux-base.devel_autoconf=false' \
+	info.debug.dependencies 2>&1); then
+	fail "invalid external provider cannot alter records" \
+		"failed external validator was accepted"
+else
+	pass "invalid external provider cannot alter records"
+fi
+assert_contains "invalid external provider is explicit" \
+	"$invalid_external" "dependency provider validation failed"
+
+environment_export=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_BINDIRS.linux-base.devel_autoconf=/opt/host/bin' \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	'DEPENDENCY_PROVIDER_LIBDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	'DEPENDENCY_PROVIDER_PKGCONFIGDIRS.linux-base.devel_autoconf=/opt/host/lib/pkgconfig' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "external provider exports build tool path" \
+	"$environment_export" "PATH='/opt/host/bin':"
+assert_contains "external provider exports include flags" \
+	"$environment_export" "CPPFLAGS='-I/opt/host/include'"
+assert_contains "external provider exports linker flags" \
+	"$environment_export" "LDFLAGS='-L/opt/host/lib'"
+assert_contains "external provider exports pkg-config path" \
+	"$environment_export" "PKG_CONFIG_PATH='/opt/host/lib/pkgconfig'"
+if sh -uc "unset CPPFLAGS LDFLAGS PKG_CONFIG_PATH; $environment_export"; then
+	pass "provider exports tolerate unset base variables"
+else
+	fail "provider exports tolerate unset base variables" \
+		"export failed under shell nounset mode"
+fi
+
+if run_make "$resolved_provider_args" "$external_policy" \
+	"$external_validator" DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export >/dev/null 2>&1; then
+	fail "provider export requires explicit opt-in" \
+		"export accepted without DEPENDENCY_EXTERNAL_PROVIDERS=yes"
+else
+	pass "provider export requires explicit opt-in"
+fi
+
+environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	'CPPFLAGS=-DKEEP' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=env' \
+	dependency-provider-environment-run)
+assert_contains "explicit runner injects consumer environment" \
+	"$environment_run" "CPPFLAGS=-I/opt/host/include -DKEEP"
+
+runtime_provider_args='DEPENDENCY_PROVIDER_POLICIES=system@target@target@linux@x86_64@devel/autoconf@linux-base'
+runtime_build_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := run' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_eq "build request excludes runtime-only provider environment" \
+	"$runtime_build_export" ""
+runtime_stage_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := run' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.linux-base.devel_autoconf=/opt/host/lib' \
+	DEPENDENCY_REQUEST=target@libffi.stage \
+	dependency-provider-environment-export)
+assert_contains "stage request includes native runtime path" \
+	"$runtime_stage_export" "LD_LIBRARY_PATH='/opt/host/lib'"
+
+cross_environment_export=$(run_make "$resolved_provider_args" \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@archivers/zlib@macos-sdk' \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.archivers_zlib=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.archivers_zlib=/SDKs/MacOSX.sdk/usr/lib' \
+	DEPENDENCY_REQUEST=target@openssl.build \
+	dependency-provider-environment-export)
+assert_contains "cross SDK exports explicit sysroot" \
+	"$cross_environment_export" "SDKROOT='/SDKs/MacOSX.sdk'"
+assert_contains "external-only library suppresses uports library paths" \
+	"$cross_environment_export" \
+	"UPORTS_LIB_DEPENDS_USES_UPORTS=no"
+assert_contains "cross target runtime path stays out of host loader" \
+	"$cross_environment_export" \
+	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
+assert_not_contains "cross SDK does not set host loader path" \
+	"$cross_environment_export" "DYLD_LIBRARY_PATH="
+
+sdk_test_dir=$(mktemp -d "$testdir/work/sdk-environment.XXXXXX")
+sdk_sysroot="$sdk_test_dir/sysroot"
+mkdir -p "$sdk_sysroot/usr/include" "$sdk_sysroot/usr/lib/pkgconfig"
+sdk_policy='DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@linux@arm64@archivers/zlib@test-sdk'
+sdk_validator="DEPENDENCY_PROVIDER_CHECK.test-sdk.archivers_zlib=test -d $sdk_sysroot/usr/include -a -d $sdk_sysroot/usr/lib"
+sdk_args="DEPENDENCY_PROVIDER_SYSROOT.test-sdk.archivers_zlib=$sdk_sysroot"
+sdk_include="DEPENDENCY_PROVIDER_INCLUDEDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/include"
+sdk_library="DEPENDENCY_PROVIDER_LIBDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/lib"
+sdk_pkgconfig="DEPENDENCY_PROVIDER_PKGCONFIGDIRS.test-sdk.archivers_zlib=$sdk_sysroot/usr/lib/pkgconfig"
+sdk_environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" "$sdk_include" \
+	"$sdk_library" "$sdk_pkgconfig" \
+	DEPENDENCY_REQUEST=target@openssl.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=env' \
+	dependency-provider-environment-run)
+assert_contains "SDK runner exports compiler sysroot flags" \
+	"$sdk_environment_run" \
+	"CFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports C++ sysroot flags" \
+	"$sdk_environment_run" \
+	"CXXFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports preprocessor sysroot flags" \
+	"$sdk_environment_run" \
+	"CPPFLAGS=--sysroot=$sdk_sysroot -I$sdk_sysroot/usr/include"
+assert_contains "SDK runner exports linker sysroot flags" \
+	"$sdk_environment_run" \
+	"LDFLAGS=-L$sdk_sysroot/usr/lib --sysroot=$sdk_sysroot"
+assert_contains "SDK runner exports pkg-config sysroot" \
+	"$sdk_environment_run" "PKG_CONFIG_SYSROOT_DIR=$sdk_sysroot"
+assert_contains "SDK runner exports pkg-config search path" \
+	"$sdk_environment_run" \
+	"PKG_CONFIG_PATH=$sdk_sysroot/usr/lib/pkgconfig"
+
+sdk_state=$(run_make "$resolved_provider_args" "$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" "$sdk_include" \
+	"$sdk_library" "$sdk_pkgconfig" \
+	DEPENDENCY_REQUEST=target@openssl.build dependency-execution-state)
+assert_contains "SDK identity and sysroot enter dependency state" "$sdk_state" \
+	"external-environment|target_openssl|test-sdk|archivers/zlib|target|linux|arm64||$sdk_sysroot/usr/include|$sdk_sysroot/usr/lib|$sdk_sysroot/usr/lib/pkgconfig||$sdk_sysroot"
+sdk_provenance=$(run_make "$resolved_provider_args" "$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu' \
+	"$sdk_policy" "$sdk_validator" "$sdk_args" \
+	DEPENDENCY_REQUEST=target@openssl.package dependency-provider-provenance)
+assert_contains "SDK identity and platform enter provider provenance" \
+	"$sdk_provenance" \
+	"provider|target_openssl|lib|libz.so|archivers/zlib|sdk|test-sdk|target|linux|arm64|external"
+
+conflicting_sdk=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@devel/autoconf@sdk-one sdk@target@target@darwin@arm64@devel/automake@sdk-two' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-one.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-two.devel_automake=true' \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-one.devel_autoconf=$sdk_test_dir/sdk-one" \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-two.devel_automake=$sdk_test_dir/sdk-two" \
+	dependency-provider-environment-list)
+assert_contains "conflicting SDK sysroots are explicit" "$conflicting_sdk" \
+	"state=conflicting-sysroots"
+if run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=sdk@target@target@darwin@arm64@devel/autoconf@sdk-one sdk@target@target@darwin@arm64@devel/automake@sdk-two' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-one.devel_autoconf=true' \
+	'DEPENDENCY_PROVIDER_CHECK.sdk-two.devel_automake=true' \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-one.devel_autoconf=$sdk_test_dir/sdk-one" \
+	"DEPENDENCY_PROVIDER_SYSROOT.sdk-two.devel_automake=$sdk_test_dir/sdk-two" \
+	dependency-provider-environment-check >/dev/null 2>&1; then
+	fail "conflicting SDK sysroots fail preflight" \
+		"conflicting sysroots were accepted"
+else
+	pass "conflicting SDK sysroots fail preflight"
+fi
+rm -rf "$sdk_test_dir"
+
+mixed_context_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" \
+	'TEST_TARGET_ENVS=CROSS_COMPILE=arm64-apple-darwin' \
+	'DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@linux-base sdk@target@target@darwin@arm64@devel/automake@macos-sdk' \
+	"$external_validator" \
+	'DEPENDENCY_PROVIDER_CHECK.macos-sdk.devel_automake=true' \
+	'DEPENDENCY_PROVIDER_SYSROOT.macos-sdk.devel_automake=/SDKs/MacOSX.sdk' \
+	'DEPENDENCY_PROVIDER_RUNTIMEDIRS.macos-sdk.devel_automake=/SDKs/MacOSX.sdk/usr/lib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "mixed host tool and cross SDK retain target runtime identity" \
+	"$mixed_context_export" \
+	"UPORTS_TARGET_RUNTIME_DIRS='/SDKs/MacOSX.sdk/usr/lib'"
+assert_not_contains "mixed contexts never put target library on host loader" \
+	"$mixed_context_export" "LD_LIBRARY_PATH="
+
+mixed_library_export=$(run_make "$resolved_provider_args" \
+	--eval='override dependency3_type := lib' \
+	--eval='override dependency4_type := lib' \
+	"$external_record_args" "$runtime_provider_args" "$external_validator" \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_not_contains "mixed library providers retain uports search paths" \
+	"$mixed_library_export" "UPORTS_LIB_DEPENDS_USES_UPORTS=no"
+
+port_library_probe='probe: ; @printf "%s\n" "CFLAGS=$(CFLAGS)" "LDFLAGS=$(LDFLAGS)"'
+default_library_paths=$(make --no-print-directory -s -C \
+	"$feeds/security/openssl" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/external-prefix" PREFIX=/usr/local \
+	--eval="$port_library_probe" probe)
+assert_contains "default library dependencies retain uports include path" \
+	"$default_library_paths" \
+	"$testdir/work/external-prefix/usr/local/include"
+external_library_paths=$(make --no-print-directory -s -C \
+	"$feeds/security/openssl" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/external-prefix" PREFIX=/usr/local \
+	UPORTS_LIB_DEPENDS_USES_UPORTS=no \
+	--eval="$port_library_probe" probe)
+assert_not_contains "external-only library omits uports include path" \
+	"$external_library_paths" \
+	"$testdir/work/external-prefix/usr/local/include"
+assert_not_contains "external-only library omits uports linker path" \
+	"$external_library_paths" \
+	"$testdir/work/external-prefix/usr/local/lib"
+
+if invalid_environment_run=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=relative/include' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND=printf SHOULD-NOT-RUN' \
+	dependency-provider-environment-run 2>&1); then
+	fail "invalid provider path blocks explicit runner" \
+		"relative path was accepted"
+else
+	pass "invalid provider path blocks explicit runner"
+fi
+assert_contains "invalid provider path is explicit" \
+	"$invalid_environment_run" "invalid external provider environment"
+assert_not_contains "invalid path never invokes consumer command" \
+	"$invalid_environment_run" "SHOULD-NOT-RUN"
 
 assert_contains "selected logical ports" "$snapshot" \
 	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
@@ -128,9 +1292,9 @@ planner_stats=$(run_make planner-stats)
 assert_contains "planner collection count" "$planner_stats" \
 	"collections=2"
 assert_contains "planner discovered definition count" "$planner_stats" \
-	"discovered_definitions=43"
+	"discovered_definitions=56"
 assert_contains "planner resolved logical port count" "$planner_stats" \
-	"resolved_logical_ports=42"
+	"resolved_logical_ports=55"
 assert_contains "planner selected port count" "$planner_stats" \
 	"selected_ports=5"
 assert_contains "planner group and category counts" "$planner_stats" \
@@ -141,12 +1305,12 @@ assert_contains "planner build instance count" "$planner_stats" \
 assert_contains "planner current variant count" "$planner_stats" \
 	"selected_variants=0"
 assert_contains "planner lifecycle and canonical target counts" "$planner_stats" \
-	"lifecycle_suffixes=17
-canonical_targets=102"
+	"lifecycle_suffixes=18
+canonical_targets=108"
 assert_contains "planner alias target count" "$planner_stats" \
-	"alias_targets=85"
+	"alias_targets=90"
 assert_contains "planner aggregate target count" "$planner_stats" \
-	"aggregate_targets=137"
+	"aggregate_targets=145"
 assert_contains "planner diagnostic target count" "$planner_stats" \
 	"diagnostic_targets=8"
 
@@ -229,12 +1393,838 @@ implicit_default_instances = 6
 selected_nondefault_variants = 0
 unselected_variants_generate_state = no"
 
+debug_dependencies=$(run_make info.debug.dependencies)
+assert_contains "normalized dependency record count" "$debug_dependencies" \
+	"dependency_records = 4"
+
+serial_dependencies=$(run_make DEPENDENCY_METADATA_JOBS=1 \
+	info.debug.dependencies)
+if [ "$debug_dependencies" = "$serial_dependencies" ]; then
+	pass "parallel dependency metadata preserves deterministic order"
+else
+	fail "parallel dependency metadata preserves deterministic order" \
+		"parallel and serial output differ"
+fi
+
+if metadata_error=$(run_make \
+	PORTS_target_libffi_EXTRA_ENVS='PORTSDIR=/nonexistent' \
+	info.debug.dependencies 2>&1); then
+	fail "dependency metadata probe failure is fatal" \
+		"failed probe was accepted"
+else
+	pass "dependency metadata probe failure is fatal"
+fi
+assert_contains "dependency metadata failure is explicit" "$metadata_error" \
+	"dependency metadata collection failed"
+
+assert_contains "dependency type and requirement normalization" \
+	"$debug_dependencies" \
+	"consumer=target_libffi type=build requirement=autoconf>=2.69 origin=devel/autoconf"
+assert_contains "selected definition with no instance is unresolved" \
+	"$debug_dependencies" \
+	"consumer=target_openssl type=lib requirement=libz.so origin=archivers/zlib provider_kind=uports provider_instance=none resolution=unselected"
+assert_contains "unknown dependency origin is explicit" "$debug_dependencies" \
+	"origin=devel/automake provider_kind=unresolved provider_instance=none resolution=unknown-origin"
+
+autoconf_metadata=$(make --no-print-directory -s -C \
+	"$portdir/devel/autoconf-2.72" uports-dependency-metadata)
+assert_contains "provider capability metadata is exported" "$autoconf_metadata" \
+	"provides|devel/autoconf"
+
+capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "unique capability provider is selected" \
+	"$capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=host_pkg-config resolution=selected"
+
+local_capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf' \
+	--eval='dependency_capabilities_target_libffi := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "consumer-group capability provider is preferred" \
+	"$local_capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=target_libffi resolution=selected"
+
+ambiguous_capability_dependencies=$(run_make \
+	--eval='dependency_capabilities_target_libffi := devel/autoconf' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf' \
+	info.debug.dependencies)
+assert_contains "multiple consumer-group capability providers are ambiguous" \
+	"$ambiguous_capability_dependencies" \
+	"origin=devel/autoconf provider_kind=uports provider_instance=none resolution=ambiguous"
+
+dependency_graph=$(run_make info.debug.dependency-graph)
+assert_contains "unresolved dependencies remain visible in graph" \
+	"$dependency_graph" \
+	"unresolved.dependency3 = consumer=target_libffi type=build origin=devel/autoconf resolution=unknown-origin"
+assert_contains "empty selected graph is acyclic" "$dependency_graph" \
+	"dependency_cycle = none"
+
+if unresolved_output=$(run_make dependencies-check 2>&1); then
+	fail "unresolved dependency graph fails validation" \
+		"unresolved records were accepted"
+else
+	pass "unresolved dependency graph fails validation"
+fi
+assert_contains "dependency validation reports unresolved count" \
+	"$unresolved_output" "unresolved_dependencies = 4"
+assert_contains "dependency validation identifies unresolved record" \
+	"$unresolved_output" \
+	"unresolved.dependency3 = consumer=target_libffi type=build origin=devel/autoconf resolution=unknown-origin"
+
+port_lifecycle_graph=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$testdir/work/lifecycle" PREFIX=/usr/local \
+	TYPE_SUFFIX=.regression ALTERNATIVE_WRKDIR="$testdir/work/lifecycle/src" \
+	-pn build 2>/dev/null)
+assert_contains "parallel lifecycle waits for previous phase" \
+	"$port_lifecycle_graph" "build-message: | configure"
+assert_contains "parallel lifecycle orders phase steps" \
+	"$port_lifecycle_graph" "configure-message: | lib-depends"
+assert_contains "parallel patch initialization waits for extraction" \
+	"$port_lifecycle_graph" "git-init: | pre-patch-script"
+
+resolved_dependency_graph=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	info.debug.dependency-graph)
+assert_contains "selected dependency becomes typed graph edge" \
+	"$resolved_dependency_graph" \
+	"edge.dependency3 = consumer=target_libffi provider=host_pkg-config type=build origin=devel/autoconf"
+assert_contains "shared provider graph is acyclic" "$resolved_dependency_graph" \
+	"dependency_cycle = none"
+
+dependency_order=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	info.debug.dependency-order)
+assert_contains "dependency order includes every selected instance" \
+	"$dependency_order" \
+	"dependency_order_count = 6"
+assert_contains "dependency order is provider-first and deterministic" \
+	"$dependency_order" \
+	"dependency_order = host_pkg-config target_expat2 toolchain_gmp host_openssl target_openssl target_libffi"
+
+dependency_order_alias=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	dependency-order-list)
+if [ "$dependency_order" = "$dependency_order_alias" ]; then
+	pass "dependency order list exposes the read-only diagnostic"
+else
+	fail "dependency order list exposes the read-only diagnostic" \
+		"alias and diagnostic output differ"
+fi
+
+dependency_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	info.debug.dependency-lifecycle)
+assert_contains "build dependency maps to configure prerequisite" \
+	"$dependency_lifecycle" \
+	"prerequisite.dependency3 = consumer=target@libffi.configure provider=host@pkg-config.install type=build origin=devel/autoconf"
+assert_contains "library dependency maps to configure prerequisite" \
+	"$dependency_lifecycle" \
+	"prerequisite.dependency1 = consumer=host@openssl.configure provider=host@pkg-config.install type=lib origin=archivers/zlib"
+
+runtime_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency3_target := build' \
+	info.debug.dependency-lifecycle)
+assert_contains "runtime dependency maps to stage prerequisite" \
+	"$runtime_lifecycle" \
+	"prerequisite.dependency3 = consumer=target@libffi.stage provider=host@pkg-config.build type=run origin=devel/autoconf"
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	dependency-lifecycle-check >/dev/null 2>&1; then
+	pass "resolved lifecycle prerequisite plan passes validation"
+else
+	fail "resolved lifecycle prerequisite plan passes validation" \
+		"dependency-lifecycle-check failed"
+fi
+
+if invalid_lifecycle=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	--eval='override dependency3_target := unsupported-target' \
+	dependency-lifecycle-check 2>&1); then
+	fail "unsupported dependency target fails lifecycle validation" \
+		"unsupported target was accepted"
+else
+	pass "unsupported dependency target fails lifecycle validation"
+fi
+assert_contains "invalid dependency target is explicitly reported" \
+	"$invalid_lifecycle" "invalid_dependency_targets = 1"
+
+if run_make dependency-lifecycle-check >/dev/null 2>&1; then
+	fail "unresolved lifecycle prerequisite plan fails validation" \
+		"unresolved plan was accepted"
+else
+	pass "unresolved lifecycle prerequisite plan fails validation"
+fi
+
+dependency_execution=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute)
+if [ "$dependency_execution" = "host@pkg-config.install
+target@openssl.install" ]; then
+	pass "opt-in execution is provider-first and deduplicated"
+else
+	fail "opt-in execution is provider-first and deduplicated" \
+		"unexpected targets: $dependency_execution"
+fi
+
+if unresolved_execution=$(run_make \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute 2>&1); then
+	fail "opt-in execution rejects unresolved plan before dispatch" \
+		"unresolved plan was executed"
+else
+	pass "opt-in execution rejects unresolved plan before dispatch"
+fi
+assert_not_contains "unresolved execution dispatches no provider" \
+	"$unresolved_execution" "@pkg-config.install"
+
+target_execution_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-plan)
+assert_contains "target execution plan follows transitive closure" \
+	"$target_execution_plan" \
+	"dependency_execution_instances = 3
+dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+fetch_execution_plan=$(run_make \
+	DEPENDENCY_REQUEST=target@libffi.fetch dependency-execution-plan)
+assert_contains "pre-configure target needs no package dependencies" \
+	"$fetch_execution_plan" \
+	"dependency_execution_instances = 1
+dependency_execution_targets ="
+
+runtime_build_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency4_type := run' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-plan)
+assert_contains "build request excludes runtime-only dependencies" \
+	"$runtime_build_plan" \
+	"dependency_execution_instances = 1
+dependency_execution_targets ="
+
+runtime_stage_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	--eval='override dependency3_type := run' \
+	--eval='override dependency4_type := run' \
+	DEPENDENCY_REQUEST=target@libffi.stage dependency-execution-plan)
+assert_contains "stage request includes runtime dependencies" \
+	"$runtime_stage_plan" \
+	"dependency_execution_instances = 2
+dependency_execution_targets = host@pkg-config.install"
+
+if run_make DEPENDENCY_REQUEST=target@openssl.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects unresolved reachable dependency" \
+		"unresolved target closure was accepted"
+else
+	pass "target execution rejects unresolved reachable dependency"
+fi
+
+target_execution=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute)
+if [ "$target_execution" = "host@pkg-config.install
+target@openssl.install" ]; then
+	pass "target execution dispatches only transitive providers"
+else
+	fail "target execution dispatches only transitive providers" \
+		"unexpected targets: $target_execution"
+fi
+
+dependency_execution_state=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+assert_contains "dependency state identifies requested consumer phase" \
+	"$dependency_execution_state" "request|target_libffi|configure"
+assert_contains "dependency state records provider identity" \
+	"$dependency_execution_state" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|uports|target_openssl|target@openssl.install"
+assert_contains "dependency state records provider environment" \
+	"$dependency_execution_state" \
+	"instance|host_pkg-config|install|host|devel/pkg-config|"
+assert_not_contains "dependency state excludes obsolete prefixes" \
+	"$dependency_execution_state" "PREFIX=/usr "
+
+dependency_state_fixture="$testdir/work/dependency-state"
+dependency_state_source="$dependency_state_fixture/current"
+dependency_state_saved="$dependency_state_fixture/dependency.configure.state"
+rm -rf "$dependency_state_fixture"
+mkdir -p "$dependency_state_fixture"
+printf '%s\n' 'provider=uports:host_pkg-config:/usr/local' \
+	>"$dependency_state_source"
+dependency_state_new=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "missing saved dependency state is new" \
+	"$dependency_state_new" "dependency_state = new"
+dependency_state_save=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" save)
+assert_contains "dependency state save reports new" \
+	"$dependency_state_save" "dependency_state = new"
+dependency_state_same=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "saved dependency state is unchanged" \
+	"$dependency_state_same" "dependency_state = unchanged"
+dependency_state_inode=$(ls -di "$dependency_state_saved" | awk '{ print $1 }')
+dependency_state_resave=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" save)
+assert_contains "unchanged dependency state save is reported" \
+	"$dependency_state_resave" "dependency_state = unchanged"
+assert_eq "unchanged dependency state is not rewritten" \
+	"$(ls -di "$dependency_state_saved" | awk '{ print $1 }')" \
+	"$dependency_state_inode"
+printf '%s\n' 'provider=system:pkg-config:/usr/local' \
+	>"$dependency_state_source"
+dependency_state_changed=$(DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	"$portdir/Mk/Scripts/dependency-state.sh" check)
+assert_contains "different dependency state is changed" \
+	"$dependency_state_changed" "dependency_state = changed"
+assert_contains "state comparison does not overwrite saved state" \
+	"$(cat "$dependency_state_saved")" \
+	"provider=uports:host_pkg-config:/usr/local"
+port_state_save=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	uports-dependency-state-save)
+assert_contains "port target saves changed dependency state" \
+	"$port_state_save" "dependency_state = changed"
+port_state_same=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	uports-dependency-state-check)
+assert_contains "port target reads saved dependency state" \
+	"$port_state_same" "dependency_state = unchanged"
+
+dependency_cookie_fixture="$dependency_state_fixture/cookies"
+mkdir -p "$dependency_cookie_fixture"
+dependency_package_artifact="$dependency_state_fixture/test.pkg"
+for cookie in extract configure build stage package install
+do
+	touch "$dependency_cookie_fixture/$cookie"
+done
+touch "$dependency_package_artifact"
+port_state_unchanged=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	CONFIGURE_COOKIE="$dependency_cookie_fixture/configure" \
+	BUILD_COOKIE="$dependency_cookie_fixture/build" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
+	uports-dependency-state-invalidate)
+assert_contains "unchanged state reports no invalidation" \
+	"$port_state_unchanged" "dependency_state = unchanged"
+if test -f "$dependency_cookie_fixture/configure" && \
+	   test -f "$dependency_cookie_fixture/install" && \
+	   test -f "$dependency_package_artifact"; then
+	pass "unchanged state preserves downstream cookies and package artifact"
+else
+	fail "unchanged state preserves downstream cookies and package artifact" \
+		"configure/install cookie or package artifact was removed"
+fi
+
+printf '%s\n' 'provider=uports:other-provider:/usr/local' \
+	>"$dependency_state_source"
+port_state_invalidated=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	CONFIGURE_COOKIE="$dependency_cookie_fixture/configure" \
+	BUILD_COOKIE="$dependency_cookie_fixture/build" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
+	uports-dependency-state-invalidate)
+assert_contains "changed configure state reports invalidation" \
+	"$port_state_invalidated" "dependency_state = changed"
+if test ! -f "$dependency_cookie_fixture/configure" && \
+	   test ! -f "$dependency_cookie_fixture/build" && \
+	   test ! -f "$dependency_cookie_fixture/stage" && \
+	   test ! -f "$dependency_cookie_fixture/package" && \
+	   test ! -f "$dependency_cookie_fixture/install"; then
+	pass "configure state removes configure and downstream cookies"
+else
+	fail "configure state removes configure and downstream cookies" \
+		"one or more downstream cookies remain"
+fi
+if test ! -f "$dependency_package_artifact"; then
+	pass "configure state removes stale work package"
+else
+	fail "configure state removes stale work package" \
+		"work package remains"
+fi
+if test -f "$dependency_cookie_fixture/extract"; then
+	pass "configure state preserves source cookies"
+else
+	fail "configure state preserves source cookies" \
+		"extract cookie was removed"
+fi
+
+for cookie in configure build stage package install
+do
+	touch "$dependency_cookie_fixture/$cookie"
+done
+touch "$dependency_package_artifact"
+rm -f "$dependency_state_saved"
+port_stage_invalidated=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	DEPENDENCY_STATE_CLASS=stage \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	STAGE_COOKIE="$dependency_cookie_fixture/stage" \
+	PACKAGE_COOKIE="$dependency_cookie_fixture/package" \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	WRKDIR_PKGFILE="$dependency_package_artifact" \
+	uports-dependency-state-invalidate)
+assert_contains "new stage state reports invalidation" \
+	"$port_stage_invalidated" "dependency_state = new"
+if test ! -f "$dependency_cookie_fixture/stage" && \
+	   test ! -f "$dependency_cookie_fixture/package" && \
+	   test ! -f "$dependency_cookie_fixture/install"; then
+	pass "stage state removes stage and downstream cookies"
+else
+	fail "stage state removes stage and downstream cookies" \
+		"one or more stage cookies remain"
+fi
+if test ! -f "$dependency_package_artifact"; then
+	pass "stage state removes stale work package"
+else
+	fail "stage state removes stale work package" \
+		"work package remains"
+fi
+if test -f "$dependency_cookie_fixture/configure" && \
+	   test -f "$dependency_cookie_fixture/build"; then
+	pass "stage state preserves configure and build cookies"
+else
+	fail "stage state preserves configure and build cookies" \
+		"configure or build cookie was removed"
+fi
+
+if run_make DEPENDENCY_REQUEST=target@does-not-exist.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects unknown request" \
+		"unknown request was accepted"
+else
+	pass "target execution rejects unknown request"
+fi
+
+alias_execution_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake' \
+	DEPENDENCY_REQUEST=libffi.build dependency-execution-plan)
+assert_contains "target execution accepts unambiguous alias" \
+	"$alias_execution_plan" "dependency_execution_root = target_libffi"
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects cycle in reachable closure" \
+		"cyclic target closure was accepted"
+else
+	pass "target execution rejects cycle in reachable closure"
+fi
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	--eval='override dependency3_target := unsupported-target' \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-plan >/dev/null 2>&1; then
+	fail "target execution rejects invalid target in reachable closure" \
+		"invalid provider target was accepted"
+else
+	pass "target execution rejects invalid target in reachable closure"
+fi
+
+dispatch_state_dir="$testdir/work/dispatch-state"
+dispatch_state_file="$dispatch_state_dir/dependency.configure.state"
+rm -rf "$dispatch_state_dir"
+mkdir -p "$dispatch_state_dir"
+dispatch_state_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$dispatch_state_file CONFIGURE_COOKIE=$dispatch_state_dir/configure BUILD_COOKIE=$dispatch_state_dir/build STAGE_COOKIE=$dispatch_state_dir/stage PACKAGE_COOKIE=$dispatch_state_dir/package INSTALL_COOKIE=$dispatch_state_dir/install"
+
+external_dispatch_dir=$(mktemp -d "$testdir/work/external-dispatch.XXXXXX")
+external_dispatch_file="$external_dispatch_dir/dependency.configure.state"
+external_dispatch_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$external_dispatch_file CONFIGURE_COOKIE=$external_dispatch_dir/configure BUILD_COOKIE=$external_dispatch_dir/build STAGE_COOKIE=$external_dispatch_dir/stage PACKAGE_COOKIE=$external_dispatch_dir/package INSTALL_COOKIE=$external_dispatch_dir/install"
+external_dispatch=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+assert_eq "external provider dispatch runs remaining uports target first" \
+	"$external_dispatch" "host@pkg-config.install
+consumer=target@libffi.build"
+assert_contains "external provider identity is saved in consumer state" \
+	"$(cat "$external_dispatch_file")" \
+	"dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|system|linux-base|external"
+assert_contains "external provider path is saved in consumer state" \
+	"$(cat "$external_dispatch_file")" \
+	"external-environment|target_libffi|linux-base|devel/autoconf|build|linux|x86_64||/opt/host/include"
+
+external_unchanged=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/host/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-state-check)
+assert_contains "unchanged external provider state is recognized" \
+	"$external_unchanged" "dependency_state = unchanged"
+
+external_changed=$(run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-state-check)
+assert_contains "external provider path change invalidates consumer state" \
+	"$external_changed" "dependency_state = changed"
+
+cp "$external_dispatch_file" "$external_dispatch_dir/before-failure"
+if run_make "$resolved_provider_args" \
+	"$external_record_args" "$external_policy" "$external_validator" \
+	'DEPENDENCY_PROVIDER_INCLUDEDIRS.linux-base.devel_autoconf=/opt/other/include' \
+	"PORTS_target_libffi_EXTRA_ENVS=$external_dispatch_env" \
+	--eval='override cmd_generate-port-target = false' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null 2>&1; then
+	fail "external consumer failure propagates" \
+		"failed consumer command was accepted"
+else
+	pass "external consumer failure propagates"
+fi
+if cmp -s "$external_dispatch_dir/before-failure" "$external_dispatch_file"; then
+	pass "external consumer failure retains last successful state"
+else
+	fail "external consumer failure retains last successful state" \
+		"failed consumer overwrote state"
+fi
+rm -rf "$external_dispatch_dir"
+
+dependency_aware_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env" \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+if [ "$dependency_aware_dispatch" = "host@pkg-config.install
+target@openssl.install
+consumer=target@libffi.build" ]; then
+	pass "dependency-aware canonical dispatch runs providers before consumer"
+else
+	fail "dependency-aware canonical dispatch runs providers before consumer" \
+		"unexpected dispatch: $dependency_aware_dispatch"
+fi
+if test -f "$dispatch_state_file"; then
+	pass "successful canonical dispatch saves dependency state"
+else
+	fail "successful canonical dispatch saves dependency state" \
+		"missing saved state: $dispatch_state_file"
+fi
+
+metadata_reuse_dir=$(mktemp -d "$testdir/work/metadata-reuse.XXXXXX")
+mkdir -p "$metadata_reuse_dir/tmp"
+run_make dependency-metadata-snapshot > "$metadata_reuse_dir/snapshot"
+metadata_collector="$metadata_reuse_dir/collect"
+printf '%s\n' \
+	'#!/bin/sh' \
+	"count_file='$metadata_reuse_dir/count'" \
+	"snapshot='$metadata_reuse_dir/snapshot'" \
+	'count=0' \
+	'[ ! -f "$count_file" ] || count=$(cat "$count_file")' \
+	'count=$((count + 1))' \
+	'printf "%s\n" "$count" > "$count_file"' \
+	'cat "$snapshot"' > "$metadata_collector"
+chmod +x "$metadata_collector"
+run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env" \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	"dependency-metadata-collect-command=$metadata_collector" \
+	"TMPDIR=$metadata_reuse_dir/tmp" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null
+assert_eq "canonical invocation collects dependency metadata once" \
+	"$(cat "$metadata_reuse_dir/count")" "1"
+if find "$metadata_reuse_dir/tmp" -mindepth 1 -print -quit | grep -q .; then
+	fail "canonical invocation removes temporary metadata snapshot" \
+		"temporary invocation directory remains"
+else
+	pass "canonical invocation removes temporary metadata snapshot"
+fi
+rm -rf "$metadata_reuse_dir"
+
+cp "$dispatch_state_file" "$dispatch_state_dir/before-failure"
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_libffi_EXTRA_ENVS=$dispatch_state_env STATE_REVISION=changed" \
+	--eval='override cmd_generate-port-target = false' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\n'" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build >/dev/null 2>&1; then
+	fail "consumer failure after invalidation is propagated" \
+		"failed consumer command was accepted"
+else
+	pass "consumer failure after invalidation is propagated"
+fi
+if cmp -s "$dispatch_state_dir/before-failure" "$dispatch_state_file"; then
+	pass "consumer failure preserves last successful dependency state"
+else
+	fail "consumer failure preserves last successful dependency state" \
+		"saved dependency state changed after consumer failure"
+fi
+
+if failed_canonical_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	UPORTS_DEPENDENCIES=yes target@libffi.build 2>&1); then
+	fail "canonical provider failure is propagated" \
+		"failed provider command was accepted"
+else
+	pass "canonical provider failure is propagated"
+fi
+assert_not_contains "canonical provider failure blocks consumer" \
+	"$failed_canonical_dispatch" "consumer=target@libffi.build"
+
+legacy_dispatch=$(run_make \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=no \
+	target@libffi.build)
+if [ "$legacy_dispatch" = "consumer=target@libffi.build" ]; then
+	pass "explicit dependency disable keeps canonical dispatch dependency-neutral"
+else
+	fail "explicit dependency disable keeps canonical dispatch dependency-neutral" \
+		"unexpected dispatch: $legacy_dispatch"
+fi
+
+default_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCY_STATE=no target@libffi.build)
+assert_eq "canonical dispatch enables dependency execution by default" \
+	"$default_dispatch" "host@pkg-config.install
+target@openssl.install
+consumer=target@libffi.build"
+
+if run_make UPORTS_DEPENDENCIES=invalid target@libffi.build \
+	>/dev/null 2>&1; then
+	fail "invalid dependency policy is rejected" "invalid policy was accepted"
+else
+	pass "invalid dependency policy is rejected"
+fi
+
+multi_root_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	'DEPENDENCY_REQUESTS=target@expat2.build target@openssl.build target@libffi.build' \
+	dependency-execution-plan)
+assert_contains "multi-root plan reports requested consumers" \
+	"$multi_root_plan" \
+	"dependency_execution_roots = target_expat2.build target_openssl.build target_libffi.build"
+assert_contains "multi-root plan deduplicates union of providers" \
+	"$multi_root_plan" \
+	"dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+provider_root_plan=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	'DEPENDENCY_REQUESTS=target@openssl.install target@libffi.build' \
+	dependency-execution-plan)
+assert_contains "consumer root still executes when it is also a provider" \
+	"$provider_root_plan" \
+	"dependency_execution_targets = host@pkg-config.install target@openssl.install"
+
+aggregate_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target.build)
+assert_contains "aggregate dispatch prepares shared providers once" \
+	"$aggregate_dispatch" \
+	"host@pkg-config.install
+target@openssl.install
+consumer=target@expat2.build"
+assert_contains "aggregate dispatch runs consumers after providers" \
+	"$aggregate_dispatch" \
+	"consumer=target@expat2.build
+consumer=target@openssl.build
+consumer=target@libffi.build"
+
+aggregate_reuse_dir=$(mktemp -d "$testdir/work/aggregate-metadata-reuse.XXXXXX")
+mkdir -p "$aggregate_reuse_dir/tmp"
+run_make dependency-metadata-snapshot > "$aggregate_reuse_dir/snapshot"
+aggregate_collector="$aggregate_reuse_dir/collect"
+printf '%s\n' \
+	'#!/bin/sh' \
+	"count_file='$aggregate_reuse_dir/count'" \
+	"snapshot='$aggregate_reuse_dir/snapshot'" \
+	'count=0' \
+	'[ ! -f "$count_file" ] || count=$(cat "$count_file")' \
+	'count=$((count + 1))' \
+	'printf "%s\n" "$count" > "$count_file"' \
+	'cat "$snapshot"' > "$aggregate_collector"
+chmod +x "$aggregate_collector"
+run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	"dependency-metadata-collect-command=$aggregate_collector" \
+	"TMPDIR=$aggregate_reuse_dir/tmp" \
+	UPORTS_DEPENDENCIES=yes target.build >/dev/null
+assert_eq "aggregate invocation collects dependency metadata once" \
+	"$(cat "$aggregate_reuse_dir/count")" "1"
+rm -rf "$aggregate_reuse_dir"
+
+if failed_aggregate_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	UPORTS_DEPENDENCIES=yes target.build 2>&1); then
+	fail "aggregate provider failure is propagated" \
+		"failed aggregate provider command was accepted"
+else
+	pass "aggregate provider failure is propagated"
+fi
+assert_not_contains "aggregate provider failure blocks consumers" \
+	"$failed_aggregate_dispatch" "consumer="
+
+parallel_aggregate_dispatch=$(make --no-print-directory -s -j8 -C \
+	"$testdir" USE_HOSTTOOLS= \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes target.build)
+case "$parallel_aggregate_dispatch" in
+	"host@pkg-config.install
+target@openssl.install
+consumer="*)
+		pass "parallel aggregate completes providers before consumers"
+		;;
+	*)
+		fail "parallel aggregate completes providers before consumers" \
+			"unexpected dispatch: $parallel_aggregate_dispatch"
+		;;
+esac
+
+category_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes security.build)
+assert_contains "category aggregate uses one provider preflight" \
+	"$category_dispatch" \
+	"host@pkg-config.install
+consumer=host@openssl.build
+consumer=target@openssl.build"
+
+global_fetch_dispatch=$(run_make \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	UPORTS_DEPENDENCIES=yes ports.fetch)
+assert_not_contains "global pre-dependency aggregate dispatches no providers" \
+	"$global_fetch_dispatch" ".install"
+assert_contains "global aggregate dispatches consumers after preflight" \
+	"$global_fetch_dispatch" "consumer=target@libffi.fetch"
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib devel/autoconf devel/automake' \
+	DEPENDENCY_EXECUTE_COMMAND=false \
+	dependency-lifecycle-execute >/dev/null 2>&1; then
+	fail "provider execution failure is propagated" \
+		"failed provider command was accepted"
+else
+	pass "provider execution failure is propagated"
+fi
+
+if run_make \
+	--eval='dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib' \
+	dependencies-check >/dev/null 2>&1; then
+	pass "resolved acyclic dependency graph passes validation"
+else
+	fail "resolved acyclic dependency graph passes validation" \
+		"dependencies-check failed"
+fi
+
+if cycle_output=$(run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	dependencies-check 2>&1); then
+	fail "dependency cycle fails validation" "cycle was accepted"
+else
+	pass "dependency cycle fails validation"
+fi
+assert_contains "dependency cycle reports blocked instances" "$cycle_output" \
+	"dependency_cycle_blocked_nodes = host_openssl target_openssl target_libffi"
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	dependency-lifecycle-check >/dev/null 2>&1; then
+	fail "cyclic lifecycle prerequisite plan fails validation" \
+		"cyclic plan was accepted"
+else
+	pass "cyclic lifecycle prerequisite plan fails validation"
+fi
+
+if run_make \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	dependency-lifecycle-execute >/dev/null 2>&1; then
+	fail "opt-in execution rejects cycle before dispatch" \
+		"cyclic plan was executed"
+else
+	pass "opt-in execution rejects cycle before dispatch"
+fi
+
 debug_targets=$(run_make info.debug.targets)
 assert_contains "dispatch diagnostics" "$debug_targets" \
-	"lifecycle_suffixes = 17
-canonical_targets = 102
-alias_targets = 85
-aggregate_targets = 137"
+	"lifecycle_suffixes = 18
+canonical_targets = 108
+alias_targets = 90
+aggregate_targets = 145"
 assert_contains "dispatch validation diagnostics" "$debug_targets" \
 	"ambiguous_short_ports = none
 target_validation = enabled"
@@ -248,6 +2238,8 @@ assert_contains "full target matrix remains available" "$debug_targets_all" \
 debug_all=$(run_make info.debug)
 assert_contains "default debug report includes normalized plan" "$debug_all" \
 	"implicit_default_variants = 6"
+assert_contains "default debug report includes dependency records" "$debug_all" \
+	"dependency_records = 4"
 assert_not_contains "default debug report omits target matrix" "$debug_all" \
 	"depends_exclude_targets ="
 
@@ -289,17 +2281,17 @@ trap 'rm -rf "$synthetic_dir"' EXIT HUP INT TERM
 synthetic_stats=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "synthetic discovered and selected ports" "$synthetic_stats" \
-	"discovered_definitions=31
-resolved_logical_ports=31
+	"discovered_definitions=33
+resolved_logical_ports=33
 selected_ports=20"
 assert_contains "synthetic groups categories and instances" "$synthetic_stats" \
 	"groups=4
 categories=4
 build_instances=22"
 assert_contains "synthetic generated target counts" "$synthetic_stats" \
-	"canonical_targets=374
-alias_targets=340
-aggregate_targets=154"
+	"canonical_targets=396
+alias_targets=360
+aggregate_targets=163"
 
 mkdir -p "$synthetic_dir/feeds/devel/synthetic-added"
 printf '# discovery invalidation fixture\n' \
@@ -307,18 +2299,19 @@ printf '# discovery invalidation fixture\n' \
 synthetic_added=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "new port is discovered without cache invalidation" \
-	"$synthetic_added" "discovered_definitions=32
-resolved_logical_ports=32"
+	"$synthetic_added" "discovered_definitions=34
+resolved_logical_ports=34"
 rm -rf "$synthetic_dir/feeds/devel/synthetic-added"
 synthetic_removed=$(make --no-print-directory -s -C "$synthetic_dir" \
 	USE_HOSTTOOLS= planner-stats)
 assert_contains "removed port is dropped without cache invalidation" \
-	"$synthetic_removed" "discovered_definitions=31
-resolved_logical_ports=31"
+	"$synthetic_removed" "discovered_definitions=33
+resolved_logical_ports=33"
 rm -rf "$synthetic_dir"
 trap - EXIT HUP INT TERM
 
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \
 	"dir=$feeds"
@@ -362,12 +2355,14 @@ rm -f "$unknown_suffix_file"
 
 touch "$testdir/target@libffi.build"
 forced_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 rm -f "$testdir/target@libffi.build"
 assert_contains "canonical dispatch ignores matching filesystem file" \
 	"$forced_dispatch" "target@devel/libffi build"
 
 alias_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	openssl.build)
 assert_contains "default alias selects default group" "$alias_dispatch" \
 	"target@security/openssl build"
@@ -387,6 +2382,7 @@ rm -f "$unknown_alias_file"
 
 touch "$testdir/libffi.build"
 forced_alias=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	libffi.build)
 rm -f "$testdir/libffi.build"
 assert_contains "short alias ignores matching filesystem file" \
@@ -412,6 +2408,7 @@ rm -rf "$ambiguous_dir"
 rm -f "$ambiguous_file"
 
 group_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target.build)
 assert_contains "group aggregate includes expat2" "$group_dispatch" \
 	"target@textproc/expat2 build"
@@ -421,6 +2418,7 @@ assert_contains "group aggregate includes libffi" "$group_dispatch" \
 	"target@devel/libffi build"
 
 category_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	devel.build)
 assert_contains "category aggregate includes built-in port" "$category_dispatch" \
 	"host@devel/pkg-config build"
@@ -429,8 +2427,10 @@ assert_contains "category aggregate includes feed port" "$category_dispatch" \
 
 touch "$testdir/target.build" "$testdir/devel.build"
 forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	target.build)
 forced_category=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no \
 	devel.build)
 rm -f "$testdir/target.build" "$testdir/devel.build"
 assert_contains "group aggregate ignores matching filesystem file" \
@@ -439,7 +2439,7 @@ assert_contains "category aggregate ignores matching filesystem file" \
 	"$forced_category" "target@devel/libffi build"
 
 collision_dispatch=$(make --no-print-directory -n -C "$testdir" \
-	USE_HOSTTOOLS= \
+	USE_HOSTTOOLS= UPORTS_DEPENDENCIES=no \
 	PORTS_LISTS='textproc@textproc/expat2 textproc@devel/libffi' \
 	textproc.build)
 assert_contains "aggregate name collision includes category members" \

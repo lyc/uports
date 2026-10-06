@@ -13,6 +13,8 @@ COMMENT			= GNU Standard-compliant Makefile generator
 
 LICENSE			= GPLv2+
 
+PORT_PROVIDES		+= devel/automake
+
 USES			= tar:xz
 
 GNU_CONFIGURE		= yes

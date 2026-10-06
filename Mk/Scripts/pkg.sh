@@ -27,7 +27,7 @@ validate_env() {
 # uPorts package format
 #
 
-# (L1) PVER: always "1"
+# (L1) PVER: "1" for the legacy header, "2" with provider provenance
 # (L2) NAME: pacakge name
 # (L3) VER: package version
 # (L4) PATH: The path of port directory
@@ -35,7 +35,10 @@ validate_env() {
 # (L6) INDEX: The categories this port is part of
 # (L7) COMPRESS: XZ (only support XZ format now)
 # (L8) EXT: extension of pkg-plist.EXT file
-# (L9) PLIST: %%%%% (separator, can be any)
+# (PVER 2) PROVENANCE: %%%%%-PROVENANCE
+#      ... (versioned dependency-provider provenance records)
+#      %%%%%-PROVENANCE
+# (next line) PLIST: %%%%% (separator, can be any)
 #      ... (content of pkg-plist.EXT)
 #      ... (multiple lines)
 #      ...
@@ -43,11 +46,20 @@ validate_env() {
 #      TXZ BLOB
 
 do_create() {
-    local rc
+    local rc pver
 
     rc=0
+	if [ -n "${PROVENANCE:-}" ]; then
+		if [ ! -r "$PROVENANCE" ]; then
+			echo "Provider provenance file is not readable: $PROVENANCE" >&2
+			exit 1
+		fi
+		pver=2
+	else
+		pver=1
+	fi
 
-    echo "PVER: 1"              > $WRKDIR_PKGFILE
+    echo "PVER: $pver"          > $WRKDIR_PKGFILE
     echo "NAME: $PKGNAME"      >> $WRKDIR_PKGFILE
     echo "VER: $VERSION"       >> $WRKDIR_PKGFILE
     echo "PATH: $ORIGIN"       >> $WRKDIR_PKGFILE
@@ -55,6 +67,11 @@ do_create() {
     echo "INDEX: $INDEX"       >> $WRKDIR_PKGFILE
     echo "COMPRESS: $COMPRESS" >> $WRKDIR_PKGFILE
     echo "EXT: $EXT"           >> $WRKDIR_PKGFILE
+	if [ "$pver" -eq 2 ]; then
+		echo "PROVENANCE: %%%%%-PROVENANCE" >> $WRKDIR_PKGFILE
+		cat "$PROVENANCE"                     >> $WRKDIR_PKGFILE
+		echo "%%%%%-PROVENANCE"                >> $WRKDIR_PKGFILE
+	fi
     echo "PLIST: %%%%%"        >> $WRKDIR_PKGFILE
     cat $PLIST                 >> $WRKDIR_PKGFILE
     echo "%%%%%"               >> $WRKDIR_PKGFILE
@@ -70,6 +87,7 @@ do_add() {
     local rc destdir db
     local quiet strip pkgname
     local pver name ver path prefix index compress ext sep p_start plist txz
+    local provenance_sep provenance_end plist_line
 
     rc=0
     destdir=$DESTDIR
@@ -109,7 +127,7 @@ do_add() {
 #    echo pkgname=$pkgname
 
     pver=`sed -n -e '1p' $pkgname | awk '{ print $2 }'`
-    if [ $pver -eq 1 ]; then
+    if [ "$pver" -eq 1 ] || [ "$pver" -eq 2 ]; then
         name=`sed -n -e '2p' $pkgname | awk '{ print $2 }'`
         ver=`sed -n -e '3p' $pkgname | awk '{ print $2 }'`
         path=`sed -n -e '4p' $pkgname | awk '{ print $2 }'`
@@ -117,8 +135,20 @@ do_add() {
         index=`sed -n -e '6p' $pkgname | awk '{ print $2 }'`
         compress=`sed -n -e '7p' $pkgname | awk '{ print $2 }'`
         ext=`sed -n -e '8p' $pkgname | awk '{ print $2 }'`
-        sep=`sed -n -e '9p' $pkgname | awk '{ print $2 }'`
-        p_start=10
+		if [ "$pver" -eq 1 ]; then
+			sep=`sed -n -e '9p' $pkgname | awk '{ print $2 }'`
+			p_start=10
+		else
+			provenance_sep=`sed -n -e '9p' $pkgname | awk '{ print $2 }'`
+			provenance_end=`awk -v sep="$provenance_sep" 'NR > 9 && $0 == sep { print NR; exit }' $pkgname`
+			if [ -z "$provenance_end" ]; then
+				echo >&2 "Invalid provider provenance block"
+				exit 1
+			fi
+			plist_line=`expr "$provenance_end" + 1`
+			sep=`sed -n -e "${plist_line}p" $pkgname | awk '{ print $2 }'`
+			p_start=`expr "$plist_line" + 1`
+		fi
     else
 	echo >&2 "Unsupported pkg format" ; exit 1
     fi
@@ -155,7 +185,7 @@ do_add() {
     if [ -z ${quiet} ]; then
         topts="v"
     fi
-    sed -e "1,/^${sep}/d" $pkgname > $txz
+    sed -e "1,/^${sep}$/d" $pkgname > $txz
     case "$compress" in
         XZ)
             (cd ${destdir}${prefix} && tar Jx${topts}f $txz) ;;
@@ -177,7 +207,7 @@ do_add() {
     echo "$name: $ver $path $prefix \"${index}\" ${name}-pkg-plist.${ext}" >> ${db}/pkg
 
     # copy pkg-plist.$EXT to $db
-    sed -n -e "${p_start},/^${sep}/p" $pkgname | grep -v $sep > $plist
+    sed -n -e "${p_start},/^${sep}$/p" $pkgname | grep -vx "$sep" > $plist
 
     return ${rc}
 }

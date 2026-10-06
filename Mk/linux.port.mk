@@ -400,6 +400,33 @@ STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
+DEPENDENCY_STATE_CLASS	?=
+DEPENDENCY_STATE_SOURCE	?=
+DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
+dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
+	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
+	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
+dependency-state-artifacts = $(WRKDIR_PKGFILE)
+
+ifneq ($(filter $(DEPENDENCY_STATE_CLASS),configure stage),$(DEPENDENCY_STATE_CLASS))
+$(error DEPENDENCY_STATE_CLASS must be configure or stage)
+endif
+
+.PHONY: uports-dependency-state-check uports-dependency-state-save \
+	uports-dependency-state-invalidate
+uports-dependency-state-check uports-dependency-state-save \
+uports-dependency-state-invalidate:
+	@if test -z "$(DEPENDENCY_STATE_CLASS)"; then \
+	  echo "DEPENDENCY_STATE_CLASS must be configure or stage" >&2; \
+	  exit 1; \
+	fi
+	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
+	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
+	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
+	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
+	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
+	  $(patsubst uports-dependency-state-%,%,$@)
+
 # Special macro for doing in-place file editing using regexps
 ifeq ($(USE_REINPLACE),yes)
 REINPLACE_ARGS		?= -i.bak
@@ -824,8 +851,10 @@ endif
 # $(warning triplet=$(triplet))
 
 ifneq ($(LIB_DEPENDS),)
+ifneq ($(UPORTS_LIB_DEPENDS_USES_UPORTS),no)
 CFLAGS			+= -I$(DESTDIR)$(PREFIX)/include
 LDFLAGS			+= $(addprefix -L$(DESTDIR)$(PREFIX)/,$(libdirs))
+endif
 endif
 
 ifeq ($(OPSYS),darwin)
@@ -835,7 +864,9 @@ DARWIN_RPATH_LDFLAGS	?= -Wl,-not_for_dyld_shared_cache
 ifneq ($(USE_RPATH),no)
 LDFLAGS			+= $(DARWIN_RPATH_LDFLAGS)
 ifneq ($(LIB_DEPENDS),)
+ifneq ($(UPORTS_LIB_DEPENDS_USES_UPORTS),no)
 LDFLAGS			+= $(RPATH_LDFLAGS)
+endif
 endif
 endif
 endif
@@ -970,6 +1001,7 @@ PKG_ENV			+=						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
+	PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE_FILE)			\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #
@@ -1539,7 +1571,7 @@ quiet_cmd_init-git-repo		?=
 	    $(GIT) commit -m "init" $(trash);				\
 	fi)
 
-git-init:
+git-init: | pre-patch-script
 	$(call cmd,init-git-repo)
 
 quiet_cmd_apply-git-patches	?=
@@ -2048,7 +2080,9 @@ $(foreach s,$(_TARGET_STAGES),						\
 # $(call setup-dependence, STAGE, seq[1..n])
 define setup-dependence
 _PHONY_TARGETS		+= $2
-$2: | $($1_IDX)
+ifeq ($(filter $2,$(MAKECMDGOALS)),)
+$2: | $(_$1_IDX)
+endif
 
 _$1_IDX			:= $2
 endef
@@ -2079,6 +2113,9 @@ ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
 ifeq ($(wildcard $($2_COOKIE)),)
+ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
+$$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
+endif
 #ifneq ($($(patsubst %,_%_NEXT,$2)),)
 #$($(patsubst %,_%_NEXT,$2)): $($(patsubst %,_%_LINK,$2))
 #endif
@@ -2338,6 +2375,16 @@ endif
 ################################################################
 # Dependency checking
 ################################################################
+
+# Machine-readable dependency metadata for the top-level uports planner.
+# Keep this target free of dependency execution: the planner's first
+# dependency phase is inspection-only.
+.PHONY: uports-dependency-metadata
+uports-dependency-metadata:
+	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
+	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
+	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
+	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
 
 pkg-depends:
 extract-depends:

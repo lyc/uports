@@ -437,14 +437,14 @@ $(foreach p,$(ports_all_group),					\
   $(eval								\
     $(call generate-instance-record,$p)))
 
+# $(call instance-field, instance-key, field)
+instance-field		= $(instance_$(strip $1)_$(strip $2))
+
 # $(call target-instance-key, group@port.suffix)
 target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
 			    $(strip $(call extract-port,		\
 			      $(call rm-group,$1))))
-
-# $(call instance-field, instance-key, field)
-instance-field		= $(instance_$(strip $1)_$(strip $2))
 
 # $(call target-instance-field, group@port.suffix, field)
 target-instance-field	= $(call instance-field,			\
@@ -458,6 +458,9 @@ target-alias-port	= $(call extract-port,$(call rm-group,$1))
 target-alias-instance	= $(firstword $(filter				\
 			    %/$(call target-alias-port,$1),		\
 			    $(ports_all_group_extra)))
+
+# $(call target-alias-canonical, port.suffix)
+target-alias-canonical	= $(call get-group,$(call target-alias-instance,$1))$(AT)$(call target-alias-port,$1)$(suffix $1)
 
 #
 # generate group@port.suffix target...
@@ -483,9 +486,7 @@ ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 resolve-port-target	= $(strip					\
 			    $(if $(filter $1,$(ports_target_all)),$1,	\
 			      $(if $(filter $1,$(ports_alias_target_all)),	\
-			        $(call get-group,				\
-			          $(call target-alias-instance,$1))$(AT)	\
-			        $(call target-alias-port,$1)$(suffix $1))))
+			        $(call target-alias-canonical,$1))))
 resolved-port-target	= $(call resolve-port-target,$@)
 
 # $(call aggregate-target-name, aggregate.suffix)
@@ -529,6 +530,8 @@ aggregate-prerequisites = $(strip					\
 
 get-envs		= $(call target-instance-field,$1,env)
 
+include $(portdir)/Tools/dependency.mk
+
 quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin) $(call extract-suffix,$(call rm-group,$(resolved-port-target)))
       cmd_generate-port-target	?= set -e;				\
 	dir=$(call target-instance-field,$(resolved-port-target),root);	\
@@ -538,6 +541,9 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolve
 	suffix=$(call extract-suffix,				\
 	  $(call rm-group,$(resolved-port-target)));			\
 	envs="$(call get-envs,$(resolved-port-target))";			\
+	$(dependency-consumer-environment-command)			\
+	$(dependency-consumer-provenance-command)			\
+	$(dependency-consumer-cleanup-command)				\
 	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
 
 depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all) \
@@ -554,14 +560,40 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 .SECONDEXPANSION:
 
 # Aggregate targets are explicit so their canonical prerequisites can resolve
-# through the shared lifecycle patterns without implicit-rule recursion.
+# through the shared lifecycle patterns without implicit-rule recursion.  With
+# dependency execution enabled, validate and prepare the union first, then let a
+# dependency-neutral recursive make dispatch the consumers.
+ifeq ($(UPORTS_DEPENDENCIES),yes)
+ifeq ($(UPORTS_DEPENDENCY_INVOCATION),yes)
+$(ports_aggregate_target_unique): %: uports-force
+	@roots="$(call aggregate-prerequisites,$@)"; \
+	  if test -n "$$roots"; then \
+	    $(MAKE) --no-print-directory DEPENDENCY_REQUESTS="$$roots" \
+	      dependency-lifecycle-execute && \
+	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
+	      UPORTS_DEPENDENCY_STATE=yes $$roots; \
+	  fi
+else
+$(ports_aggregate_target_unique): %: uports-force
+	@$(call dependency-invocation-command,$@)
+endif
+else
 $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
+endif
 
 # $(call generate-port-lifecycle-pattern, suffix)
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
+ifeq ($$(UPORTS_DEPENDENCY_INVOCATION),yes)
+	@$$(dependency-dispatch-command) $$(dependency-state-invalidate-command) :
 	$$(call cmd,generate-port-target)
+	@$$(dependency-state-save-command) :
+else
+	@$$(if $$(filter yes,$$(UPORTS_DEPENDENCIES)),\
+	  $$(call dependency-invocation-command,$$@),\
+	  $$(call cmd,generate-port-target))
+endif
 endef
 
 $(foreach s,$(filter-out $(suffix_special_all),$(suffix_all_lists)),	\
@@ -1004,13 +1036,13 @@ info.debug.targets-all:
 	@$(echo) "depends_exclude_targets = $(depends_exclude_targets)"
 
 debug_targets		= sep1 plan sep2 origins sep3 instances sep4 variants \
-			  sep5 port					\
-			  sep6 category sep7 category-all sep8 port-categories \
-			  sep9 group sep10 group-all sep11		\
-			       group-suffix sep12 port-groups		\
-			  sep13 targets					\
+			  sep5 dependencies sep6 port			\
+			  sep7 category sep8 category-all sep9 port-categories \
+			  sep10 group sep11 group-all sep12		\
+			       group-suffix sep13 port-groups		\
+			  sep14 targets					\
 			  sep-end
-double_line		= sep1 sep2 sep3 sep4 sep5 sep6 sep9 sep13 sep-end
+double_line		= sep1 sep2 sep3 sep4 sep5 sep6 sep7 sep10 sep14 sep-end
 
 $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	@sep=$(findstring $(patsubst info.debug.%,%,$@),$(double_line));\
@@ -1021,5 +1053,12 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	fi
 
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
-			    info.debug.instance-envs info.debug.targets-all
+			    info.debug.instance-envs info.debug.dependencies \
+			    info.debug.dependency-graph info.debug.dependency-order \
+			    info.debug.dependency-lifecycle		\
+			    info.debug.targets-all dependencies-list	\
+			    dependency-graph-list dependency-order-list \
+			    dependency-lifecycle-list			\
+			    dependency-lifecycle-check dependency-execution-plan \
+			    dependency-lifecycle-execute dependencies-check
 $(addsuffix .debug,i info): $(addprefix info.debug.,$(debug_targets))
