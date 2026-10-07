@@ -2447,6 +2447,28 @@ assert_contains "aggregate name collision includes category members" \
 assert_contains "aggregate name collision includes group members" \
 	"$collision_dispatch" "textproc@devel/libffi build"
 
+git_init_fixture=$(mktemp -d "${TMPDIR:-/tmp}/uports-git-init.XXXXXX")
+printf '%s\n' visible >"$git_init_fixture/visible"
+printf '%s\n' generated >"$git_init_fixture/.generated-version"
+git -C "$git_init_fixture" init -q
+git -C "$git_init_fixture" add -A
+git -C "$git_init_fixture" -c user.name='uports test' \
+	-c user.email='uports-test@example.invalid' commit -qm init
+assert_contains "source initialization commits generated dotfiles" \
+	"$(git -C "$git_init_fixture" ls-files)" ".generated-version"
+if [ -z "$(git -C "$git_init_fixture" status --porcelain \
+	--untracked-files=normal)" ]; then
+	pass "source initialization leaves a clean checkout"
+else
+	fail "source initialization leaves a clean checkout" \
+		"generated source files remain untracked"
+fi
+assert_contains "framework source initialization stages the complete tree" \
+	"$(sed -n '/cmd_init-git-repo/,/git-init:/p' \
+	"$portdir/Mk/linux.port.mk")" \
+	'$(GIT) add $(GIT_ADD_OPTS) -A'
+rm -rf "$git_init_fixture"
+
 main_patch_fixture=${TMPDIR:-/tmp}/uports-main-patch.$$
 main_patch_repo=$main_patch_fixture/repo
 main_patch_dir=$main_patch_fixture/patches

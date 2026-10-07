@@ -29,6 +29,11 @@ series
 
 The two `OPSYS_SUFX` forms are omitted when `OPSYS_SUFX` is empty.
 
+For archive sources, V2 initializes a Git repository after pre-patch scripts
+have prepared the tree. The initial commit captures the complete tree, including
+generated dotfiles, so the clean-checkout boundary below compares patches
+against the actual prepared source rather than an incomplete shell-glob subset.
+
 V2 application is restartable. Before applying a series, the framework aborts
 an incomplete `git am` and requires a clean checkout. It recognizes the leading
 series commits already present at `HEAD` and continues with the first missing
