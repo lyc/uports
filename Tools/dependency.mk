@@ -190,9 +190,14 @@ $(foreach p,$(ports_all_group),					\
 depends_exclude_targets += dependency-metadata-probes $(dependency_metadata_probe_targets)
 dependency-metadata-probes: $(dependency_metadata_probe_targets)
 
+# Reuse an inherited GNU make jobserver when the caller is already parallel.
+# A serial top-level invocation still receives the configured probe limit.
+dependency-metadata-jobs-flag = $(if $(filter --jobserver-auth=% \
+	--jobserver-fds=%,$(MAKEFLAGS)),,-j$(DEPENDENCY_METADATA_JOBS))
+
 dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
-	$(MAKE) -s --no-print-directory -j$(DEPENDENCY_METADATA_JOBS) 	\
+	$(MAKE) -s --no-print-directory $(dependency-metadata-jobs-flag) \
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
 	  >/dev/null &&							\
 	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\

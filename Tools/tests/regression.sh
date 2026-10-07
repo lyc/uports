@@ -1406,6 +1406,14 @@ else
 		"parallel and serial output differ"
 fi
 
+jobserver_dependencies=$(DEPENDENCY_PROVIDER_POLICIES= \
+	PATH="$platform_test_dir:$PATH" make --no-print-directory -s -j4 \
+	-C "$testdir" USE_HOSTTOOLS= info.debug.dependencies 2>&1)
+assert_not_contains "parallel metadata inherits the parent jobserver" \
+	"$jobserver_dependencies" "forced in submake"
+assert_contains "jobserver metadata collection remains complete" \
+	"$jobserver_dependencies" "dependency_records = 4"
+
 if metadata_error=$(run_make \
 	PORTS_target_libffi_EXTRA_ENVS='PORTSDIR=/nonexistent' \
 	info.debug.dependencies 2>&1); then
