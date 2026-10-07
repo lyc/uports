@@ -5,9 +5,11 @@ set -eu
 testdir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 topdir=$(CDPATH= cd -- "$testdir/../../../.." && pwd)
 portdir=$topdir/make/uports
-feeds=$topdir/feeds
+feeds=$testdir/fixtures
 failures=0
 tests=0
+
+mkdir -p "$testdir/work"
 
 pass()
 {
@@ -1247,8 +1249,8 @@ flavor.categories_all=simple
 flavor.ports_all_group=simple
 flavor.groups_all=simple
 flavor.ports_all_group_extra=simple"
-assert_contains "built-in port origin" "$snapshot" \
-	"origin.pkg-config=$portdir"
+assert_contains "fixture port origin" "$snapshot" \
+	"origin.pkg-config=$feeds"
 assert_contains "feed override origin" "$snapshot" \
 	"origin.openssl=$feeds"
 assert_contains "normalized logical port origin" "$snapshot" \
@@ -1292,9 +1294,9 @@ planner_stats=$(run_make planner-stats)
 assert_contains "planner collection count" "$planner_stats" \
 	"collections=2"
 assert_contains "planner discovered definition count" "$planner_stats" \
-	"discovered_definitions=56"
+	"discovered_definitions=7"
 assert_contains "planner resolved logical port count" "$planner_stats" \
-	"resolved_logical_ports=55"
+	"resolved_logical_ports=7"
 assert_contains "planner selected port count" "$planner_stats" \
 	"selected_ports=5"
 assert_contains "planner group and category counts" "$planner_stats" \
@@ -2428,7 +2430,7 @@ assert_contains "group aggregate includes libffi" "$group_dispatch" \
 category_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
 	devel.build)
-assert_contains "category aggregate includes built-in port" "$category_dispatch" \
+assert_contains "category aggregate includes build-tool fixture" "$category_dispatch" \
 	"host@devel/pkg-config build"
 assert_contains "category aggregate includes feed port" "$category_dispatch" \
 	"target@devel/libffi build"
@@ -2448,6 +2450,7 @@ assert_contains "category aggregate ignores matching filesystem file" \
 
 collision_dispatch=$(make --no-print-directory -n -C "$testdir" \
 	USE_HOSTTOOLS= UPORTS_DEPENDENCIES=no \
+	PORTS_textproc_ENVS='PREFIX=/usr/local DESTDIR=/tmp/uports-textproc' \
 	PORTS_LISTS='textproc@textproc/expat2 textproc@devel/libffi' \
 	textproc.build)
 assert_contains "aggregate name collision includes category members" \

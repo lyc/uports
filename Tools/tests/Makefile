@@ -6,7 +6,8 @@
 
 testdir			:= $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 topdir			:= $(abspath $(testdir)/../../../..)
-FEEDS			?= $(topdir)/feeds
+FEEDS			?= $(testdir)/fixtures
+default_ignore_lists	= %
 
 # STEP 1: Create PORTS_LISTS
 #
