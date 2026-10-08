@@ -452,6 +452,7 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))
 
 .PHONY: dependency-provider-registry-list dependency-provider-registry-check \
+	dependency-provider-tool-registry-list dependency-provider-tool-registry-check \
 	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
@@ -460,7 +461,8 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	dependency-provider-environment-list dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-registry-list \
-	dependency-provider-registry-check dependency-provider-policy-list \
+	dependency-provider-registry-check dependency-provider-tool-registry-list \
+	dependency-provider-tool-registry-check dependency-provider-policy-list \
 	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-discovery-list dependency-provider-discovery-check \
 	dependency-provider-policy-check dependency-provider-selection-list \
@@ -490,6 +492,14 @@ dependency-provider-registry-check:
 	@{ $(dependency-provider-registry-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk"
 
+dependency-provider-tool-registry-list:
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk"
+
+dependency-provider-tool-registry-check:
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk"
+
 .PHONY: dependency-provider-discovery-list dependency-provider-discovery-check
 
 dependency-provider-discovery-list:
@@ -497,12 +507,21 @@ dependency-provider-discovery-list:
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command)
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  $(dependency-provider-tool-discovery-command)
 
 dependency-provider-discovery-check:
 	@{ $(dependency-provider-registry-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command) | \
+	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  $(dependency-provider-tool-discovery-command) | \
 	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
 
 dependency-provider-policy-list:

@@ -59,6 +59,36 @@ DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES ?= $(dependency-provider-profile-pkg-c
 DEPENDENCY_PROVIDER_CC_CANDIDATES ?= $(dependency-provider-profile-cc-candidates)
 DEPENDENCY_PROVIDER_PREFIXES ?= $(dependency-provider-profile-prefixes)
 
+# Native build-tool discovery is deliberately separate from the pkg-config
+# library registry.  Each entry describes the command interface that may
+# satisfy one build-context origin.  Commands are searched only below the
+# active profile prefixes unless an explicit path is supplied for the entry.
+DEPENDENCY_PROVIDER_TOOL_REGISTRY ?= m4 autoconf automake libtool cmake
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.m4 ?= devel/m4
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.m4 ?= m4
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.m4 ?= 1.4.19
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.autoconf ?= devel/autoconf
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.autoconf ?= autoreconf
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf ?= 2.69
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.automake ?= devel/automake
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.automake ?= automake
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.automake ?= 1.16.1
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.libtool ?= devel/libtool
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.libtool ?= libtoolize
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.libtool ?= 2.4.6
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.cmake ?= devel/cmake
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.cmake ?= cmake
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.cmake ?= 3.20
+
+define dependency-provider-tool-registry-input
+  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)';)
+endef
+
 dependency-provider-discovery-command = \
 	DEPENDENCY_PROVIDER_PKG_CONFIG='$(DEPENDENCY_PROVIDER_PKG_CONFIG)' \
 	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN='$(DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN)' \
@@ -67,6 +97,10 @@ dependency-provider-discovery-command = \
 	DEPENDENCY_PROVIDER_CC_CANDIDATES='$(DEPENDENCY_PROVIDER_CC_CANDIDATES)' \
 	DEPENDENCY_PROVIDER_PREFIXES='$(DEPENDENCY_PROVIDER_PREFIXES)' \
 	"$(portdir)/Tools/Providers/pkg-config.sh"
+
+dependency-provider-tool-discovery-command = \
+	DEPENDENCY_PROVIDER_PREFIXES='$(DEPENDENCY_PROVIDER_PREFIXES)' \
+	"$(portdir)/Tools/Providers/tool.sh"
 
 dependency-provider-discovery-field = $(word $1,$(subst $(VERTICAL_BAR), ,$2))
 dependency-provider-discovery-paths = $(if $(filter none,$1),,$(subst :, ,$1))
@@ -86,7 +120,8 @@ endef
 
 define apply-dependency-provider-discovery
   $(eval dependency_discovery_origin := $(call dependency-provider-discovery-field,3,$1))
-  $(eval dependency_discovery_identity := $(dependency-provider-profile)-pkg-config-$(DEPENDENCY_BUILD_ARCH))
+  $(eval dependency_discovery_key := $(call dependency-provider-discovery-field,2,$1))
+  $(eval dependency_discovery_identity := $(dependency-provider-profile)-$(if $(filter %-tool,$(dependency_discovery_key)),$(patsubst %-tool,%,$(dependency_discovery_key)),pkg-config)-$(DEPENDENCY_BUILD_ARCH))
   $(eval dependency_discovery_origin_key := $(subst /,_,$(dependency_discovery_origin)))
   $(eval DEPENDENCY_PROVIDER_CHECK.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := true)
   $(eval DEPENDENCY_PROVIDER_INCLUDEDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,6,$1)))
@@ -104,7 +139,7 @@ endef
 define load-dependency-provider-discovery
   $(if $(filter yes,$(dependency-provider-discovery-enabled)),
     $(if $(dependency-provider-profile-error),$(error invalid dependency provider profile: $(dependency-provider-profile-error)))
-    $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command)))
+    $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command); { $(dependency-provider-tool-registry-input) :; } | $(dependency-provider-tool-discovery-command)))
     $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider discovery failed))
     $(foreach d,$(dependency_provider_discovery),
       $(if $(filter available,$(call dependency-provider-discovery-field,4,$d)),

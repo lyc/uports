@@ -301,6 +301,24 @@ assert_contains "readline registry accepts a nested header" \
 	"$provider_registry" \
 	"key=readline origin=devel/readline method=pkg-config module=readline header=readline/readline.h link_name=readline state=valid"
 
+tool_provider_registry=$(run_make dependency-provider-tool-registry-check)
+assert_contains "built-in build-tool provider registry is valid" \
+	"$tool_provider_registry" \
+	"dependency_provider_tool_registry_entries = 5
+dependency_provider_tool_registry_invalid = 0"
+assert_contains "autoconf tool registry declares candidates and minimum version" \
+	"$tool_provider_registry" \
+	"key=autoconf origin=devel/autoconf minimum=2.69 candidates=autoreconf explicit=none state=valid"
+
+invalid_tool_provider_registry=$(run_make \
+	'DEPENDENCY_PROVIDER_TOOL_REGISTRY=bad' \
+	'DEPENDENCY_PROVIDER_TOOL_ORIGIN.bad=devel/example' \
+	'DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.bad=latest' \
+	'DEPENDENCY_PROVIDER_TOOL_CANDIDATES.bad=bad/tool' \
+	dependency-provider-tool-registry-list)
+assert_contains "tool registry rejects an invalid version contract" \
+	"$invalid_tool_provider_registry" "state=invalid-min-version"
+
 empty_provider_registry=$(run_make DEPENDENCY_PROVIDER_REGISTRY= \
 	dependency-provider-registry-check)
 assert_contains "empty provider registry remains valid" \
@@ -372,7 +390,7 @@ chmod +x "$fake_pkg_config"
 fake_cc="$discovery_test_dir/cc"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$fake_cc"
 chmod +x "$fake_cc"
-discovery_registry_args="DEPENDENCY_PROVIDER_REGISTRY=example DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.example=devel/autoconf DEPENDENCY_PROVIDER_REGISTRY_METHOD.example=pkg-config DEPENDENCY_PROVIDER_REGISTRY_MODULE.example=example DEPENDENCY_PROVIDER_REGISTRY_HEADER.example=example/example.h DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.example=example"
+discovery_registry_args="DEPENDENCY_PROVIDER_TOOL_REGISTRY= DEPENDENCY_PROVIDER_REGISTRY=example DEPENDENCY_PROVIDER_REGISTRY_ORIGIN.example=devel/autoconf DEPENDENCY_PROVIDER_REGISTRY_METHOD.example=pkg-config DEPENDENCY_PROVIDER_REGISTRY_MODULE.example=example DEPENDENCY_PROVIDER_REGISTRY_HEADER.example=example/example.h DEPENDENCY_PROVIDER_REGISTRY_LINK_NAME.example=example"
 provider_discovery=$(run_make $discovery_registry_args \
 	"DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config" \
 	"DEPENDENCY_PROVIDER_CC=$fake_cc" \
@@ -444,6 +462,26 @@ assert_contains "missing pkg-config module is an unavailable provider" \
 	"$provider_discovery_missing" \
 	"discovery|example|devel/autoconf|unavailable|module-missing|none|none|none"
 
+fake_autoreconf="$discovery_test_dir/autoreconf"
+printf '%s\n' '#!/bin/sh' 'echo "autoreconf (GNU Autoconf) 2.72"' > "$fake_autoreconf"
+chmod +x "$fake_autoreconf"
+tool_registry_args="DEPENDENCY_PROVIDER_REGISTRY= DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config DEPENDENCY_PROVIDER_TOOL_REGISTRY=autoconf DEPENDENCY_PROVIDER_TOOL_ORIGIN.autoconf=devel/autoconf DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf=2.69 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.autoconf=autoreconf DEPENDENCY_PROVIDER_TOOL.autoconf=$fake_autoreconf"
+tool_provider_discovery=$(run_make $tool_registry_args \
+	dependency-provider-discovery-check)
+assert_contains "native build-tool discovery validates command version" \
+	"$tool_provider_discovery" \
+	"discovery|autoconf-tool|devel/autoconf|available|validated:2.72|none|none|none|$discovery_test_dir|build"
+
+old_autoreconf="$discovery_test_dir/old-autoreconf"
+printf '%s\n' '#!/bin/sh' 'echo "autoreconf (GNU Autoconf) 2.68"' > "$old_autoreconf"
+chmod +x "$old_autoreconf"
+old_tool_provider_discovery=$(run_make $tool_registry_args \
+	"DEPENDENCY_PROVIDER_TOOL.autoconf=$old_autoreconf" \
+	dependency-provider-discovery-list)
+assert_contains "native build-tool discovery rejects old command version" \
+	"$old_tool_provider_discovery" \
+	"discovery|autoconf-tool|devel/autoconf|unavailable|version-too-old:2.68"
+
 empty_provider_policy=$(run_make dependency-provider-policy-list)
 assert_contains "empty provider policy is valid" "$empty_provider_policy" \
 	"dependency_provider_policies = 0
@@ -484,6 +522,20 @@ assert_contains "malformed provider policy is rejected" \
 	"$invalid_provider_policy_output" "raw=malformed state=invalid-field-count"
 
 resolved_provider_args="--eval=dependency_capabilities_host_pkg-config := devel/autoconf devel/automake archivers/zlib"
+
+native_build_tool_selection=$(run_make "$resolved_provider_args" \
+	$tool_registry_args DEPENDENCY_PROVIDER_MODE=host \
+	dependency-provider-selection-list)
+assert_contains "host mode selects a validated native build tool" \
+	"$native_build_tool_selection" \
+	"origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64 resolution=selected state=validated"
+
+native_build_tool_fallback=$(run_make "$resolved_provider_args" \
+	$tool_registry_args "DEPENDENCY_PROVIDER_TOOL.autoconf=$old_autoreconf" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "host mode falls back when a native build tool is too old" \
+	"$native_build_tool_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config resolution=selected state=selected"
 
 native_tool_selection=$(run_make "$resolved_provider_args" \
 	DEPENDENCY_PROVIDER_REGISTRY= \
@@ -556,6 +608,7 @@ assert_contains "explicit tool precedence keeps provider selection valid" \
 
 native_tool_fallback=$(run_make "$resolved_provider_args" \
 	DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_TOOL_REGISTRY= \
 	DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN=devel/autoconf \
 	"DEPENDENCY_PROVIDER_PKG_CONFIG=$missing_pkg_config" \
 	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
