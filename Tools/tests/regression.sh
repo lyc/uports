@@ -1528,6 +1528,29 @@ chmod +x "$autoconf_wrapper_test/autoreconf2.72"
 assert_eq "autoconf wrapper dispatches the versioned command with arguments" \
 	"$("$autoconf_wrapper_test/autoreconf" -f -i)" \
 	"versioned-autoreconf:-f -i"
+mkdir -p "$autoconf_wrapper_test/bin" \
+	"$autoconf_wrapper_test/share/autoconf2.72"
+cp "$portdir/devel/autoconf-switch/files/autoconf" \
+	"$autoconf_wrapper_test/bin/autoreconf"
+chmod +x "$autoconf_wrapper_test/bin/autoreconf"
+printf '%s\n' '#!/bin/sh' \
+	'printf "%s\\n" "$autom4te_perllibdir" "$AUTOCONF" "$AUTOM4TE"' \
+	> "$autoconf_wrapper_test/bin/autoreconf2.72"
+chmod +x "$autoconf_wrapper_test/bin/autoreconf2.72"
+autoconf_wrapper_environment=$("$autoconf_wrapper_test/bin/autoreconf")
+assert_contains "relocated wrapper finds sibling Autoconf data" \
+	"$autoconf_wrapper_environment" \
+	"$autoconf_wrapper_test/bin/../share/autoconf2.72"
+assert_contains "relocated wrapper selects its matching autoconf version" \
+	"$autoconf_wrapper_environment" \
+	"$autoconf_wrapper_test/bin/autoconf2.72"
+assert_contains "relocated wrapper supplies autom4te include path" \
+	"$autoconf_wrapper_environment" \
+	"autom4te2.72 --prepend-include=$autoconf_wrapper_test/bin/../share/autoconf2.72"
+autoconf_wrapper_override=$(AUTOCONF=/explicit/autoconf \
+	"$autoconf_wrapper_test/bin/autoreconf")
+assert_contains "relocated wrapper preserves explicit tool override" \
+	"$autoconf_wrapper_override" "/explicit/autoconf"
 rm -rf "$autoconf_wrapper_test"
 
 capability_dependencies=$(run_make \
