@@ -1287,15 +1287,19 @@ assert_not_contains "invalid path never invokes consumer command" \
 	"$invalid_environment_run" "SHOULD-NOT-RUN"
 
 assert_contains "selected logical ports" "$snapshot" \
-	"ports_all_raw=devel/pkg-config textproc/expat2 math/gmp security/openssl devel/libffi"
+	"ports_all_raw=textproc/expat2 math/gmp security/openssl devel/libffi devel/pkg-config"
 assert_contains "short port names" "$snapshot" \
-	"ports_all=pkg-config expat2 gmp openssl libffi"
+	"ports_all=expat2 gmp openssl libffi pkg-config"
 assert_contains "group set" "$snapshot" \
 	"groups_all=host target toolchain"
 assert_contains "multiple group membership" "$snapshot" \
 	"host@security/openssl target@security/openssl"
 assert_contains "default-group assignment" "$snapshot" \
 	"target@textproc/expat2"
+assert_contains "fallback instance is selected but not an aggregate root" "$snapshot" \
+	"ports_root_group=target@textproc/expat2 toolchain@math/gmp host@security/openssl target@security/openssl target@devel/libffi"
+assert_contains "fallback instance has a normalized selectable list" "$snapshot" \
+	"ports_fallback_group=host@devel/pkg-config"
 assert_contains "normalized planning records are immediate" "$snapshot" \
 	"flavor.ports_all_raw=simple
 flavor.categories_all=simple
@@ -1394,10 +1398,10 @@ rm -rf "$status_work"
 
 debug_categories=$(run_make info.debug.category-all)
 assert_contains "aggregate category diagnostics" "$debug_categories" \
-	"categories_devel = pkg-config libffi"
+	"categories_devel = libffi pkg-config"
 show_category=$(run_make show-categories-devel)
 assert_contains "direct category diagnostic alias" "$show_category" \
-	"categories_devel = pkg-config libffi"
+	"categories_devel = libffi pkg-config"
 
 debug_port_groups=$(run_make info.debug.port-groups)
 assert_contains "aggregate port-group diagnostics" "$debug_port_groups" \
@@ -1580,7 +1584,7 @@ assert_contains "dependency order includes every selected instance" \
 	"dependency_order_count = 6"
 assert_contains "dependency order is provider-first and deterministic" \
 	"$dependency_order" \
-	"dependency_order = host_pkg-config target_expat2 toolchain_gmp host_openssl target_openssl target_libffi"
+	"dependency_order = target_expat2 toolchain_gmp host_pkg-config host_openssl target_openssl target_libffi"
 
 dependency_order_alias=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
@@ -2497,10 +2501,15 @@ assert_contains "group aggregate includes libffi" "$group_dispatch" \
 category_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
 	devel.build)
-assert_contains "category aggregate includes build-tool fixture" "$category_dispatch" \
+assert_not_contains "category aggregate excludes fallback-only fixture" "$category_dispatch" \
 	"host@devel/pkg-config build"
-assert_contains "category aggregate includes feed port" "$category_dispatch" \
+assert_contains "category aggregate includes root feed port" "$category_dispatch" \
 	"target@devel/libffi build"
+
+fallback_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no host@pkg-config.build)
+assert_contains "fallback instance retains direct lifecycle target" \
+	"$fallback_dispatch" "host@devel/pkg-config build"
 
 touch "$testdir/target.build" "$testdir/devel.build"
 forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
@@ -2898,6 +2907,27 @@ else
 	error_output=$(cat "$error_file")
 	assert_contains "unknown selected port fails early" "$error_output" \
 		"assign unknown packages: devel/does-not-exist"
+fi
+
+if run_make PORTS_LISTS= PORTS_FALLBACK_LISTS=devel/pkg-config \
+    info.debug >"$error_file" 2>&1; then
+	fail "fallback selection requires explicit roots" \
+		"fallback-only project unexpectedly accepted"
+else
+	assert_contains "fallback selection requires explicit roots" \
+		"$(cat "$error_file")" \
+		"PORTS_FALLBACK_LISTS requires explicit PORTS_LISTS roots"
+fi
+
+if run_make PORTS_LISTS=devel/pkg-config \
+    PORTS_FALLBACK_LISTS=devel/pkg-config \
+    info.debug >"$error_file" 2>&1; then
+	fail "root and fallback instances cannot overlap" \
+		"overlapping selection unexpectedly accepted"
+else
+	assert_contains "root and fallback instances cannot overlap" \
+		"$(cat "$error_file")" \
+		"instances cannot be both roots and fallbacks: target@devel/pkg-config"
 fi
 
 rm -f "$error_file"

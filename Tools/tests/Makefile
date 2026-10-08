@@ -38,11 +38,11 @@ default_ignore_lists	= %
 #    default port group name.
 
 PORTS_GROUP_DEFAULT	= target
-PORTS_LISTS		= host@devel/pkg-config				\
-			  textproc/expat2				\
+PORTS_LISTS		= textproc/expat2				\
 			  toolchain@math/gmp				\
 			  host@target@security/openssl			\
 			  target@devel/libffi
+PORTS_FALLBACK_LISTS	= host@devel/pkg-config
 
 # STEP 2: Setup Environment Variables
 #
@@ -121,6 +121,8 @@ regression.snapshot:
 	  'ports_all=$(ports_all)'					\
 	  'groups_all=$(groups_all)'					\
 	  'ports_all_group=$(ports_all_group)'				\
+	  'ports_root_group=$(ports_root_group)'				\
+	  'ports_fallback_group=$(ports_fallback_group)'			\
 	  'ports_all_group_extra=$(ports_all_group_extra)'		\
 	  'flavor.ports_all_raw=$(flavor ports_all_raw)'			\
 	  'flavor.categories_all=$(flavor categories_all)'			\

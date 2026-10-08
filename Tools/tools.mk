@@ -98,6 +98,11 @@ suffix_all_lists	:=						\
 SLASH			:= /
 rm-slash		= $(subst $(SLASH), ,$1)
 
+# $(call stable-unique, word list)
+stable-unique		= $(if $1,$(firstword $1)$(if $(filter-out 	\
+			    $(firstword $1),$1), $(call stable-unique,	\
+			      $(filter-out $(firstword $1),$1))))
+
 AT			:= @
 rm-at			= $(subst $(AT), ,$1)
 
@@ -176,9 +181,17 @@ get-dir			= $(port_$(call get-port,$1)_root)
 #   ports_all:
 #
 
-ifneq ($(PORTS_LISTS),)
+ifneq ($(strip $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS)),)
 ports_all_raw		:= $(foreach p,					\
-			    $(PORTS_LISTS),$(call purify_ports_raw,$p))
+			    $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS),	\
+			      $(call purify_ports_raw,$p))
+ports_all_raw		:= $(call stable-unique,$(ports_all_raw))
+endif
+
+ifneq ($(strip $(PORTS_FALLBACK_LISTS)),)
+ifeq ($(strip $(PORTS_LISTS)),)
+$(error PORTS_FALLBACK_LISTS requires explicit PORTS_LISTS roots)
+endif
 endif
 
 ports_all_raw_unknown	:= $(filter-out $(ports_all_raw_lists),$(ports_all_raw))
@@ -256,13 +269,26 @@ $(foreach p,$(ports_all_raw_lists),					\
 
 PORTS_GROUP_DEFAULT	?= host
 
-ports_all_group		:= $(strip					\
+ports_root_group	:= $(strip					\
 			    $(foreach p,				\
 			      $(if $(PORTS_LISTS),$(PORTS_LISTS),	\
 			        $(call set-special-groups,		\
 			          $(special_groups_all),$(ports_all_raw))),\
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
+
+ports_fallback_group	:= $(strip					\
+			    $(foreach p,$(PORTS_FALLBACK_LISTS),		\
+			      $(call complete-group-default,		\
+			        $p,$(PORTS_GROUP_DEFAULT))))
+
+ports_root_fallback_overlap := $(filter $(ports_root_group),		\
+			    $(ports_fallback_group))
+ifneq ($(ports_root_fallback_overlap),)
+$(error instances cannot be both roots and fallbacks: $(ports_root_fallback_overlap))
+endif
+
+ports_all_group		:= $(strip $(ports_root_group) $(ports_fallback_group))
 
 groups_all		:= $(sort					\
 			    $(foreach p,$(ports_all_group),		\
@@ -274,6 +300,8 @@ groups_all		:= $(sort					\
 define generate-groups-lists
   groups_$1		:= $(foreach p,$(filter $1$(AT)%,		\
 			    $(ports_all_group)),$(lastword $(call rm-slash,$p)))
+  root_groups_$1	:= $(foreach p,$(filter $1$(AT)%,		\
+			    $(ports_root_group)),$(lastword $(call rm-slash,$p)))
 endef
 
 $(foreach g,$(groups_all),						\
@@ -501,7 +529,7 @@ aggregate-category-prerequisites = $(foreach c,			\
 			      $(categories_all)),				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
-			      $(call transform_category,$c)))
+			      $(call transform_root_category,$c)))
 
 # $(call aggregate-group-prerequisites, group.suffix)
 aggregate-group-prerequisites = $(if				\
@@ -511,7 +539,7 @@ aggregate-group-prerequisites = $(if				\
 			      $(call aggregate-target-name,$1)$(AT),	\
 			      $(addsuffix					\
 			        .$(call aggregate-target-suffix,$1),	\
-			        $(groups_$(call aggregate-target-name,$1)))))
+			        $(root_groups_$(call aggregate-target-name,$1)))))
 
 # $(call aggregate-global-prerequisites, ports.suffix)
 aggregate-global-prerequisites = $(if				\
@@ -520,7 +548,7 @@ aggregate-global-prerequisites = $(if				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
 			      $(call transform_all_group,		\
-			        $(ports_all_group))))
+			        $(ports_root_group))))
 
 # $(call aggregate-prerequisites, aggregate.suffix)
 aggregate-prerequisites = $(strip					\
@@ -622,6 +650,11 @@ $(foreach s,$(suffix_special_all),					\
 transform_category	= $(foreach p,$(categories_$1),			\
 			    $(foreach g,$($p_groups),$g$(AT)$p))
 
+transform_root_category = $(foreach p,$(categories_$1),		\
+			    $(foreach g,$($p_groups),			\
+			      $(if $(filter $g$(AT)%/$p,		\
+			        $(ports_root_group)),$g$(AT)$p)))
+
 transform_all_group	= $(foreach p,$1,				\
 			    $(call get-group,$p)@$(call get-port,$p))
 
@@ -631,7 +664,8 @@ transform_all_group	= $(foreach p,$1,				\
 
 .PHONY: ports
 depends_exclude_targets	+= ports
-ports: $(addsuffix .install,$(ports_all))
+ports: $(addsuffix .install,$(sort $(foreach p,$(ports_root_group),	\
+			    $(call get-port,$p))))
 
 #
 # planner statistics...
