@@ -2447,6 +2447,11 @@ assert_contains "aggregate name collision includes category members" \
 assert_contains "aggregate name collision includes group members" \
 	"$collision_dispatch" "textproc@devel/libffi build"
 
+serial_status=$(make --no-print-directory -C "$testdir" USE_HOSTTOOLS= \
+	UPORTS_DEPENDENCIES=no target@expat2.clean)
+assert_contains "serial dispatch retains concise status output" \
+	"$serial_status" "PORT    target@textproc/expat2 clean"
+
 git_init_fixture=$(mktemp -d "${TMPDIR:-/tmp}/uports-git-init.XXXXXX")
 printf '%s\n' visible >"$git_init_fixture/visible"
 printf '%s\n' generated >"$git_init_fixture/.generated-version"
