@@ -14,6 +14,10 @@ COMMENT			= Wrapper script to switch bwtween autoconf versions
 
 LICENSE			= BSD2CLAUS
 
+# This package provides the unsuffixed interface used by consumers.
+PORT_PROVIDES		+= devel/autoconf
+RUN_DEPENDS		+= autoconf2.72:devel/autoconf-2.72
+
 FILES			= autoheader autom4te autoreconf autoscan autoupdate ifnames
 
 #
@@ -37,4 +41,3 @@ do-install:
 	done
 
 include $(PORTSDIR)/Mk/linux.port.post.mk
-

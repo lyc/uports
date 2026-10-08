@@ -1509,8 +1509,26 @@ assert_contains "unknown dependency origin is explicit" "$debug_dependencies" \
 
 autoconf_metadata=$(make --no-print-directory -s -C \
 	"$portdir/devel/autoconf-2.72" uports-dependency-metadata)
-assert_contains "provider capability metadata is exported" "$autoconf_metadata" \
+assert_not_contains "versioned autoconf does not advertise unsuffixed commands" \
+	"$autoconf_metadata" "provides|devel/autoconf"
+autoconf_switch_metadata=$(make --no-print-directory -s -C \
+	"$portdir/devel/autoconf-switch" uports-dependency-metadata)
+assert_contains "provider capability metadata is exported" "$autoconf_switch_metadata" \
 	"provides|devel/autoconf"
+assert_contains "autoconf wrapper requires its versioned implementation" \
+	"$autoconf_switch_metadata" "run|autoconf2.72:devel/autoconf-2.72"
+
+autoconf_wrapper_test=$(mktemp -d "$testdir/work/autoconf-wrapper.XXXXXX")
+cp "$portdir/devel/autoconf-switch/files/autoconf" \
+	"$autoconf_wrapper_test/autoreconf"
+chmod +x "$autoconf_wrapper_test/autoreconf"
+printf '%s\n' '#!/bin/sh' 'printf "versioned-autoreconf:%s\\n" "$*"' \
+	> "$autoconf_wrapper_test/autoreconf2.72"
+chmod +x "$autoconf_wrapper_test/autoreconf2.72"
+assert_eq "autoconf wrapper dispatches the versioned command with arguments" \
+	"$("$autoconf_wrapper_test/autoreconf" -f -i)" \
+	"versioned-autoreconf:-f -i"
+rm -rf "$autoconf_wrapper_test"
 
 capability_dependencies=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := devel/autoconf' \
