@@ -36,6 +36,10 @@ $1 == "external-environment" {
 		external_environment[key, field] = $field
 }
 
+$1 == "native-tool-versions" {
+	native_tool_versions[$2, $3] = $4
+}
+
 $1 == "request" {
 	request_node[++request_count] = $2
 	request_phase[request_count] = $3
@@ -271,6 +275,8 @@ END {
 					       external_environment[key, 8], external_environment[key, 9]
 					if (external_environment[key, 10] != "")
 						printf "external-commands|%s|%s|%s|%s\n", node, identity, origin, external_environment[key, 10]
+					if (native_tool_versions[key] != "")
+						printf "external-tool-versions|%s|%s|%s|%s\n", node, identity, origin, native_tool_versions[key]
 					continue
 				}
 				printf "dependency|%s|%s|%s|%s|%s|%s|%s\n", node,

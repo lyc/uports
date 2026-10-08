@@ -614,6 +614,116 @@ assert_contains "host mode selects a validated native build tool" \
 	"$native_build_tool_selection" \
 	"origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64 resolution=selected state=validated"
 
+strict_native_selection=$(run_make "$resolved_provider_args" $tool_registry_args \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "consumer version requirement rejects an older native tool" \
+	"$strict_native_selection" \
+	"requirement=autoconf>=2.73 origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config"
+numeric_native_selection=$(run_make "$resolved_provider_args" $tool_registry_args \
+	--eval='override dependency3_requirement := autoconf>=2.9' \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "native versions use numeric component comparison" \
+	"$numeric_native_selection" \
+	"requirement=autoconf>=2.9 origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64"
+if run_make "$resolved_provider_args" $tool_registry_args \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=system-only dependency-provider-selection-check \
+	>/dev/null 2>&1; then
+	fail "system-only rejects an unsatisfied consumer tool version" "old native tool accepted"
+else
+	pass "system-only rejects an unsatisfied consumer tool version"
+fi
+
+for candidate_prefix in incomplete old current newer; do
+	mkdir -p "$discovery_test_dir/$candidate_prefix/bin"
+	case "$candidate_prefix" in
+		old) candidate_version=2.68 ;;
+		current) candidate_version=2.72 ;;
+		*) candidate_version=2.73 ;;
+	esac
+	for command_name in autoconf autoreconf autoheader autom4te autoscan autoupdate ifnames; do
+		printf '%s\n' '#!/bin/sh' \
+			"echo '$command_name (GNU Autoconf) $candidate_version'" \
+			> "$discovery_test_dir/$candidate_prefix/bin/$command_name"
+		chmod +x "$discovery_test_dir/$candidate_prefix/bin/$command_name"
+	done
+done
+rm -f "$discovery_test_dir/incomplete/bin/autoheader"
+candidate_prefixes="$discovery_test_dir/incomplete $discovery_test_dir/old $discovery_test_dir/current $discovery_test_dir/newer"
+later_candidate_selection=$(run_make "$resolved_provider_args" $tool_registry_args \
+	DEPENDENCY_PROVIDER_TOOL.autoconf= \
+	"DEPENDENCY_PROVIDER_PREFIXES=$candidate_prefixes" \
+	--eval='override dependency1_type := build' \
+	--eval='override dependency1_origin := devel/autoconf' \
+	--eval='override dependency1_requirement := autoconf>=2.69' \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "compatible consumer retains first complete candidate" \
+	"$later_candidate_selection" \
+	"requirement=autoconf>=2.69 origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64"
+assert_contains "stricter consumer selects later compatible candidate" \
+	"$later_candidate_selection" \
+	"requirement=autoconf>=2.73 origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64-candidate2"
+later_candidate_exports=$(run_make "$resolved_provider_args" $tool_registry_args \
+	DEPENDENCY_PROVIDER_TOOL.autoconf= \
+	"DEPENDENCY_PROVIDER_PREFIXES=$candidate_prefixes" \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-provider-environment-export)
+assert_contains "later candidate supplies its own executable paths" \
+	"$later_candidate_exports" \
+	"AUTORECONF='$discovery_test_dir/newer/bin/autoreconf'; export AUTORECONF"
+later_candidate_state=$(run_make "$resolved_provider_args" $tool_registry_args \
+	DEPENDENCY_PROVIDER_TOOL.autoconf= \
+	"DEPENDENCY_PROVIDER_PREFIXES=$candidate_prefixes" \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	dependency-execution-state)
+assert_contains "selected candidate version enters consumer state" \
+	"$later_candidate_state" \
+	"external-tool-versions|target_libffi|linux-autoconf-x86_64-candidate2|devel/autoconf|autoconf=2.73"
+assert_contains "selected candidate commands enter consumer state" \
+	"$later_candidate_state" \
+	"AUTORECONF=$discovery_test_dir/newer/bin/autoreconf"
+later_candidate_provenance=$(run_make "$resolved_provider_args" $tool_registry_args \
+	DEPENDENCY_PROVIDER_TOOL.autoconf= \
+	"DEPENDENCY_PROVIDER_PREFIXES=$candidate_prefixes" \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.package \
+	dependency-provider-provenance)
+assert_contains "selected candidate identity enters provenance" \
+	"$later_candidate_provenance" \
+	"devel/autoconf|system|linux-autoconf-x86_64-candidate2|build|linux|x86_64|external"
+
+chosen_autoreconf="$discovery_test_dir/chosen-autoreconf"
+printf '%s\n' '#!/bin/sh' 'echo "chosen-autoreconf (GNU Autoconf) 2.72"' \
+	> "$chosen_autoreconf"
+chmod +x "$chosen_autoreconf"
+explicit_command_runner=$(run_make "$resolved_provider_args" $tool_registry_args \
+	"DEPENDENCY_PROVIDER_TOOL.autoconf=$chosen_autoreconf" \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND="$$AUTORECONF" --version' \
+	dependency-provider-environment-run)
+assert_contains "explicit alternate path is the command actually invoked" \
+	"$explicit_command_runner" "chosen-autoreconf (GNU Autoconf) 2.72"
+explicit_command_fallback=$(run_make "$resolved_provider_args" $tool_registry_args \
+	"DEPENDENCY_PROVIDER_TOOL.autoconf=$old_autoreconf" \
+	"DEPENDENCY_PROVIDER_PREFIXES=$candidate_prefixes" \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "failed explicit command does not silently choose another native tool" \
+	"$explicit_command_fallback" \
+	"origin=devel/autoconf provider_kind=uports provider_identity=host_pkg-config"
+
+explicit_policy_version=$(run_make "$resolved_provider_args" $tool_registry_args \
+	--eval='override dependency3_requirement := autoconf>=2.73' \
+	'--eval=DEPENDENCY_PROVIDER_POLICIES := system@build@target@linux@x86_64@devel/autoconf@explicit-version' \
+	DEPENDENCY_PROVIDER_CHECK.explicit-version.devel_autoconf=true \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
+assert_contains "explicit validator retains precedence over automatic versions" \
+	"$explicit_policy_version" \
+	"requirement=autoconf>=2.73 origin=devel/autoconf provider_kind=system provider_identity=explicit-version"
+
 native_build_tool_exports=$(run_make "$resolved_provider_args" \
 	$tool_registry_args DEPENDENCY_PROVIDER_MODE=host \
 	DEPENDENCY_REQUEST=target@libffi.build dependency-provider-environment-export)

@@ -155,19 +155,20 @@ define dependency-provider-selection-input
   $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)|no';) \
   $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(call dependency-target-opsys,$g)|$(call dependency-target-arch,$g)|$(if $(call dependency-group-cross-compile,$g),yes,no)';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
+  $(dependency-provider-native-tool-input) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';)) \
   $(foreach d,$(dependency_record_ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
 endef
 
 define dependency-provider-environment-input
   $(dependency-provider-selection-input) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,COMMANDS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|command|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,LIBDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|libdir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,PKGCONFIGDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|pkgconfigdir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,RUNTIMEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|runtimedir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,COMMANDS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|command|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,LIBDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|libdir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,PKGCONFIGDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|pkgconfigdir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,RUNTIMEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|runtimedir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
 endef
 
 define generate-dependency-metadata-probe
@@ -339,8 +340,9 @@ define dependency-execution-input
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
     printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))';) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),		\
+  $(foreach p,$(dependency-provider-contribution-policies),	\
     printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)|$(call dependency-provider-value,COMMANDS,$p)';) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(if $(call dependency-provider-value,TOOL_VERSIONS,$p),printf '%s\n' 'native-tool-versions|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,TOOL_VERSIONS,$p)';)) \
   $(foreach r,$(dependency-request-targets),			\
     printf '%s\n' 'request|$(call target-instance-key,$r)|$(call extract-suffix,$(call rm-group,$r))';)
 endef

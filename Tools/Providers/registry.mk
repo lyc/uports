@@ -67,31 +67,36 @@ DEPENDENCY_PROVIDER_TOOL_REGISTRY ?= m4 autoconf automake libtool cmake
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.m4 ?= devel/m4
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.m4 ?= m4
+DEPENDENCY_PROVIDER_TOOL_COMMAND.m4 ?= m4
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.m4 ?= 1.4.19
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.m4 ?= m4
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.autoconf ?= devel/autoconf
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.autoconf ?= autoreconf
+DEPENDENCY_PROVIDER_TOOL_COMMAND.autoconf ?= autoreconf
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf ?= 2.69
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.autoconf ?= autoconf autoreconf autoheader autom4te autoscan autoupdate ifnames
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.automake ?= devel/automake
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.automake ?= automake
+DEPENDENCY_PROVIDER_TOOL_COMMAND.automake ?= automake
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.automake ?= 1.16.1
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.automake ?= automake aclocal
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.libtool ?= devel/libtool
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.libtool ?= libtoolize
+DEPENDENCY_PROVIDER_TOOL_COMMAND.libtool ?= libtoolize
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.libtool ?= 2.4.6
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.libtool ?= libtoolize libtool
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.cmake ?= devel/cmake
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.cmake ?= cmake
+DEPENDENCY_PROVIDER_TOOL_COMMAND.cmake ?= cmake
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.cmake ?= 3.20
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.cmake ?= cmake ctest
 
 define dependency-provider-tool-registry-input
-  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)|$(DEPENDENCY_PROVIDER_TOOL_REQUIRED.$r)';)
+  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)|$(DEPENDENCY_PROVIDER_TOOL_REQUIRED.$r)|$(or $(DEPENDENCY_PROVIDER_TOOL_COMMAND.$r),$(firstword $(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)))';)
 endef
 
 dependency-provider-discovery-command = \
@@ -120,13 +125,18 @@ dependency-provider-discovery-policy-exists = $(strip $(foreach p,$(DEPENDENCY_P
 
 define add-dependency-provider-discovery-policy
   $(if $(call dependency-provider-discovery-policy-exists,$1,$2,$(DEPENDENCY_BUILD_OPSYS),$(DEPENDENCY_BUILD_ARCH),$(dependency_discovery_origin)),,\
-    $(eval DEPENDENCY_PROVIDER_POLICIES += system@$1@$2@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity)))
+    $(eval DEPENDENCY_PROVIDER_POLICIES += system@$1@$2@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity))\
+    $(if $(dependency_discovery_versions),$(eval dependency_native_tool_policies += system@$1@$2@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity))))
 endef
 
 define apply-dependency-provider-discovery
   $(eval dependency_discovery_origin := $(call dependency-provider-discovery-field,3,$1))
   $(eval dependency_discovery_key := $(call dependency-provider-discovery-field,2,$1))
-  $(eval dependency_discovery_identity := $(dependency-provider-profile)-$(if $(filter %-tool,$(dependency_discovery_key)),$(patsubst %-tool,%,$(dependency_discovery_key)),pkg-config)-$(DEPENDENCY_BUILD_ARCH))
+  $(eval dependency_discovery_identity := $(dependency-provider-profile)-$(if $(filter %-tool,$(dependency_discovery_key)),$(patsubst %-tool,%,$(dependency_discovery_key)),pkg-config)-$(DEPENDENCY_BUILD_ARCH)$(if $(filter-out 1,$(call dependency-provider-discovery-field,13,$1)),-candidate$(call dependency-provider-discovery-field,13,$1)))
+  $(eval dependency_discovery_versions := $(call dependency-provider-discovery-field,12,$1))
+  $(if $(dependency_discovery_versions),\
+    $(eval dependency_native_tool_candidates += $(dependency_discovery_origin)$(VERTICAL_BAR)$(dependency_discovery_identity)$(VERTICAL_BAR)$(dependency_discovery_versions))\
+    $(eval dependency_native_tool_contributions += system@build@$(firstword $(groups_all))@$(DEPENDENCY_BUILD_OPSYS)@$(DEPENDENCY_BUILD_ARCH)@$(dependency_discovery_origin)@$(dependency_discovery_identity)))
   $(eval dependency_discovery_origin_key := $(subst /,_,$(dependency_discovery_origin)))
   $(eval DEPENDENCY_PROVIDER_CHECK.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := true)
   $(eval DEPENDENCY_PROVIDER_INCLUDEDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,6,$1)))
@@ -135,6 +145,7 @@ define apply-dependency-provider-discovery
   $(eval DEPENDENCY_PROVIDER_PKGCONFIGDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,8,$1)))
   $(eval DEPENDENCY_PROVIDER_BINDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,9,$1)))
   $(eval DEPENDENCY_PROVIDER_COMMANDS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,11,$1)))
+  $(eval DEPENDENCY_PROVIDER_TOOL_VERSIONS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(dependency_discovery_versions))
   $(eval dependency_discovery_context := $(or $(call dependency-provider-discovery-field,10,$1),both))
   $(if $(filter build both,$(dependency_discovery_context)),\
     $(foreach g,$(groups_all),$(call add-dependency-provider-discovery-policy,build,$g)))
@@ -152,6 +163,13 @@ define load-dependency-provider-discovery
     $(foreach d,$(dependency_provider_discovery),
       $(if $(filter available,$(call dependency-provider-discovery-field,4,$d)),
         $(call apply-dependency-provider-discovery,$d))))
+endef
+
+dependency-provider-contribution-policies = $(DEPENDENCY_PROVIDER_POLICIES) $(dependency_native_tool_contributions)
+
+define dependency-provider-native-tool-input
+  $(foreach p,$(dependency_native_tool_policies),printf '%s\n' 'native-tool-policy|$p';) \
+  $(foreach c,$(dependency_native_tool_candidates),printf '%s\n' 'native-tool|$c';)
 endef
 
 dependency-provider-registries-validate-command = \
