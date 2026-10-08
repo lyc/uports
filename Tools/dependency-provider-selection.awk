@@ -183,6 +183,24 @@ function append_paths(node, identity, origin, type, key, j) {
 		add_path(node, type, contribution[key, j])
 }
 
+function append_commands(node, identity, origin, key, j, value, variable, path) {
+	key = identity SUBSEP origin SUBSEP "command"
+	for (j = 1; j <= contribution_count[key]; j++) {
+		value = contribution[key, j]
+		variable = value; sub(/=.*/, "", variable)
+		path = value; sub(/^[^=]*=/, "", path)
+		if (variable !~ /^(M4|AUTOCONF|AUTORECONF|AUTOHEADER|AUTOM4TE|AUTOMAKE|ACLOCAL|LIBTOOLIZE|LIBTOOL|CMAKE_BIN|CTEST|PKG_CONFIG)$/ || !valid_path(path)) {
+			invalid_count++; environment_error[node] = "invalid-command"
+		} else if (environment_command[node, variable] != "" && environment_command[node, variable] != path) {
+			invalid_count++; environment_error[node] = "conflicting-commands"
+		} else {
+			if (environment_command[node, variable] == "")
+				environment_command_name[node, ++environment_command_count[node]] = variable
+			environment_command[node, variable] = path
+		}
+	}
+}
+
 function joined_paths(node, type, separator, result, j) {
 	result = ""
 	for (j = 1; j <= environment_path_count[node, type]; j++)
@@ -209,6 +227,8 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j, r
 			environment_target_opsys[node] = resolved_opsys[i]
 		if (!exports || resolved_context[i] == "build")
 			append_paths(node, identity, origin[i], "bindir")
+		if (resolved_context[i] == "build")
+			append_commands(node, identity, origin[i])
 		append_paths(node, identity, origin[i], "includedir")
 		append_paths(node, identity, origin[i], "libdir")
 		append_paths(node, identity, origin[i], "pkgconfigdir")
@@ -281,12 +301,17 @@ function flags(node, type, prefix, result, j) {
 	return result
 }
 
-function emit_exports(node, value, sysroot, sysroot_flag, runtime) {
+function emit_exports(node, value, sysroot, sysroot_flag, runtime, j, variable) {
 	if (external_library_count && !uports_library_count)
 		print "UPORTS_LIB_DEPENDS_USES_UPORTS=no; export UPORTS_LIB_DEPENDS_USES_UPORTS"
 	value = joined_paths(node, "bindir", ":")
 	if (value != "none")
 		printf "PATH='%s':\"${PATH-}\"; export PATH\n", value
+	for (j = 1; j <= environment_command_count[node]; j++) {
+		variable = environment_command_name[node, j]
+		printf "%s='%s'; export %s\n", variable, environment_command[node, variable], variable
+		printf "UPORTS_NATIVE_%s='%s'; export UPORTS_NATIVE_%s\n", variable, environment_command[node, variable], variable
+	}
 	sysroot_flag = ""
 	if (environment_sysroot[node] != "") {
 		sysroot = environment_sysroot[node]

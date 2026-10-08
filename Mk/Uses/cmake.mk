@@ -68,7 +68,7 @@ ifeq ($(filter $(DESTDIR)$(PREFIX)/bin,$(subst :, ,$(PATH))),)
 export PATH		:= $(DESTDIR)$(PREFIX)/bin:$(PATH)
 endif
 endif
-CMAKE_BIN		= $(shell which cmake)
+CMAKE_BIN		= $(or $(UPORTS_NATIVE_CMAKE_BIN),$(shell which cmake))
 
 ifneq ($(call find-uses-arg,run,$(cmake_ARGS)),)
 RUN_DEPENDS		+= ${CMAKE_BIN}:devel/cmake

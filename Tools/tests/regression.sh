@@ -465,6 +465,9 @@ assert_contains "missing pkg-config module is an unavailable provider" \
 fake_autoreconf="$discovery_test_dir/autoreconf"
 printf '%s\n' '#!/bin/sh' 'echo "autoreconf (GNU Autoconf) 2.72"' > "$fake_autoreconf"
 chmod +x "$fake_autoreconf"
+for command_name in autoconf autoheader autom4te autoscan autoupdate ifnames; do
+	cp "$fake_autoreconf" "$discovery_test_dir/$command_name"
+done
 tool_registry_args="DEPENDENCY_PROVIDER_REGISTRY= DEPENDENCY_PROVIDER_PKG_CONFIG=$fake_pkg_config DEPENDENCY_PROVIDER_TOOL_REGISTRY=autoconf DEPENDENCY_PROVIDER_TOOL_ORIGIN.autoconf=devel/autoconf DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf=2.69 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.autoconf=autoreconf DEPENDENCY_PROVIDER_TOOL.autoconf=$fake_autoreconf"
 tool_provider_discovery=$(run_make $tool_registry_args \
 	dependency-provider-discovery-check)
@@ -481,6 +484,21 @@ old_tool_provider_discovery=$(run_make $tool_registry_args \
 assert_contains "native build-tool discovery rejects old command version" \
 	"$old_tool_provider_discovery" \
 	"discovery|autoconf-tool|devel/autoconf|unavailable|version-too-old:2.68"
+
+failed_autoreconf="$discovery_test_dir/failed-autoreconf"
+printf '%s\n' '#!/bin/sh' 'echo "autoreconf (GNU Autoconf) 2.72"' \
+	'exit 1' > "$failed_autoreconf"
+chmod +x "$failed_autoreconf"
+failed_tool_discovery=$(run_make $tool_registry_args \
+	"DEPENDENCY_PROVIDER_TOOL.autoconf=$failed_autoreconf" \
+	dependency-provider-discovery-list)
+assert_contains "native tool rejects a failed probe despite a valid banner" \
+	"$failed_tool_discovery" "unavailable|version-check-failed"
+missing_interface_discovery=$(run_make $tool_registry_args \
+	'DEPENDENCY_PROVIDER_TOOL_REQUIRED.autoconf=autoreconf absent-autoheader' \
+	dependency-provider-discovery-list)
+assert_contains "native tool requires its companion commands" \
+	"$missing_interface_discovery" "unavailable|command-missing:absent-autoheader"
 
 empty_provider_policy=$(run_make dependency-provider-policy-list)
 assert_contains "empty provider policy is valid" "$empty_provider_policy" \
@@ -530,6 +548,32 @@ assert_contains "host mode selects a validated native build tool" \
 	"$native_build_tool_selection" \
 	"origin=devel/autoconf provider_kind=system provider_identity=linux-autoconf-x86_64 resolution=selected state=validated"
 
+native_build_tool_exports=$(run_make "$resolved_provider_args" \
+	$tool_registry_args DEPENDENCY_PROVIDER_MODE=host \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-provider-environment-export)
+assert_contains "native build-tool export pins the validated executable" \
+	"$native_build_tool_exports" "AUTORECONF='$fake_autoreconf'; export AUTORECONF"
+native_build_tool_runner=$(run_make "$resolved_provider_args" \
+	$tool_registry_args DEPENDENCY_PROVIDER_MODE=host \
+	DEPENDENCY_REQUEST=target@libffi.build \
+	'DEPENDENCY_ENVIRONMENT_COMMAND="$$AUTORECONF" --version' \
+	dependency-provider-environment-run)
+assert_contains "consumer runner executes the validated native tool" \
+	"$native_build_tool_runner" "autoreconf (GNU Autoconf) 2.72"
+native_build_tool_state=$(run_make "$resolved_provider_args" \
+	$tool_registry_args DEPENDENCY_PROVIDER_MODE=host \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-state)
+assert_contains "native command paths enter dependency state" \
+	"$native_build_tool_state" "external-commands|target_libffi|linux-autoconf-x86_64|devel/autoconf|"
+if run_make "$resolved_provider_args" $tool_registry_args \
+	DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf=invalid \
+	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list \
+	>/dev/null 2>&1; then
+	fail "provider selection validates tool-registry overrides" "invalid version accepted"
+else
+	pass "provider selection validates tool-registry overrides"
+fi
+
 native_build_tool_fallback=$(run_make "$resolved_provider_args" \
 	$tool_registry_args "DEPENDENCY_PROVIDER_TOOL.autoconf=$old_autoreconf" \
 	DEPENDENCY_PROVIDER_MODE=host dependency-provider-selection-list)
@@ -553,6 +597,24 @@ native_tool_environment=$(run_make "$resolved_provider_args" \
 	DEPENDENCY_PROVIDER_MODE=host dependency-provider-environment-list)
 assert_contains "native pkg-config provider exports its command directory" \
 	"$native_tool_environment" "bindirs=$discovery_test_dir"
+
+native_pkgconfig_port=$(make --no-print-directory -s -C "$feeds/devel/libffi" \
+	"PORTSDIR=$portdir" USES=pkgconfig \
+	"UPORTS_NATIVE_PKG_CONFIG=$fake_pkg_config" \
+	'DESTDIR=/nonexistent-uports-root' \
+	--eval='.PHONY: native-command-check
+native-command-check: ; @printf "%s\n" "$(__pkgconfig)" "$(CMAKE_ARGS)"' \
+	native-command-check)
+assert_contains "pkgconfig USES honors the selected native executable" \
+	"$native_pkgconfig_port" "$fake_pkg_config"
+native_cmake_port=$(make --no-print-directory -s -C "$feeds/devel/libffi" \
+	"PORTSDIR=$portdir" USES=cmake \
+	UPORTS_NATIVE_CMAKE_BIN=/validated/native/cmake \
+	--eval='.PHONY: native-command-check
+native-command-check: ; @printf "%s\n" "$(CMAKE_BIN)"' \
+	native-command-check)
+assert_eq "cmake USES honors the selected native executable" \
+	"$native_cmake_port" "/validated/native/cmake"
 
 native_tool_state=$(run_make "$resolved_provider_args" \
 	DEPENDENCY_PROVIDER_REGISTRY= \

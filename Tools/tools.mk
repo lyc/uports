@@ -738,12 +738,12 @@ ifneq ($(USE_HOSTTOOLS),)
 
 # check pkg-config
   ifneq ($(filter pkg-config,$(groups_$(USE_HOSTTOOLS))),)
-    export PKG_CONFIG	:= $($(USE_HOSTTOOLS)_BASE)/bin/pkg-config
+    export PKG_CONFIG	:= $(or $(UPORTS_NATIVE_PKG_CONFIG),$($(USE_HOSTTOOLS)_BASE)/bin/pkg-config)
   endif
 
 # check cmake
   ifneq ($(filter cmake,$(groups_$(USE_HOSTTOOLS))),)
-    export CMAKE_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/cmake
+    export CMAKE_BIN	:= $(or $(UPORTS_NATIVE_CMAKE_BIN),$($(USE_HOSTTOOLS)_BASE)/bin/cmake)
   endif
 
 # check ninja

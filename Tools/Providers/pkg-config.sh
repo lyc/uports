@@ -110,9 +110,10 @@ if [ "$pkg_config_available" = yes ]; then
 		*) tool_reason=unsafe-command-path ;;
 	esac
 fi
-printf 'discovery|pkg-config-tool|%s|%s|%s|none|none|none|%s|build\n' \
+printf 'discovery|pkg-config-tool|%s|%s|%s|none|none|none|%s|build|%s\n' \
 	"${DEPENDENCY_PROVIDER_PKG_CONFIG_ORIGIN:-devel/pkg-config}" \
-	"$tool_state" "$tool_reason" "$tool_bindir"
+	"$tool_state" "$tool_reason" "$tool_bindir" \
+	"$(if [ "$tool_state" = available ]; then printf 'PKG_CONFIG=%s' "$tool_path"; else printf none; fi)"
 
 while IFS='|' read -r record key origin method module header link_name extra; do
 	[ "$record" = registry ] || continue

@@ -68,25 +68,30 @@ DEPENDENCY_PROVIDER_TOOL_REGISTRY ?= m4 autoconf automake libtool cmake
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.m4 ?= devel/m4
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.m4 ?= m4
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.m4 ?= 1.4.19
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.m4 ?= m4
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.autoconf ?= devel/autoconf
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.autoconf ?= autoreconf
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.autoconf ?= 2.69
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.autoconf ?= autoconf autoreconf autoheader autom4te autoscan autoupdate ifnames
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.automake ?= devel/automake
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.automake ?= automake
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.automake ?= 1.16.1
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.automake ?= automake aclocal
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.libtool ?= devel/libtool
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.libtool ?= libtoolize
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.libtool ?= 2.4.6
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.libtool ?= libtoolize libtool
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.cmake ?= devel/cmake
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.cmake ?= cmake
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.cmake ?= 3.20
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.cmake ?= cmake ctest
 
 define dependency-provider-tool-registry-input
-  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)';)
+  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)|$(DEPENDENCY_PROVIDER_TOOL_REQUIRED.$r)';)
 endef
 
 dependency-provider-discovery-command = \
@@ -129,6 +134,7 @@ define apply-dependency-provider-discovery
   $(eval DEPENDENCY_PROVIDER_RUNTIMEDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,7,$1)))
   $(eval DEPENDENCY_PROVIDER_PKGCONFIGDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,8,$1)))
   $(eval DEPENDENCY_PROVIDER_BINDIRS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,9,$1)))
+  $(eval DEPENDENCY_PROVIDER_COMMANDS.$(dependency_discovery_identity).$(dependency_discovery_origin_key) := $(call dependency-provider-discovery-paths,$(call dependency-provider-discovery-field,11,$1)))
   $(eval dependency_discovery_context := $(or $(call dependency-provider-discovery-field,10,$1),both))
   $(if $(filter build both,$(dependency_discovery_context)),\
     $(foreach g,$(groups_all),$(call add-dependency-provider-discovery-policy,build,$g)))
@@ -139,7 +145,9 @@ endef
 define load-dependency-provider-discovery
   $(if $(filter yes,$(dependency-provider-discovery-enabled)),
     $(if $(dependency-provider-profile-error),$(error invalid dependency provider profile: $(dependency-provider-profile-error)))
-    $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command); { $(dependency-provider-tool-registry-input) :; } | $(dependency-provider-tool-discovery-command)))
+    $(eval dependency_provider_registry_validation := $(shell { $(dependency-provider-tool-registry-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null))
+    $(if $(filter-out 0,$(.SHELLSTATUS)),$(error invalid dependency provider tool registry))
+    $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command) && { $(dependency-provider-tool-registry-input) :; } | $(dependency-provider-tool-discovery-command)))
     $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider discovery failed))
     $(foreach d,$(dependency_provider_discovery),
       $(if $(filter available,$(call dependency-provider-discovery-field,4,$d)),

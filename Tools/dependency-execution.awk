@@ -32,7 +32,7 @@ $1 == "dependency" {
 
 $1 == "external-environment" {
 	key = $2 SUBSEP $3
-	for (field = 4; field <= 9; field++)
+	for (field = 4; field <= 10; field++)
 		external_environment[key, field] = $field
 }
 
@@ -269,6 +269,8 @@ END {
 					       external_environment[key, 4], external_environment[key, 5],
 					       external_environment[key, 6], external_environment[key, 7],
 					       external_environment[key, 8], external_environment[key, 9]
+					if (external_environment[key, 10] != "")
+						printf "external-commands|%s|%s|%s|%s\n", node, identity, origin, external_environment[key, 10]
 					continue
 				}
 				printf "dependency|%s|%s|%s|%s|%s|%s|%s\n", node,

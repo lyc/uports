@@ -14,8 +14,9 @@ $1 == "tool" {
 	minimum[record] = $4
 	candidates[record] = $5
 	explicit[record] = $6
+    required[record] = $7
 
-	if (NF != 6)
+	if (NF != 7)
 		invalid(record, "invalid-field-count")
 	else if (key[record] !~ /^[A-Za-z0-9_.+-]+$/)
 		invalid(record, "invalid-key")
@@ -25,7 +26,9 @@ $1 == "tool" {
 		invalid(record, "invalid-min-version")
 	else if (candidates[record] !~ /^[A-Za-z0-9_.+-]+( [A-Za-z0-9_.+-]+)*$/)
 		invalid(record, "invalid-candidates")
-	else if (explicit[record] != "" && explicit[record] !~ /^\/[A-Za-z0-9_./+,@:%-]+$/)
+	else if (required[record] !~ /^[A-Za-z0-9_.+-]+( [A-Za-z0-9_.+-]+)*$/)
+		invalid(record, "invalid-required-commands")
+	else if (explicit[record] != "" && (explicit[record] !~ /^\/[A-Za-z0-9_./+,@:%-]+$/ || explicit[record] ~ /(^|\/)\.\.(\/|$)/))
 		invalid(record, "invalid-explicit-path")
 	else if (key[record] in selected_key)
 		invalid(record, "duplicate-key")
@@ -42,9 +45,9 @@ END {
 	printf "dependency_provider_tool_registry_entries = %d\n", registry_count
 	printf "dependency_provider_tool_registry_invalid = %d\n", invalid_count
 	for (i = 1; i <= registry_count; i++)
-		printf "tool.%d = key=%s origin=%s minimum=%s candidates=%s explicit=%s state=%s\n", \
+		printf "tool.%d = key=%s origin=%s minimum=%s candidates=%s explicit=%s state=%s required=%s\n", \
 		       i, key[i], origin[i], minimum[i], candidates[i], \
-		       explicit[i] == "" ? "none" : explicit[i], state[i]
+		       explicit[i] == "" ? "none" : explicit[i], state[i], required[i]
 	if (fail && invalid_count)
 		exit 1
 }

@@ -18,12 +18,12 @@ endif
 
 __dest_pkgconfig	= $(wildcard $(DESTDIR)$(PREFIX)/bin/pkg-config)
 __host_pkgconfig	= $(shell which pkg-config)
-__pkgconfig		= $(strip 					\
+__pkgconfig		= $(or $(UPORTS_NATIVE_PKG_CONFIG),$(strip 	\
 			    $(if $(DESTDIR),				\
 			      $(if $(__dest_pkgconfig),			\
 			        $(__dest_pkgconfig),			\
 			        $(__host_pkgconfig)),			\
-			      $(__host_pkgconfig)))
+			      $(__host_pkgconfig))))
 
 #$(warning DESTDIR=$(DESTDIR))
 #$(warning __dest_pkgconfig=$(__dest_pkgconfig))
@@ -58,7 +58,7 @@ CONFIGURE_ENV		+= PKG_CONFIG_LIBDIR=$(_pc_libdirs)		\
 endif
 
 ifeq ($(find-string PKG_CONFIG_EXECUTABLE,$(CMAKE_ARGS)),)
-CMAKE_ARGS		+= -DPKG_CONFIG_EXECUTABLE=$(__dest_pkgconfig)
+CMAKE_ARGS		+= -DPKG_CONFIG_EXECUTABLE=$(__pkgconfig)
 endif
 
 ifeq ($(filter $(DESTDIR)$(PREFIX)/bin,$(subst :, ,$(PATH))),)
