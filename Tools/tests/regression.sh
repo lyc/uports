@@ -2614,6 +2614,44 @@ fallback_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 assert_contains "fallback instance retains direct lifecycle target" \
 	"$fallback_dispatch" "host@devel/pkg-config build"
 
+for group_phase in build install; do
+	group_fallback_dispatch=$(run_make \
+		--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+		UPORTS_DEPENDENCIES=yes "host.$group_phase")
+	assert_contains "explicit group includes fallback: $group_phase" \
+		"$group_fallback_dispatch" "consumer=host@pkg-config.$group_phase"
+	assert_contains "explicit group retains ordinary root: $group_phase" \
+		"$group_fallback_dispatch" "consumer=host@openssl.$group_phase"
+done
+
+disabled_group_fallback_dispatch=$(run_make UPORTS_DEPENDENCIES=no \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	host.install)
+assert_contains "dependency-disabled group install includes fallback" \
+	"$disabled_group_fallback_dispatch" "consumer=host@pkg-config.install"
+
+# Exercise the default recursive provider command, not the usual recorder:
+# inherited aggregate requests must not reach per-port state/environment calls.
+group_state_dir=$(mktemp -d "$testdir/work/group-state.XXXXXX")
+group_state_dispatch=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	"PORTS_host_pkg-config_EXTRA_ENVS=WRKDIR=$group_state_dir/pkgconfig" \
+	"PORTS_host_openssl_EXTRA_ENVS=WRKDIR=$group_state_dir/openssl" \
+	DEPENDENCY_PROVIDER_MODE=explicit UPORTS_DEPENDENCIES=yes \
+	UPORTS_DEPENDENCY_STATE=yes host.install)
+assert_contains "group install executes its recursive fallback provider" \
+	"$group_state_dispatch" "consumer=host@pkg-config.install"
+assert_contains "group install dispatches remaining roots after providers" \
+	"$group_state_dispatch" "consumer=host@openssl.install"
+assert_contains "fallback state contains only its own request" \
+	"$(cat "$group_state_dir/pkgconfig/dependency.stage.state")" \
+	"request|host_pkg-config|stage"
+assert_contains "group consumer state contains only its own request" \
+	"$(cat "$group_state_dir/openssl/dependency.stage.state")" \
+	"request|host_openssl|stage"
+rm -rf "$group_state_dir"
+
 for cleanup_target in ports.clean ports.distclean devel.distclean host.distclean; do
 	cleanup_dispatch=$(run_make \
 		--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \

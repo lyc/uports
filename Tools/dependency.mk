@@ -395,12 +395,12 @@ dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 	$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-lifecycle-execute &&)
 dependency-consumer-environment-command = $(if $(filter yes,$(dependency-external-providers-enabled)),\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
-	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
 	. "$$environment_file";)
 dependency-consumer-provenance-command = $(if $(and \
@@ -408,7 +408,7 @@ dependency-consumer-provenance-command = $(if $(and \
 	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target))))),\
 	provenance_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-provenance.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
-	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-provenance > "$$provenance_file"; \
 	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
 dependency-consumer-cleanup-command = $(if $(or \
@@ -419,12 +419,12 @@ dependency-consumer-cleanup-command = $(if $(or \
 dependency-state-invalidate-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-state-invalidate >/dev/null &&)
 dependency-state-save-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-state-save >/dev/null &&)
 
 .PHONY: dependencies-list
@@ -656,6 +656,7 @@ dependency-lifecycle-check:
 # has already ordered the complete closure. Tests may replace this command with
 # a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
+	DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST= \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))

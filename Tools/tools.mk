@@ -545,9 +545,7 @@ aggregate-group-prerequisites = $(if				\
 			      $(call aggregate-target-name,$1)$(AT),	\
 			      $(addsuffix					\
 			        .$(call aggregate-target-suffix,$1),	\
-			        $(if $(call aggregate-includes-fallbacks,$1),\
-			          $(groups_$(call aggregate-target-name,$1)),\
-			          $(root_groups_$(call aggregate-target-name,$1))))))
+			        $(groups_$(call aggregate-target-name,$1)))))
 
 # $(call aggregate-global-prerequisites, ports.suffix)
 aggregate-global-prerequisites = $(if				\
