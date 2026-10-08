@@ -9,6 +9,13 @@ pkg_config_candidates=${DEPENDENCY_PROVIDER_PKG_CONFIG_CANDIDATES:-pkg-config pk
 cc_candidates=${DEPENDENCY_PROVIDER_CC_CANDIDATES:-cc}
 provider_prefixes=${DEPENDENCY_PROVIDER_PREFIXES:-}
 
+# Project exports describe the target installation, not the native host.
+# Keep native discovery independent of those metadata/sysroot/compiler paths.
+unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR \
+	PKG_CONFIG_TOP_BUILD_DIR PKG_CONFIG_SYSTEM_INCLUDE_PATH \
+	PKG_CONFIG_SYSTEM_LIBRARY_PATH CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH \
+	OBJC_INCLUDE_PATH LIBRARY_PATH SDKROOT
+
 find_profile_command()
 {
 	for candidate do
@@ -64,20 +71,43 @@ if [ -z "$cc" ]; then
 fi
 
 profile_pkg_config_path=
+append_metadata_directory()
+{
+	directory=$1
+	[ -d "$directory" ] && safe_path_list "$directory" || return 0
+	case ":$profile_pkg_config_path:" in
+		*":$directory:"*) ;;
+		*) profile_pkg_config_path=${profile_pkg_config_path:+$profile_pkg_config_path:}$directory ;;
+	esac
+}
+
 for prefix in $provider_prefixes; do
 	safe_path_list "$prefix" || continue
-	for directory in "$prefix/lib/pkgconfig" "$prefix/share/pkgconfig"; do
-		[ -d "$directory" ] || continue
-		case ":$profile_pkg_config_path:" in
-			*":$directory:"*) ;;
-			*) profile_pkg_config_path=${profile_pkg_config_path:+$profile_pkg_config_path:}$directory ;;
-		esac
+	for directory in "$prefix/lib/pkgconfig" "$prefix/lib64/pkgconfig" "$prefix/share/pkgconfig"; do
+		append_metadata_directory "$directory"
 	done
 done
-if [ -n "$profile_pkg_config_path" ]; then
-	PKG_CONFIG_PATH=$profile_pkg_config_path${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
-	export PKG_CONFIG_PATH
+
+# Retain platform defaults such as Linux multiarch directories, but only
+# beneath recognized native prefixes. Never trust an embedded project path.
+if [ -n "$pkg_config" ]; then
+	compiled_metadata_paths=$("$pkg_config" --variable=pc_path pkg-config 2>/dev/null || :)
+	previous_ifs=$IFS
+	IFS=:
+	set -- $compiled_metadata_paths
+	IFS=$previous_ifs
+	for directory do
+		for prefix in $provider_prefixes; do
+			safe_path_list "$prefix" || continue
+			case "$directory" in
+				"$prefix"/*) append_metadata_directory "$directory"; break ;;
+			esac
+		done
+	done
 fi
+PKG_CONFIG_PATH=$profile_pkg_config_path
+PKG_CONFIG_LIBDIR=$profile_pkg_config_path
+export PKG_CONFIG_PATH PKG_CONFIG_LIBDIR
 
 if [ -z "$pkg_config" ] || ! command -v "$pkg_config" >/dev/null 2>&1; then
 	pkg_config_available=no

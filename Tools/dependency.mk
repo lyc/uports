@@ -504,23 +504,17 @@ dependency-provider-tool-registry-check:
 .PHONY: dependency-provider-discovery-list dependency-provider-discovery-check
 
 dependency-provider-discovery-list:
-	@{ $(dependency-provider-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@$(dependency-provider-registries-validate-command)
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command)
-	@{ $(dependency-provider-tool-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null
 	@{ $(dependency-provider-tool-registry-input) :; } | \
 	  $(dependency-provider-tool-discovery-command)
 
 dependency-provider-discovery-check:
-	@{ $(dependency-provider-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@$(dependency-provider-registries-validate-command)
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command) | \
 	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
-	@{ $(dependency-provider-tool-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null
 	@{ $(dependency-provider-tool-registry-input) :; } | \
 	  $(dependency-provider-tool-discovery-command) | \
 	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'

@@ -402,6 +402,72 @@ assert_contains "selected pkg-config command is a native tool provider" \
 	"$provider_discovery" \
 	"discovery|pkg-config-tool|devel/pkg-config|available|validated|none|none|none|$discovery_test_dir|build"
 
+isolation_prefix="$discovery_test_dir/native"
+isolation_project="$discovery_test_dir/project-metadata"
+mkdir -p "$isolation_prefix/lib/pkgconfig" \
+	"$isolation_prefix/lib/native-arch/pkgconfig" "$isolation_project"
+isolated_pkg_config="$discovery_test_dir/isolated-pkg-config"
+printf '%s\n' '#!/bin/sh' \
+	'if [ "$1" = --variable=pc_path ]; then' \
+	"  printf '%s\\n' '$isolation_prefix/lib/native-arch/pkgconfig:$isolation_project'" \
+	'  exit 0' 'fi' \
+	"expected='$isolation_prefix/lib/pkgconfig:$isolation_prefix/lib/native-arch/pkgconfig'" \
+	'[ "${PKG_CONFIG_PATH-}" = "$expected" ] || exit 1' \
+	'[ "${PKG_CONFIG_LIBDIR-}" = "$expected" ] || exit 1' \
+	'[ "${PKG_CONFIG_SYSROOT_DIR+x}" != x ] || exit 1' \
+	'[ "${PKG_CONFIG_TOP_BUILD_DIR+x}" != x ] || exit 1' \
+	'[ "${PKG_CONFIG_SYSTEM_INCLUDE_PATH+x}" != x ] || exit 1' \
+	'[ "${PKG_CONFIG_SYSTEM_LIBRARY_PATH+x}" != x ] || exit 1' \
+	"exec '$fake_pkg_config' \"\$@\"" > "$isolated_pkg_config"
+chmod +x "$isolated_pkg_config"
+isolated_cc="$discovery_test_dir/isolated-cc"
+printf '%s\n' '#!/bin/sh' \
+	'[ "${CPATH+x}" != x ] || exit 1' \
+	'[ "${LIBRARY_PATH+x}" != x ] || exit 1' \
+	'[ "${SDKROOT+x}" != x ] || exit 1' \
+	'exit 0' > "$isolated_cc"
+chmod +x "$isolated_cc"
+isolated_discovery=$(PKG_CONFIG_PATH="$isolation_project" \
+	PKG_CONFIG_LIBDIR="$isolation_project" \
+	PKG_CONFIG_SYSROOT_DIR="$isolation_project" \
+	PKG_CONFIG_TOP_BUILD_DIR="$isolation_project" \
+	PKG_CONFIG_SYSTEM_INCLUDE_PATH="$isolation_project" \
+	PKG_CONFIG_SYSTEM_LIBRARY_PATH="$isolation_project" \
+	CPATH="$isolation_project" LIBRARY_PATH="$isolation_project" \
+	SDKROOT="$isolation_project" run_make $discovery_registry_args \
+	"DEPENDENCY_PROVIDER_PREFIXES=$isolation_prefix" \
+	"DEPENDENCY_PROVIDER_PKG_CONFIG=$isolated_pkg_config" \
+	"DEPENDENCY_PROVIDER_CC=$isolated_cc" \
+	dependency-provider-discovery-check)
+assert_contains "native discovery isolates project metadata and compiler paths" \
+	"$isolated_discovery" "discovery|example|devel/autoconf|available|validated"
+assert_contains "native discovery retains trusted compiled multiarch paths" \
+	"$isolated_discovery" "discovery|pkg-config-tool|devel/pkg-config|available|validated"
+
+if invalid_selection_registry=$(run_make \
+	DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_PROVIDER_REGISTRY=bad \
+	DEPENDENCY_PROVIDER_REGISTRY_METHOD.bad=unknown \
+	'dependency-provider-discovery-command=printf SHOULD-NOT-PROBE' \
+	dependency-provider-selection-list 2>&1); then
+	fail "selection rejects malformed library registry before probing" "invalid registry accepted"
+else
+	assert_contains "selection rejects malformed library registry before probing" \
+		"$invalid_selection_registry" "invalid dependency provider registry"
+fi
+assert_not_contains "invalid library registry invokes no discovery engine" \
+	"$invalid_selection_registry" "SHOULD-NOT-PROBE"
+
+if invalid_discovery_tool_registry=$(run_make \
+	DEPENDENCY_PROVIDER_TOOL_REGISTRY=bad \
+	'dependency-provider-discovery-command=printf SHOULD-NOT-PROBE' \
+	dependency-provider-discovery-list 2>&1); then
+	fail "discovery validates tool registry before library probing" "invalid registry accepted"
+else
+	pass "discovery validates tool registry before library probing"
+fi
+assert_not_contains "invalid tool registry invokes no library discovery" \
+	"$invalid_discovery_tool_registry" "SHOULD-NOT-PROBE"
+
 header_order_cc="$discovery_test_dir/header-order-cc"
 printf '%s\n' \
 	'#!/bin/sh' \

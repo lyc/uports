@@ -145,11 +145,17 @@ endef
 define load-dependency-provider-discovery
   $(if $(filter yes,$(dependency-provider-discovery-enabled)),
     $(if $(dependency-provider-profile-error),$(error invalid dependency provider profile: $(dependency-provider-profile-error)))
-    $(eval dependency_provider_registry_validation := $(shell { $(dependency-provider-tool-registry-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null))
-    $(if $(filter-out 0,$(.SHELLSTATUS)),$(error invalid dependency provider tool registry))
+    $(eval dependency_provider_registry_validation := $(shell $(dependency-provider-registries-validate-command)))
+    $(if $(filter-out 0,$(.SHELLSTATUS)),$(error invalid dependency provider registry))
     $(eval dependency_provider_discovery := $(shell { $(dependency-provider-registry-input) :; } | $(dependency-provider-discovery-command) && { $(dependency-provider-tool-registry-input) :; } | $(dependency-provider-tool-discovery-command)))
     $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider discovery failed))
     $(foreach d,$(dependency_provider_discovery),
       $(if $(filter available,$(call dependency-provider-discovery-field,4,$d)),
         $(call apply-dependency-provider-discovery,$d))))
 endef
+
+dependency-provider-registries-validate-command = \
+	{ $(dependency-provider-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null && \
+	{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk" >/dev/null
