@@ -1399,6 +1399,20 @@ debug_dependencies=$(run_make info.debug.dependencies)
 assert_contains "normalized dependency record count" "$debug_dependencies" \
 	"dependency_records = 4"
 
+autoreconf_libtool_metadata=$(make --no-print-directory -s \
+	-C "$testdir/cases/autoreconf-libtool" PORTSDIR="$portdir" \
+	uports-dependency-metadata)
+assert_contains "autoreconf with libtool requires libtoolize" \
+	"$autoreconf_libtool_metadata" \
+	"build|libtoolize:devel/libtool"
+
+libtool_build_metadata=$(make --no-print-directory -s \
+	-C "$testdir/cases/libtool-build" PORTSDIR="$portdir" \
+	uports-dependency-metadata)
+assert_contains "libtool build argument requires libtool" \
+	"$libtool_build_metadata" \
+	"build|libtool:devel/libtool"
+
 serial_dependencies=$(run_make DEPENDENCY_METADATA_JOBS=1 \
 	info.debug.dependencies)
 if [ "$debug_dependencies" = "$serial_dependencies" ]; then
