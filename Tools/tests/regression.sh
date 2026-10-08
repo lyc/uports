@@ -2614,6 +2614,32 @@ fallback_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 assert_contains "fallback instance retains direct lifecycle target" \
 	"$fallback_dispatch" "host@devel/pkg-config build"
 
+for cleanup_target in ports.clean ports.distclean devel.distclean host.distclean; do
+	cleanup_dispatch=$(run_make \
+		--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \
+		"DEPENDENCY_EXECUTE_COMMAND=printf '%s\n'" \
+		UPORTS_DEPENDENCIES=yes "$cleanup_target")
+	assert_contains "cleanup includes fallback: $cleanup_target" \
+		"$cleanup_dispatch" "cleanup=host@pkg-config.$(printf '%s' "$cleanup_target" | sed 's/.*\.//')"
+	assert_not_contains "cleanup dispatches no dependency installs: $cleanup_target" \
+		"$cleanup_dispatch" "pkg-config.install"
+done
+
+parallel_cleanup_dispatch=$(make --no-print-directory -s -j4 -C "$testdir" \
+	USE_HOSTTOOLS= UPORTS_DEPENDENCIES=yes \
+	--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \
+	ports.distclean)
+assert_contains "parallel cleanup includes fallback instances" \
+	"$parallel_cleanup_dispatch" "cleanup=host@pkg-config.distclean"
+assert_contains "parallel cleanup retains project roots" \
+	"$parallel_cleanup_dispatch" "cleanup=target@libffi.distclean"
+
+disabled_cleanup_dispatch=$(run_make UPORTS_DEPENDENCIES=no \
+	--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \
+	ports.distclean)
+assert_contains "dependency-disabled cleanup includes fallback instances" \
+	"$disabled_cleanup_dispatch" "cleanup=host@pkg-config.distclean"
+
 touch "$testdir/target.build" "$testdir/devel.build"
 forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \

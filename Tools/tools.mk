@@ -523,13 +523,19 @@ aggregate-target-name	= $(call extract-port,$1)
 # $(call aggregate-target-suffix, aggregate.suffix)
 aggregate-target-suffix	= $(call extract-suffix,$1)
 
+# Cleanup owns every selected work tree, including fallback providers that
+# are intentionally omitted from normal build/install aggregate roots.
+aggregate-includes-fallbacks = $(filter clean distclean,$(call aggregate-target-suffix,$1))
+
 # $(call aggregate-category-prerequisites, category.suffix)
 aggregate-category-prerequisites = $(foreach c,			\
 			    $(filter $(call aggregate-target-name,$1),	\
 			      $(categories_all)),				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
-			      $(call transform_root_category,$c)))
+			      $(if $(call aggregate-includes-fallbacks,$1),\
+			        $(call transform_category,$c),		\
+			        $(call transform_root_category,$c))))
 
 # $(call aggregate-group-prerequisites, group.suffix)
 aggregate-group-prerequisites = $(if				\
@@ -539,7 +545,9 @@ aggregate-group-prerequisites = $(if				\
 			      $(call aggregate-target-name,$1)$(AT),	\
 			      $(addsuffix					\
 			        .$(call aggregate-target-suffix,$1),	\
-			        $(root_groups_$(call aggregate-target-name,$1)))))
+			        $(if $(call aggregate-includes-fallbacks,$1),\
+			          $(groups_$(call aggregate-target-name,$1)),\
+			          $(root_groups_$(call aggregate-target-name,$1))))))
 
 # $(call aggregate-global-prerequisites, ports.suffix)
 aggregate-global-prerequisites = $(if				\
@@ -548,7 +556,8 @@ aggregate-global-prerequisites = $(if				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
 			      $(call transform_all_group,		\
-			        $(ports_root_group))))
+			        $(if $(call aggregate-includes-fallbacks,$1),\
+			          $(ports_all_group),$(ports_root_group)))))
 
 # $(call aggregate-prerequisites, aggregate.suffix)
 aggregate-prerequisites = $(strip					\
