@@ -242,7 +242,30 @@ dependency-metadata-command = $(if $(and \
 	cat "$(DEPENDENCY_METADATA_SOURCE)",\
 	$(dependency-metadata-collect-command))
 
-define dependency-invocation-command
+DEPENDENCY_CONTEXT_ROOT ?=
+DEPENDENCY_CONTEXT_DIR ?=
+
+define dependency-scoped-invocation-command
+	set -e; \
+	invocation_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependency-invocation.XXXXXX"); \
+	trap 'exit 1' HUP INT TERM; \
+	trap 'status=$$?; trap - EXIT HUP INT TERM; case "$$invocation_dir" in "$${TMPDIR:-/tmp}"/uports-dependency-invocation.*) if test -d "$$invocation_dir"; then find "$$invocation_dir" -type f -delete; find "$$invocation_dir" -depth -type d -exec rmdir {} \;; fi;; esac; exit $$status' EXIT; \
+	metadata_source="$$invocation_dir/metadata"; \
+	context_root="$$invocation_dir/context"; \
+	context_dir="$$context_root/$(call target-instance-key,$(call resolve-port-target,$1)).$(call extract-suffix,$(call rm-group,$(call resolve-port-target,$1)))"; \
+	mkdir -p "$$context_dir"; \
+	$(MAKE) -s --no-print-directory dependency-metadata-snapshot > "$$metadata_source"; \
+	$(MAKE) -s --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
+	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" \
+	  DEPENDENCY_CONTEXT_DIR="$$context_dir" \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$1' \
+	  dependency-target-context-prepare; \
+	$(MAKE) --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
+	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" \
+	  DEPENDENCY_CONTEXT_ROOT="$$context_root" $1
+endef
+
+define dependency-aggregate-invocation-command
 	set -e; \
 	invocation_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependency-invocation.XXXXXX"); \
 	trap 'exit 1' HUP INT TERM; \
@@ -252,6 +275,10 @@ define dependency-invocation-command
 	$(MAKE) --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
 	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" $1
 endef
+
+dependency-invocation-command = $(if $(call resolve-port-target,$1),\
+	$(call dependency-scoped-invocation-command,$1),\
+	$(call dependency-aggregate-invocation-command,$1))
 
 dependency_metadata_raw =
 
@@ -424,11 +451,11 @@ UPORTS_DEPENDENCIES	?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
 $(error UPORTS_DEPENDENCIES must be yes or no)
 endif
-UPORTS_DEPENDENCY_STATE ?= $(UPORTS_DEPENDENCIES)
+UPORTS_DEPENDENCY_STATE ?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCY_STATE),yes no),$(UPORTS_DEPENDENCY_STATE))
 $(error UPORTS_DEPENDENCY_STATE must be yes or no)
 endif
-UPORTS_DEPENDENCY_PROVENANCE ?= $(UPORTS_DEPENDENCIES)
+UPORTS_DEPENDENCY_PROVENANCE ?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCY_PROVENANCE),yes no),$(UPORTS_DEPENDENCY_PROVENANCE))
 $(error UPORTS_DEPENDENCY_PROVENANCE must be yes or no)
 endif
@@ -437,38 +464,82 @@ dependency-state-class = $(if $(filter configure build rebuild,$1),configure,\
 	$(if $(filter stage package install restage reinstall generate-plist,$1),stage))
 dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 	$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
+dependency-tracking-enabled = $(and $(dependency-dispatch-state-class),$(or \
+	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(and $(filter yes,$(UPORTS_DEPENDENCY_PROVENANCE)),\
+	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))))
+dependency-context-key = $(call target-instance-key,$(resolved-port-target)).$(call extract-suffix,$(call rm-group,$(resolved-port-target)))
+dependency-context-active-dir = $(DEPENDENCY_CONTEXT_ROOT)/$(dependency-context-key)
+dependency-context-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),\
+	$(strip $(DEPENDENCY_CONTEXT_ROOT)),$(dependency-dispatch-state-class))
+dependency-context-output-dir = $(or $(strip $(DEPENDENCY_CONTEXT_DIR)),\
+	$(dependency-context-active-dir))
+dependency-context-targets = $(dependency-context-output-dir)/targets
+dependency-context-environment = $(dependency-context-output-dir)/environment
+dependency-context-state = $(dependency-context-output-dir)/state
+dependency-context-provenance = $(dependency-context-output-dir)/provenance
+dependency-context-ensure-command = $(if $(dependency-context-enabled),\
+	if test ! -f "$(dependency-context-state)"; then \
+	  mkdir -p "$(dependency-context-active-dir)"; \
+	  $(MAKE) -s --no-print-directory \
+	    DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    DEPENDENCY_CONTEXT_DIR="$(dependency-context-active-dir)" \
+	    dependency-target-context-prepare; \
+	fi)
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-lifecycle-execute &&)
-dependency-consumer-environment-command = $(if $(and $(filter yes,$(dependency-external-providers-enabled)),$(dependency-dispatch-state-class)),\
+	$(if $(dependency-context-enabled),\
+	  targets=$$(cat "$(dependency-context-targets)"); \
+	  if test -n "$$targets"; then $(DEPENDENCY_EXECUTE_COMMAND) $$targets; fi &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-lifecycle-execute &&))
+dependency-consumer-environment-command = $(if $(and \
+	$(filter yes,$(dependency-external-providers-enabled)),\
+	$(dependency-dispatch-state-class),\
+	$(or $(dependency-context-enabled),$(filter yes,$(UPORTS_DEPENDENCY_STATE)))),\
+	$(if $(dependency-context-enabled),\
+	  . "$(dependency-context-environment)";,\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
-	. "$$environment_file";)
+	. "$$environment_file";))
 dependency-consumer-provenance-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_PROVENANCE)),\
 	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 dependency-consumer-provenance-command = $(if $(dependency-consumer-provenance-enabled),\
+	$(if $(dependency-context-enabled),\
+	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$(dependency-context-provenance)";,\
 	provenance_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-provenance.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-provenance > "$$provenance_file"; \
-	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
+	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";))
 dependency-consumer-cleanup-command = $(if $(or \
 	$(filter yes,$(dependency-external-providers-enabled)),\
 	$(dependency-consumer-provenance-enabled)),\
 	trap 'rm -f $${environment_file:+"$$environment_file"} $${provenance_file:+"$$provenance_file"}' EXIT HUP INT TERM;)
+dependency-context-state-command = dir=$(call target-instance-field,$(resolved-port-target),root); \
+	category=$(call target-instance-field,$(resolved-port-target),category); \
+	port=$(call target-instance-field,$(resolved-port-target),port); \
+	envs="$(call get-envs,$(resolved-port-target))"; \
+	$(MAKE) -s -C "$$dir/$$category/$$port" --no-print-directory $$envs \
+	  DEPENDENCY_STATE_CLASS="$(dependency-dispatch-state-class)" \
+	  DEPENDENCY_STATE_SOURCE="$(dependency-context-state)" \
+	  uports-dependency-state-$1 >/dev/null
 dependency-state-invalidate-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-state-invalidate >/dev/null &&)
+	$(if $(dependency-context-enabled),\
+	  $(call dependency-context-state-command,invalidate) &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-state-invalidate >/dev/null &&))
 dependency-state-save-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-state-save >/dev/null &&)
+	$(if $(dependency-context-enabled),\
+	  $(call dependency-context-state-command,save) &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-state-save >/dev/null &&))
 
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
@@ -622,6 +693,46 @@ dependency-provider-export-awk = awk -v environment=1 -v exports=1 \
 	-v build_opsys="$(DEPENDENCY_BUILD_OPSYS)" \
 	-v build_arch="$(DEPENDENCY_BUILD_ARCH)" \
 	-f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+.PHONY: dependency-target-context-prepare
+depends_exclude_targets += dependency-target-context-prepare
+dependency-target-context-prepare:
+	@$(load-dependency-records)
+	@$(dependency-cross-toolchain-preflight) :
+	@$(dependency-external-preflight) :
+	@if test "$(words $(dependency-requests))" -ne 1 || \
+	    test -n "$(dependency-invalid-requests)" || \
+	    test -z "$(strip $(DEPENDENCY_CONTEXT_DIR))" || \
+	    test ! -d "$(DEPENDENCY_CONTEXT_DIR)"; then \
+	  echo "invalid dependency context request: $(dependency-requests)" >&2; \
+	  exit 1; \
+	fi
+	@set -e; \
+	  { $(dependency-execution-input) :; } | \
+	    awk -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	      -f "$(portdir)/Tools/dependency-execution.awk" \
+	    > "$(dependency-context-targets)"; \
+	  { $(dependency-execution-input) :; } | \
+	    awk -v state=1 \
+	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	      -f "$(portdir)/Tools/dependency-execution.awk" \
+	    > "$(dependency-context-state)"; \
+	  if test "$(dependency-external-providers-enabled)" = yes; then \
+	    { $(dependency-provider-environment-input) :; } | \
+	      $(dependency-provider-export-awk) \
+	      > "$(dependency-context-environment)"; \
+	  else \
+	    : > "$(dependency-context-environment)"; \
+	  fi; \
+	  if test -n "$(dependency-consumer-provenance-enabled)"; then \
+	    { $(dependency-execution-input) :; } | \
+	      awk -v provenance=1 \
+	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	        -f "$(portdir)/Tools/dependency-execution.awk" \
+	      > "$(dependency-context-provenance)"; \
+	  else \
+	    : > "$(dependency-context-provenance)"; \
+	  fi
 
 dependency-provider-environment-export:
 	@$(load-dependency-records)

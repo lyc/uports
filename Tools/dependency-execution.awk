@@ -185,11 +185,11 @@ END {
 		}
 		exit 0
 	}
-	if (unresolved_count) {
+	if (unresolved_count && !unchecked) {
 		printf "unresolved_dependencies = %d\n", unresolved_count > "/dev/stderr"
 		exit 1
 	}
-	if (invalid_target_count) {
+	if (invalid_target_count && !unchecked) {
 		printf "invalid_dependency_targets = %d\n", invalid_target_count > "/dev/stderr"
 		exit 1
 	}
@@ -244,6 +244,12 @@ END {
 		for (n = 1; n <= processed; n++) {
 			node = ordered[n]
 			for (i = 1; i <= dependency_count[node]; i++) {
+				if (unresolved[node, i] || invalid_target[node, i]) {
+					printf "unchecked-dependency|%s|%s|%s|%s|%s\n", node,
+					       dependency_type[node, i], dependency_requirement[node, i],
+					       dependency_origin[node, i], dependency_resolution[node, i]
+					continue
+				}
 				if (!selected_edge[node, i])
 					continue
 				kind = dependency_provider_kind[node, i]
@@ -275,6 +281,12 @@ END {
 			if (is_root[node] && dependency_state_class(requested_phase[node]) == "stage" && package_provenance != "")
 				printf "packaging-policy|%s|provenance|%s\n", node, package_provenance
 			for (i = 1; i <= dependency_count[node]; i++) {
+				if (unresolved[node, i] || invalid_target[node, i]) {
+					printf "unchecked-dependency|%s|%s|%s|%s|%s\n", node,
+					       dependency_type[node, i], dependency_requirement[node, i],
+					       dependency_origin[node, i], dependency_resolution[node, i]
+					continue
+				}
 				if (!selected_edge[node, i])
 					continue
 				kind = dependency_provider_kind[node, i]

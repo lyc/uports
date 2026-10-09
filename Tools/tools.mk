@@ -633,11 +633,12 @@ ifneq ($(filter clean distclean,$1),)
 	$$(call cmd,generate-port-target)
 else
 ifeq ($$(UPORTS_DEPENDENCY_INVOCATION),yes)
+	@$$(dependency-context-ensure-command)
 	@$$(dependency-dispatch-command) $$(dependency-state-invalidate-command) :
 	$$(call cmd,generate-port-target)
 	@$$(dependency-state-save-command) :
 else
-	@$$(if $$(filter yes,$$(UPORTS_DEPENDENCIES)),\
+	@$$(if $$(or $$(filter yes,$$(UPORTS_DEPENDENCIES)),$$(dependency-tracking-enabled)),\
 	  $$(call dependency-invocation-command,$$@),\
 	  $$(call cmd,generate-port-target))
 endif

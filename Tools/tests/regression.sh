@@ -2475,9 +2475,12 @@ fi
 assert_not_contains "canonical provider failure blocks consumer" \
 	"$failed_canonical_dispatch" "consumer=target@libffi.build"
 
+legacy_state_dir=$(mktemp -d "$testdir/work/dependency-disabled.XXXXXX")
+legacy_state_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$legacy_state_dir/dependency.configure.state CONFIGURE_COOKIE=$legacy_state_dir/configure BUILD_COOKIE=$legacy_state_dir/build STAGE_COOKIE=$legacy_state_dir/stage PACKAGE_COOKIE=$legacy_state_dir/package INSTALL_COOKIE=$legacy_state_dir/install"
 legacy_dispatch=$(run_make \
 	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \
+	"PORTS_target_libffi_EXTRA_ENVS=$legacy_state_env" \
 	UPORTS_DEPENDENCIES=no \
 	target@libffi.build)
 if [ "$legacy_dispatch" = "consumer=target@libffi.build" ]; then
@@ -2486,6 +2489,47 @@ else
 	fail "explicit dependency disable keeps canonical dispatch dependency-neutral" \
 		"unexpected dispatch: $legacy_dispatch"
 fi
+assert_contains "dependency-disabled dispatch records unresolved inputs" \
+	"$(cat "$legacy_state_dir/dependency.configure.state")" \
+	"unchecked-dependency|target_libffi|build|autoconf>=2.69|devel/autoconf|unknown-origin"
+rm -rf "$legacy_state_dir"
+
+manual_state_dir=$(mktemp -d "$testdir/work/manual-dependency-state.XXXXXX")
+manual_openssl_env="DEPENDENCY_STATE_FILE=$manual_state_dir/openssl.state STAGE_COOKIE=$manual_state_dir/openssl.stage PACKAGE_COOKIE=$manual_state_dir/openssl.package INSTALL_COOKIE=$manual_state_dir/openssl.install WRKDIR_PKGFILE=$manual_state_dir/openssl.pkg"
+manual_pkgconfig_env="DEPENDENCY_STATE_FILE=$manual_state_dir/pkgconfig.state STAGE_COOKIE=$manual_state_dir/pkgconfig.stage PACKAGE_COOKIE=$manual_state_dir/pkgconfig.package INSTALL_COOKIE=$manual_state_dir/pkgconfig.install WRKDIR_PKGFILE=$manual_state_dir/pkgconfig.pkg"
+manual_libffi_env="WITH_TESTS=yes DEPENDENCY_STATE_FILE=$manual_state_dir/libffi.state CONFIGURE_COOKIE=$manual_state_dir/libffi.configure BUILD_COOKIE=$manual_state_dir/libffi.build STAGE_COOKIE=$manual_state_dir/libffi.stage PACKAGE_COOKIE=$manual_state_dir/libffi.package INSTALL_COOKIE=$manual_state_dir/libffi.install WRKDIR_PKGFILE=$manual_state_dir/libffi.pkg"
+manual_tracking_command='override cmd_generate-port-target = case "$(resolved-port-target)" in target@openssl.install) if test -f "$(TRACKING_ROOT)/openssl.install"; then printf "%s\n" openssl=reused; else printf "%s\n" openssl=installed; touch "$(TRACKING_ROOT)/openssl.install"; fi ;; *) printf "%s\n" "consumer=$(resolved-port-target)" ;; esac'
+manual_openssl=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_openssl_EXTRA_ENVS=$manual_openssl_env" \
+	"PORTS_host_pkg-config_EXTRA_ENVS=$manual_pkgconfig_env" \
+	"PORTS_target_libffi_EXTRA_ENVS=$manual_libffi_env" \
+	"TRACKING_ROOT=$manual_state_dir" \
+	--eval="$manual_tracking_command" \
+	UPORTS_DEPENDENCIES=no target@openssl.install)
+assert_eq "dependency-disabled install executes the requested port once" \
+	"$manual_openssl" "openssl=installed"
+if test -f "$manual_state_dir/openssl.state"; then
+	pass "dependency-disabled install saves dependency state"
+else
+	fail "dependency-disabled install saves dependency state" \
+		"missing state: $manual_state_dir/openssl.state"
+fi
+consumer_after_manual=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_openssl_EXTRA_ENVS=$manual_openssl_env" \
+	"PORTS_host_pkg-config_EXTRA_ENVS=$manual_pkgconfig_env" \
+	"PORTS_target_libffi_EXTRA_ENVS=$manual_libffi_env" \
+	"TRACKING_ROOT=$manual_state_dir" \
+	--eval="$manual_tracking_command" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+assert_contains "dependency-aware consumer reuses manually installed provider" \
+	"$consumer_after_manual" "openssl=reused"
+assert_not_contains "dependency-aware consumer does not reinstall manual provider" \
+	"$consumer_after_manual" "openssl=installed"
+rm -rf "$manual_state_dir"
 
 default_dispatch=$(run_make \
 	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
@@ -2766,6 +2810,7 @@ trap - EXIT HUP INT TERM
 
 dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	target@libffi.build)
 assert_contains "canonical dispatch directory" "$dispatch" \
 	"dir=$feeds"
@@ -2810,6 +2855,7 @@ rm -f "$unknown_suffix_file"
 touch "$testdir/target@libffi.build"
 forced_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	target@libffi.build)
 rm -f "$testdir/target@libffi.build"
 assert_contains "canonical dispatch ignores matching filesystem file" \
@@ -2817,6 +2863,7 @@ assert_contains "canonical dispatch ignores matching filesystem file" \
 
 alias_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	openssl.build)
 assert_contains "default alias selects default group" "$alias_dispatch" \
 	"target@security/openssl build"
@@ -2837,6 +2884,7 @@ rm -f "$unknown_alias_file"
 touch "$testdir/libffi.build"
 forced_alias=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	libffi.build)
 rm -f "$testdir/libffi.build"
 assert_contains "short alias ignores matching filesystem file" \
@@ -2863,6 +2911,7 @@ rm -f "$ambiguous_file"
 
 group_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	target.build)
 assert_contains "group aggregate includes expat2" "$group_dispatch" \
 	"target@textproc/expat2 build"
@@ -2873,6 +2922,7 @@ assert_contains "group aggregate includes libffi" "$group_dispatch" \
 
 category_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	devel.build)
 assert_not_contains "category aggregate excludes fallback-only fixture" "$category_dispatch" \
 	"host@devel/pkg-config build"
@@ -2880,7 +2930,9 @@ assert_contains "category aggregate includes root feed port" "$category_dispatch
 	"target@devel/libffi build"
 
 fallback_dispatch=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
-	UPORTS_DEPENDENCIES=no host@pkg-config.build)
+	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
+	host@pkg-config.build)
 assert_contains "fallback instance retains direct lifecycle target" \
 	"$fallback_dispatch" "host@devel/pkg-config build"
 
@@ -2895,6 +2947,7 @@ for group_phase in build install; do
 done
 
 disabled_group_fallback_dispatch=$(run_make UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
 	host.install)
 assert_contains "dependency-disabled group install includes fallback" \
@@ -3040,9 +3093,11 @@ assert_contains "dependency-disabled cleanup includes fallback instances" \
 touch "$testdir/target.build" "$testdir/devel.build"
 forced_group=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	target.build)
 forced_category=$(make --no-print-directory -n -C "$testdir" USE_HOSTTOOLS= \
 	UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	devel.build)
 rm -f "$testdir/target.build" "$testdir/devel.build"
 assert_contains "group aggregate ignores matching filesystem file" \
@@ -3052,6 +3107,7 @@ assert_contains "category aggregate ignores matching filesystem file" \
 
 collision_dispatch=$(make --no-print-directory -n -C "$testdir" \
 	USE_HOSTTOOLS= UPORTS_DEPENDENCIES=no \
+	UPORTS_DEPENDENCY_STATE=no UPORTS_DEPENDENCY_PROVENANCE=no \
 	PORTS_textproc_ENVS='PREFIX=/usr/local DESTDIR=/tmp/uports-textproc' \
 	PORTS_LISTS='textproc@textproc/expat2 textproc@devel/libffi' \
 	textproc.build)
