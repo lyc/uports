@@ -2828,6 +2828,95 @@ assert_contains "group consumer state contains only its own request" \
 	"request|host_openssl|stage"
 rm -rf "$group_state_dir"
 
+scope_test_dir=$(mktemp -d "$testdir/work/provider-scope.XXXXXX")
+scope_policy='DEPENDENCY_PROVIDER_POLICIES=system@build@target@linux@x86_64@devel/autoconf@scope-broken'
+scope_validator="DEPENDENCY_PROVIDER_CHECK.scope-broken.devel_autoconf=echo checked >> $scope_test_dir/validator; false"
+for scope_phase in fetch build; do
+	unrelated_scope=$(run_make DEPENDENCY_PROVIDER_MODE=explicit \
+		"$scope_policy" "$scope_validator" \
+		"DEPENDENCY_REQUEST=target@expat2.$scope_phase" dependency-execution-plan)
+	assert_contains "unrelated provider cannot block scoped $scope_phase" \
+		"$unrelated_scope" "dependency_execution_root = target_expat2"
+done
+if [ ! -e "$scope_test_dir/validator" ]; then
+	pass "unrelated provider validators are not executed"
+else
+	fail "unrelated provider validators are not executed" "validator unexpectedly ran"
+fi
+
+multi_root_scope=$(run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	"$scope_policy" "$scope_validator" \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	'DEPENDENCY_REQUESTS=target@expat2.build host@openssl.build' dependency-execution-plan)
+assert_contains "multi-root validation excludes unrelated providers" \
+	"$multi_root_scope" "dependency_execution_targets = host@pkg-config.install"
+
+if affected_scope=$(run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	"$scope_policy" "$scope_validator" \
+	DEPENDENCY_REQUEST=target@libffi.build dependency-execution-plan 2>&1); then
+	fail "reachable failed provider blocks its consumer" "invalid provider accepted"
+else
+	assert_contains "reachable failed provider blocks its consumer" \
+		"$affected_scope" "dependency provider validation failed"
+fi
+
+if transitive_scope=$(run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	"$scope_policy" "$scope_validator" \
+	--eval='dependency_capabilities_target_libffi := archivers/zlib' \
+	--eval='dependency_capabilities_host_pkg-config := devel/automake' \
+	DEPENDENCY_REQUEST=target@openssl.build \
+	'DEPENDENCY_EXECUTE_COMMAND=printf MUST-NOT-DISPATCH' \
+	dependency-lifecycle-execute 2>&1); then
+	fail "transitive provider validation blocks dispatch" "invalid transitive provider accepted"
+else
+	assert_contains "transitive provider validation blocks dispatch" \
+		"$transitive_scope" "dependency provider validation failed"
+fi
+assert_not_contains "transitive failure dispatches no provider" \
+	"$transitive_scope" "MUST-NOT-DISPATCH"
+
+if full_scope_check=$(run_make DEPENDENCY_PROVIDER_MODE=explicit \
+	"$scope_policy" "$scope_validator" \
+	DEPENDENCY_REQUEST=target@expat2.fetch dependencies-check 2>&1); then
+	fail "dependencies-check retains full-project validation" "broken provider was ignored"
+else
+	assert_contains "dependencies-check retains full-project validation" \
+		"$full_scope_check" "dependency provider validation failed"
+fi
+
+unrelated_cross_scope=$(run_make DEPENDENCY_PROVIDER_MODE=host \
+	PORTS_target_libffi_EXTRA_ENVS=CROSS_COMPILE=arm64-unknown-linux-gnu \
+	DEPENDENCY_REQUEST=toolchain@gmp.build dependency-execution-plan)
+assert_contains "unrelated cross groups do not block a native request" \
+	"$unrelated_cross_scope" "dependency_execution_root = toolchain_gmp"
+
+system_only_scope=$(run_make DEPENDENCY_PROVIDER_MODE=system-only \
+	DEPENDENCY_PROVIDER_TOOL_REGISTRY= DEPENDENCY_PROVIDER_REGISTRY= \
+	DEPENDENCY_PROVIDER_PKG_CONFIG=/nonexistent \
+	DEPENDENCY_REQUEST=target@expat2.build dependency-execution-plan)
+assert_contains "system-only fallback rejection is confined to the closure" \
+	"$system_only_scope" "dependency_execution_instances = 1"
+
+for cleanup_target in target@libffi.clean host.distclean ports.distclean; do
+	provider_independent_cleanup=$(run_make DEPENDENCY_PROVIDER_MODE=host \
+		DEPENDENCY_PROVIDER_REGISTRY=invalid \
+		"$scope_policy" "$scope_validator" \
+		--eval='override dependency-metadata-collect-command = false' \
+		--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \
+		UPORTS_DEPENDENCIES=yes "$cleanup_target")
+	assert_contains "cleanup bypasses metadata and readiness: $cleanup_target" \
+		"$provider_independent_cleanup" "cleanup="
+done
+parallel_independent_cleanup=$(make --no-print-directory -s -j4 -C "$testdir" \
+	USE_HOSTTOOLS= DEPENDENCY_PROVIDER_MODE=host DEPENDENCY_PROVIDER_REGISTRY=invalid \
+	"$scope_policy" "$scope_validator" \
+	--eval='override dependency-metadata-collect-command = false' \
+	--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \
+	UPORTS_DEPENDENCIES=yes ports.distclean)
+assert_contains "parallel cleanup bypasses provider readiness" \
+	"$parallel_independent_cleanup" "cleanup=host@pkg-config.distclean"
+rm -rf "$scope_test_dir"
+
 for cleanup_target in ports.clean ports.distclean devel.distclean host.distclean; do
 	cleanup_dispatch=$(run_make \
 		--eval='override cmd_generate-port-target = printf "%s\n" "cleanup=$(resolved-port-target)"' \

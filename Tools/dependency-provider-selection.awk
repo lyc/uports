@@ -117,8 +117,8 @@ END {
 		if (apply_policy) {
 			kind = policy_kind[key]
 			identity = (native_identity != "" ? native_identity : policy_identity[key])
-			validator = (native_identity != "" ? "valid" : validation[identity, origin[i]])
-			if (kind == "system" && context == "target" &&
+			validator = (planning || native_identity != "" ? "valid" : validation[identity, origin[i]])
+			if (!planning && kind == "system" && context == "target" &&
 			    context_cross[context, group[i]] == "yes") {
 				resolution = "invalid-provider"
 				state = "system-cross-provider"

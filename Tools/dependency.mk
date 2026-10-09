@@ -106,19 +106,19 @@ dependency-group-cross-context-error = $(strip \
 	$(if $(and $(call dependency-group-cross-compile,$1),$(if $(call dependency-cross-opsys,$(call dependency-group-cross-compile,$1)),,yes)),$1:unknown-cross-triplet) \
 	$(if $(and $(call dependency-configured-target-opsys,$1),$(filter-out $(call dependency-derived-target-opsys,$1),$(call dependency-configured-target-opsys,$1))),$1:target-opsys-mismatch) \
 	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
-dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
+dependency-cross-context-errors = $(strip $(foreach g,$(dependency-active-groups),$(call dependency-group-cross-context-error,$g)))
 dependency-provider-mode-context-errors = $(strip $(if \
 	$(and $(filter rejected,$(dependency-provider-cross-target)),\
-	  $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-compile,$g)))),\
+	  $(strip $(foreach g,$(dependency-active-groups),$(call dependency-group-cross-compile,$g)))),\
 	$(DEPENDENCY_PROVIDER_MODE):cross-target-requires-explicit))
 DEPENDENCY_CROSS_TOOLCHAIN_TOOLS ?= gcc g++ ld as ar nm objdump ranlib strip
-dependency-cross-groups = $(foreach g,$(groups_all),\
+dependency-cross-groups = $(foreach g,$(dependency-active-groups),\
 	$(if $(call dependency-group-cross-compile,$g),$g))
 define dependency-cross-toolchain-input
   $(foreach g,$(dependency-cross-groups),printf '%s\n' 'toolchain|$g|$(call dependency-group-cross-compile,$g)'; \
     $(foreach t,$(DEPENDENCY_CROSS_TOOLCHAIN_TOOLS),command='$(call dependency-group-cross-compile,$g)-$t'; path=$$(command -v "$$command" 2>/dev/null || :); if test -n "$$path" && test -x "$$path"; then printf '%s\n' 'tool|$g|$t|'"$$command"'|ready|'"$$path"; else printf '%s\n' 'tool|$g|$t|'"$$command"'|missing|none'; fi;))
 endef
-dependency-cross-toolchain-preflight = $(if $(dependency-cross-groups),\
+dependency-cross-toolchain-preflight = $(if $(and $(dependency-cross-groups),$(dependency-preflight-required)),\
 	{ $(dependency-cross-toolchain-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-cross-toolchain.awk" >/dev/null &&)
 dependency-record-context = $(if $(filter build,$($1_type)),build,target)
@@ -151,13 +151,32 @@ define dependency-provider-policy-input
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';)
 endef
 
+dependency-scoped-targets = dependency-execution-plan dependency-execution-state \
+	dependency-provider-provenance dependency-lifecycle-execute \
+	dependency-state-check dependency-state-save dependency-state-invalidate \
+	dependency-provider-environment-export dependency-provider-environment-run
+dependency-scope-enabled = $(and $(dependency-requests),$(filter $@,$(dependency-scoped-targets)))
+dependency-preflight-required = $(if $(dependency-requests),$(strip $(foreach r,$(dependency-request-targets),$(call dependency-state-class,$(call extract-suffix,$(call rm-group,$r))))),yes)
+dependency-scope-active = $(and $(dependency-scope-enabled),$(filter yes,$(dependency_scope_ready)))
+dependency-active-record-ids = $(if $(dependency-scope-active),$(dependency_scope_record_ids),$(dependency_record_ids))
+dependency-active-groups = $(if $(dependency-scope-active),$(sort $(foreach n,$(dependency_scope_nodes),$(call instance-field,$n,group))),$(groups_all))
+dependency-policy-matches-record = $(and \
+	$(filter $(call dependency-policy-field,2,$1),$(call dependency-record-context,$2)),\
+	$(filter $(call dependency-policy-field,3,$1),$(call instance-field,$($2_consumer),group)),\
+	$(filter $(call dependency-policy-field,4,$1),$(call dependency-record-opsys,$2)),\
+	$(filter $(call dependency-policy-field,5,$1),$(call dependency-record-arch,$2)),\
+	$(filter $(call dependency-policy-field,6,$1),$($2_origin)))
+dependency-active-policies = $(if $(dependency-scope-active),\
+	$(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $(foreach d,$(dependency-active-record-ids),$(call dependency-policy-matches-record,$p,$d))),$p)),\
+	$(DEPENDENCY_PROVIDER_POLICIES))
+
 define dependency-provider-selection-input
   $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)|no';) \
   $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(call dependency-target-opsys,$g)|$(call dependency-target-arch,$g)|$(if $(call dependency-group-cross-compile,$g),yes,no)';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
   $(dependency-provider-native-tool-input) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';)) \
-  $(foreach d,$(dependency_record_ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
+  $(if $(filter yes,$(dependency_planning_only)),,$(foreach p,$(dependency-active-policies),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';))) \
+  $(foreach d,$(dependency-active-record-ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
 endef
 
 define dependency-provider-environment-input
@@ -292,20 +311,38 @@ endef
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(eval dependency_scope_ready := no) \
+	$(eval dependency_planning_only := no) \
+	$(if $(dependency-scope-enabled),,\
 	$(if $(dependency-cross-context-errors),			\
 	  $(error invalid dependency cross context: $(dependency-cross-context-errors))) \
 	$(if $(dependency-provider-mode-context-errors),		\
-	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors))) \
+	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))) \
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
 	  $(error dependency metadata collection failed),)		\
-	$(load-dependency-provider-discovery)				\
+	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),,$(load-dependency-provider-discovery)) \
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-capability,$d)))			\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
+	$(if $(and $(dependency-scope-enabled),$(if $(dependency-invalid-requests),,yes)),\
+	  $(if $(and $(filter yes,$(dependency-external-providers-enabled)),$(dependency-preflight-required)),\
+	    $(eval dependency_planning_only := yes) \
+	    $(eval dependency_provider_projection := $(shell { $(dependency-provider-selection-input) :; } | awk -v planning=1 -v records=1 -f "$(portdir)/Tools/dependency-provider-selection.awk")) \
+	    $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency scope projection failed)) \
+	    $(foreach p,$(dependency_provider_projection),$(call apply-dependency-provider-projection,$p)) \
+	    $(eval dependency_planning_only := no)) \
+	  $(eval dependency_scope_raw := $(shell { $(dependency-execution-input) :; } | awk -v scope=1 -f "$(portdir)/Tools/dependency-execution.awk")) \
+	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error invalid dependency scope request)) \
+	  $(eval dependency_scope_nodes := $(patsubst scope-node$(VERTICAL_BAR)%,%,$(filter scope-node$(VERTICAL_BAR)%,$(dependency_scope_raw)))) \
+	  $(eval dependency_scope_record_ids := $(patsubst scope-record$(VERTICAL_BAR)%,%,$(filter scope-record$(VERTICAL_BAR)%,$(dependency_scope_raw)))) \
+	  $(eval dependency_scope_ready := yes) \
+	  $(if $(dependency-preflight-required),\
+	    $(if $(dependency-cross-context-errors),$(error invalid dependency cross context: $(dependency-cross-context-errors))) \
+	    $(if $(dependency-provider-mode-context-errors),$(error invalid dependency provider mode: $(dependency-provider-mode-context-errors))))) \
 	$(if $(filter yes,$(dependency-external-providers-enabled)),	\
 	  $(eval dependency_policy_result := $(shell { $(dependency-provider-policy-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-policy.awk" >/dev/null))\
 	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider policy validation failed))\
@@ -314,7 +351,7 @@ load-dependency-records = 						\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
 	      $(call apply-dependency-provider-projection,$p))))		\
 	$(if $(and $(filter none,$(dependency-provider-fallback)),\
-	  $(filter uports,$(foreach d,$(dependency_record_ids),$($(d)_provider_kind)))),\
+	  $(filter uports,$(foreach d,$(dependency-active-record-ids),$($(d)_provider_kind)))),\
 	  $(error system-only provider mode has dependencies without external providers))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
@@ -339,7 +376,7 @@ define dependency-execution-input
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))';) \
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))|$d';) \
   $(foreach p,$(dependency-provider-contribution-policies),	\
     printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)|$(call dependency-provider-value,COMMANDS,$p)';) \
   $(foreach p,$(dependency-provider-contribution-policies),$(if $(call dependency-provider-value,TOOL_VERSIONS,$p),printf '%s\n' 'native-tool-versions|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,TOOL_VERSIONS,$p)';)) \
@@ -399,7 +436,7 @@ dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-lifecycle-execute &&)
-dependency-consumer-environment-command = $(if $(filter yes,$(dependency-external-providers-enabled)),\
+dependency-consumer-environment-command = $(if $(and $(filter yes,$(dependency-external-providers-enabled)),$(dependency-dispatch-state-class)),\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \

@@ -28,6 +28,7 @@ $1 == "dependency" {
 	dependency_provider_context[consumer, dep_index] = $12
 	dependency_provider_opsys[consumer, dep_index] = $13
 	dependency_provider_arch[consumer, dep_index] = $14
+	dependency_record_id[consumer, dep_index] = $15
 }
 
 $1 == "external-environment" {
@@ -167,6 +168,19 @@ END {
 		}
 	}
 
+	# Scope extraction precedes readiness/graph errors. Those errors are checked
+	# after the caller validates precisely the records reached by this closure.
+	if (scope) {
+		for (n = 1; n <= node_count; n++) {
+			consumer = node_order[n]
+			if (!(consumer in requested)) continue
+			print "scope-node|" consumer
+			for (i = 1; i <= dependency_count[consumer]; i++)
+				if (dependency_needed(requested_phase[consumer], dependency_type[consumer, i]))
+					print "scope-record|" dependency_record_id[consumer, i]
+		}
+		exit 0
+	}
 	if (unresolved_count) {
 		printf "unresolved_dependencies = %d\n", unresolved_count > "/dev/stderr"
 		exit 1
