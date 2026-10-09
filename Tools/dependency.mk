@@ -373,6 +373,7 @@ define dependency-graph-input
 endef
 
 define dependency-execution-input
+  printf '%s\n' 'packaging-policy|$(UPORTS_DEPENDENCY_PROVENANCE)'; \
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
   $(foreach d,$(dependency_record_ids),			\
@@ -427,6 +428,10 @@ UPORTS_DEPENDENCY_STATE ?= $(UPORTS_DEPENDENCIES)
 ifneq ($(filter $(UPORTS_DEPENDENCY_STATE),yes no),$(UPORTS_DEPENDENCY_STATE))
 $(error UPORTS_DEPENDENCY_STATE must be yes or no)
 endif
+UPORTS_DEPENDENCY_PROVENANCE ?= $(UPORTS_DEPENDENCIES)
+ifneq ($(filter $(UPORTS_DEPENDENCY_PROVENANCE),yes no),$(UPORTS_DEPENDENCY_PROVENANCE))
+$(error UPORTS_DEPENDENCY_PROVENANCE must be yes or no)
+endif
 
 dependency-state-class = $(if $(filter configure build rebuild,$1),configure,\
 	$(if $(filter stage package install restage reinstall generate-plist,$1),stage))
@@ -442,9 +447,9 @@ dependency-consumer-environment-command = $(if $(and $(filter yes,$(dependency-e
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
 	. "$$environment_file";)
-dependency-consumer-provenance-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCIES)),\
-	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target))))),\
+dependency-consumer-provenance-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_PROVENANCE)),\
+	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
+dependency-consumer-provenance-command = $(if $(dependency-consumer-provenance-enabled),\
 	provenance_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-provenance.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
@@ -452,8 +457,7 @@ dependency-consumer-provenance-command = $(if $(and \
 	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
 dependency-consumer-cleanup-command = $(if $(or \
 	$(filter yes,$(dependency-external-providers-enabled)),\
-	$(and $(filter yes,$(UPORTS_DEPENDENCIES)),\
-	  $(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))),\
+	$(dependency-consumer-provenance-enabled)),\
 	trap 'rm -f $${environment_file:+"$$environment_file"} $${provenance_file:+"$$provenance_file"}' EXIT HUP INT TERM;)
 dependency-state-invalidate-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
@@ -690,6 +694,7 @@ dependency-lifecycle-check:
 # a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
 	DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST= \
+	UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))

@@ -1266,6 +1266,99 @@ assert_eq "legacy package remains installable" \
 	"$(cat "$package_test_dir/install-legacy/usr/local/payload.txt")" "payload"
 rm -rf "$package_test_dir"
 
+aggregate_package_dir=$(mktemp -d "$testdir/work/aggregate-package.XXXXXX")
+mkdir -p "$aggregate_package_dir/tmp"
+for fixture_port in alpha beta tool; do
+	mkdir -p "$aggregate_package_dir/feeds/devel/$fixture_port"
+	printf '%s\n' "PORTNAME = $fixture_port" \
+		"include $portdir/Tools/tests/provenance-port.mk" \
+		> "$aggregate_package_dir/feeds/devel/$fixture_port/Makefile"
+done
+printf '%s\n' \
+	'PORTS_LISTS = consumer@devel/alpha consumer@devel/beta' \
+	'PORTS_FALLBACK_LISTS = host@devel/tool' \
+	'PORTS_GROUP_DEFAULT = consumer' \
+	"FEEDS = $aggregate_package_dir/feeds" \
+	'default_ignore_lists = %' 'PREFIX = /usr/local' \
+	"DESTDIR = $aggregate_package_dir/install" \
+	"PORTS_ENVS = PORTSDIR=$portdir PROVENANCE_TEST_ROOT=$aggregate_package_dir" \
+	'DEPENDENCY_BUILD_OPSYS = linux' 'DEPENDENCY_BUILD_ARCH = x86_64' \
+	'DEPENDENCY_PROVIDER_MODE = explicit' \
+	'DEPENDENCY_PROVIDER_POLICIES = system@target@consumer@linux@x86_64@devel/native@fixture-native' \
+	'DEPENDENCY_PROVIDER_CHECK.fixture-native.devel_native = true' \
+	"include $portdir/Tools/tools.mk" > "$aggregate_package_dir/Makefile"
+run_package_make()
+{
+	PATH="$platform_test_dir:$PATH" make --no-print-directory -s \
+		-C "$aggregate_package_dir" USE_HOSTTOOLS= \
+		"TMPDIR=$aggregate_package_dir/tmp" "$@"
+}
+run_package_make consumer.package
+alpha_package="$aggregate_package_dir/work.alpha/alpha.pkg"
+beta_package="$aggregate_package_dir/work.beta/beta.pkg"
+alpha_manifest=$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$alpha_package")
+beta_manifest=$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$beta_package")
+assert_contains "aggregate packages use provenance format" "$alpha_manifest" "PVER: 2"
+assert_contains "aggregate alpha package has its own request" "$alpha_manifest" \
+	"request|consumer_alpha|package"
+assert_contains "aggregate beta package has its own request" "$beta_manifest" \
+	"request|consumer_beta|package"
+assert_contains "aggregate package records external provider" "$alpha_manifest" \
+	"devel/native|system|fixture-native|target|linux|x86_64|external"
+assert_contains "aggregate package records uports provider" "$beta_manifest" \
+	"devel/tool|uports|host_tool|build|linux|x86_64|host@tool.install"
+assert_not_contains "aggregate provenance does not leak another consumer" \
+	"$beta_manifest" "consumer_alpha"
+assert_eq "aggregate shared provider is installed once" \
+	"$(awk '$0 == "provider=tool" { n++ } END { print n+0 }' "$aggregate_package_dir/events")" "1"
+assert_eq "aggregate providers complete before packaging" \
+	"$(sed -n '1p' "$aggregate_package_dir/events")" "provider=tool"
+cp "$alpha_package" "$aggregate_package_dir/alpha.before"
+run_package_make -j4 consumer.package
+if cmp -s "$alpha_package" "$aggregate_package_dir/alpha.before"; then
+	pass "parallel aggregate repeats preserve unchanged packages"
+else
+	fail "parallel aggregate repeats preserve unchanged packages" "archive unexpectedly changed"
+fi
+assert_eq "parallel aggregate preserves scoped provenance" \
+	"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$beta_package")" "$beta_manifest"
+
+run_package_make UPORTS_DEPENDENCY_PROVENANCE=no consumer.package
+assert_eq "aggregate provenance opt-out recreates legacy packages" \
+	"$(sed -n '1p' "$alpha_package")" "PVER: 1"
+run_package_make consumer.package
+assert_contains "restoring provenance recreates provider manifest" \
+	"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$alpha_package")" \
+	"request|consumer_alpha|package"
+DESTDIR="$aggregate_package_dir/unpacked" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$alpha_package"
+assert_eq "aggregate provenance package remains installable" \
+	"$(cat "$aggregate_package_dir/unpacked/usr/local/payload.txt")" "alpha payload"
+
+if run_package_make PACKAGE_FAIL=yes consumer.package >/dev/null 2>&1; then
+	fail "aggregate packaging failure propagates" "failure was accepted"
+else
+	pass "aggregate packaging failure propagates"
+fi
+temporary_reports_removed=yes
+while IFS= read -r report_path; do
+	[ ! -e "$report_path" ] || temporary_reports_removed=no
+done < "$aggregate_package_dir/temporary-files"
+assert_eq "aggregate temporary reports are removed on success and failure" \
+	"$temporary_reports_removed" "yes"
+if run_package_make \
+	'DEPENDENCY_PROVIDER_CHECK.fixture-native.devel_native=$(if $(filter dependency-provider-provenance,$@),false,true)' \
+	consumer.package >/dev/null 2>&1; then
+	fail "provenance generation failure blocks packaging" "failed generation was accepted"
+else
+	pass "provenance generation failure blocks packaging"
+fi
+assert_eq "failed provenance generation leaves no temporary reports" \
+	"$(find "$aggregate_package_dir/tmp" -name 'uports-provider-provenance.*' -print)" ""
+assert_eq "failed provenance generation leaves no temporary environments" \
+	"$(find "$aggregate_package_dir/tmp" -name 'uports-provider-env.*' -print)" ""
+rm -rf "$aggregate_package_dir"
+
 external_execution=$(run_make "$resolved_provider_args" \
 	"$external_record_args" "$external_policy" "$external_validator" \
 	"DEPENDENCY_EXECUTE_COMMAND=printf '%s\\n'" \

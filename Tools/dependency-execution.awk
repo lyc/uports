@@ -41,6 +41,10 @@ $1 == "native-tool-versions" {
 	native_tool_versions[$2, $3] = $4
 }
 
+$1 == "packaging-policy" {
+	package_provenance = $2
+}
+
 $1 == "request" {
 	request_node[++request_count] = $2
 	request_phase[request_count] = $3
@@ -268,6 +272,8 @@ END {
 			       (is_root[node] ? dependency_state_class(requested_phase[node]) : requested_phase[node]),
 			       node_group[node],
 			       node_origin[node], node_environment[node]
+			if (is_root[node] && dependency_state_class(requested_phase[node]) == "stage" && package_provenance != "")
+				printf "packaging-policy|%s|provenance|%s\n", node, package_provenance
 			for (i = 1; i <= dependency_count[node]; i++) {
 				if (!selected_edge[node, i])
 					continue
