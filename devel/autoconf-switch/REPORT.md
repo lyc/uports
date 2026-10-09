@@ -18,8 +18,14 @@ Linux verification used cached m4, Autoconf 2.72, and wrapper packages installed
 into a temporary root. With the revised wrapper, `autoreconf -f -i` generated
 a configure script for a minimal AC_PROG_CC project, and `./configure` produced
 config.status. The original wrapper failed to locate its embedded source
-installation's Perl modules and macros. macOS runtime validation is pending;
-the existing version-selection code still uses `sort -V`.
+installation's Perl modules and macros.
+
+Darwin arm64 verification on macOS 26.6.2 used fresh isolated m4, Autoconf
+2.72, and wrapper installations. Apple's `sort` 2.3 supports `-V` and selected
+2.10 after 2.9 in a direct probe. With the validated native `aclocal` on PATH,
+the unsuffixed wrapper selected Autoconf 2.72, generated the same minimal
+configure script, and configure produced `config.status` without manual
+Autoconf path overrides.
 
 Smoke test after installation:
 

@@ -62,7 +62,8 @@ assert_eq()
 	fi
 }
 
-platform_test_dir=$(mktemp -d "${TMPDIR:-/tmp}/uports-regression-platform.XXXXXX")
+platform_tmpdir=${TMPDIR:-/tmp}
+platform_test_dir=$(mktemp -d "${platform_tmpdir%/}/uports-regression-platform.XXXXXX")
 printf '%s\n' \
 	'#!/bin/sh' \
 	'case "$1" in' \
