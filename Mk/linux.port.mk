@@ -238,9 +238,14 @@ PREFIX			?= $(LOCALBASE)
 
 # $(call set-global-link, dir_site, dir)
 define set-global-link
-  $(shell if [ ! -z $1 ]; then						\
-	    if [ ! -d $1 ] && [ ! -h $1 ]; then mkdir -p $1; fi;	\
-	    if [ ! -d $2 ] && [ ! -h $2 ]; then ln -s $1 $2; fi;	\
+  $(shell if [ -n "$1" ]; then						\
+	    if [ ! -d "$1" ] && [ ! -h "$1" ]; then mkdir -p "$1"; fi; \
+	    if [ ! -d "$2" ] && [ ! -h "$2" ]; then			\
+	      if ! ln -sn "$1" "$2" 2>/dev/null &&			\
+	          [ ! -d "$2" ] && [ ! -h "$2" ]; then		\
+	        printf '%s\n' "Unable to create global link $2 -> $1" >&2;	\
+	      fi;							\
+	    fi;							\
 	  fi)
 endef
 
