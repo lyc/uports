@@ -567,7 +567,9 @@ get-envs		= $(call target-instance-field,$1,env)
 
 include $(portdir)/Tools/dependency.mk
 
-quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin) $(call extract-suffix,$(call rm-group,$(resolved-port-target)))
+dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
+dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
+quiet_cmd_generate-port-target	?= $(if $(dependency-provider-execution),,PORT    $(dependency-target-label) $(call extract-suffix,$(call rm-group,$(resolved-port-target))))
       cmd_generate-port-target	?= set -e;				\
 	dir=$(call target-instance-field,$(resolved-port-target),root);	\
 	category=$(call target-instance-field,				\
@@ -579,7 +581,24 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolve
 	$(dependency-consumer-cleanup-command)				\
 	$(dependency-consumer-environment-command)			\
 	$(dependency-consumer-provenance-command)			\
-	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
+	if test "$(dependency-provider-execution)" = yes; then		\
+	  status=0;							\
+	  make -q -C $$dir/$$category/$$port --no-print-directory	\
+	    $$envs uports-dependency-dispatch >/dev/null 2>&1 || status=$$?; \
+	  if test "$$status" -lt 2; then				\
+	    make -s -C $$dir/$$category/$$port --no-print-directory	\
+	      $$envs DEPENDENCY_TARGET_SUFFIX="$$suffix"			\
+	      DEPENDENCY_TARGET_LABEL="$(dependency-target-label)"	\
+	      uports-dependency-dispatch;				\
+	  else							\
+	    echo "  PORT    $(dependency-target-label) $$suffix";		\
+	    make -C $$dir/$$category/$$port --no-print-directory	\
+	      $$envs $$suffix$(trash);					\
+	  fi;							\
+	else							\
+	  make -C $$dir/$$category/$$port --no-print-directory		\
+	    $$envs $$suffix$(trash);					\
+	fi
 
 depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all) \
 			    $(ports_aggregate_target_all)

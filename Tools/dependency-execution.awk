@@ -13,6 +13,15 @@ $1 == "node" {
 	}
 }
 
+$1 == "cookie" {
+	cookie_state[$2, $3] = $5
+	cookie_file[$2, $3] = $4
+}
+
+$1 == "state-file" {
+	state_file[$2, $3] = $4
+}
+
 $1 == "dependency" {
 	consumer = $2
 	dep_index = ++dependency_count[consumer]
@@ -108,11 +117,17 @@ function add_provider_target(node, phase, target, rank) {
 	rank = target_rank(phase)
 	if (!(node in provider_target) || rank > provider_target_rank[node]) {
 		provider_target[node] = target
+		provider_target_phase[node] = phase
 		provider_target_rank[node] = rank
 	}
 }
 
 END {
+	if (request_override != "") {
+		request_count = 1
+		request_node[1] = request_override
+		request_phase[1] = request_override_phase
+	}
 	if (request_count == 0 && root != "") {
 		request_node[++request_count] = root
 		request_phase[request_count] = root_phase
@@ -337,9 +352,36 @@ END {
 		printf "dependency_execution_targets ="
 		separator = " "
 	}
+	if (candidates) {
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			if (!(node in provider_target))
+				continue
+			phase = provider_target_phase[node]
+			class = dependency_state_class(phase)
+			printf "candidate|%s|%s|%s|%s|%s\n", node, phase,
+			       provider_target[node], cookie_file[node, phase],
+			       state_file[node, class]
+		}
+		exit 0
+	}
+	if (reuse_report) {
+		if (!reuse)
+			exit 0
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			if ((node in provider_target) &&
+			    cookie_state[node, provider_target_phase[node]] == "ready")
+				printf "  REUSE   %s@%s %s\n", node_group[node],
+				       node_origin[node], provider_target_phase[node]
+		}
+		exit 0
+	}
 	for (n = 1; n <= processed; n++) {
 		node = ordered[n]
 		if (!(node in provider_target))
+			continue
+		if (reuse && cookie_state[node, provider_target_phase[node]] == "ready")
 			continue
 		printf "%s%s", separator, provider_target[node]
 		separator = " "

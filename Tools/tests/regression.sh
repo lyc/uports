@@ -2173,6 +2173,17 @@ port_state_same=$(make --no-print-directory -s -C \
 	uports-dependency-state-check)
 assert_contains "port target reads saved dependency state" \
 	"$port_state_same" "dependency_state = unchanged"
+if make --no-print-directory -s -C "$portdir/archivers/zlib" \
+	PORTSDIR="$portdir" DESTDIR="$dependency_state_fixture/root" \
+	PREFIX=/usr/local DEPENDENCY_STATE_CLASS=configure \
+	DEPENDENCY_STATE_SOURCE="$dependency_state_source" \
+	DEPENDENCY_STATE_FILE="$dependency_state_saved" \
+	uports-dependency-state-current; then
+	pass "port target accepts current dependency state"
+else
+	fail "port target accepts current dependency state" \
+		"unchanged dependency state was rejected"
+fi
 
 dependency_cookie_fixture="$dependency_state_fixture/cookies"
 mkdir -p "$dependency_cookie_fixture"
@@ -2182,6 +2193,24 @@ do
 	touch "$dependency_cookie_fixture/$cookie"
 done
 touch "$dependency_package_artifact"
+dependency_reuse=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	DEPENDENCY_TARGET_SUFFIX=install \
+	DEPENDENCY_TARGET_LABEL=target@archivers/zlib \
+	uports-dependency-dispatch)
+assert_eq "installed dependency dispatch is silent by default" \
+	"$dependency_reuse" ""
+dependency_reuse_verbose=$(make --no-print-directory -s -C \
+	"$portdir/archivers/zlib" V=1 PORTSDIR="$portdir" \
+	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
+	INSTALL_COOKIE="$dependency_cookie_fixture/install" \
+	DEPENDENCY_TARGET_SUFFIX=install \
+	DEPENDENCY_TARGET_LABEL=target@archivers/zlib \
+	uports-dependency-dispatch)
+assert_eq "verbose dependency dispatch reports reuse" \
+	"$dependency_reuse_verbose" "  REUSE   target@archivers/zlib install"
 port_state_unchanged=$(make --no-print-directory -s -C \
 	"$portdir/archivers/zlib" PORTSDIR="$portdir" \
 	DESTDIR="$dependency_state_fixture/root" PREFIX=/usr/local \
@@ -2525,10 +2554,35 @@ consumer_after_manual=$(run_make \
 	"TRACKING_ROOT=$manual_state_dir" \
 	--eval="$manual_tracking_command" \
 	UPORTS_DEPENDENCIES=yes target@libffi.build)
-assert_contains "dependency-aware consumer reuses manually installed provider" \
+assert_not_contains "dependency-aware consumer skips manually installed provider target" \
 	"$consumer_after_manual" "openssl=reused"
 assert_not_contains "dependency-aware consumer does not reinstall manual provider" \
 	"$consumer_after_manual" "openssl=installed"
+consumer_after_saved_state=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_openssl_EXTRA_ENVS=$manual_openssl_env" \
+	"PORTS_host_pkg-config_EXTRA_ENVS=$manual_pkgconfig_env" \
+	"PORTS_target_libffi_EXTRA_ENVS=$manual_libffi_env" \
+	"TRACKING_ROOT=$manual_state_dir" \
+	--eval="$manual_tracking_command" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+assert_not_contains "unchanged consumer state skips installed provider target" \
+	"$consumer_after_saved_state" "openssl=reused"
+assert_not_contains "unchanged consumer state still avoids provider reinstall" \
+	"$consumer_after_saved_state" "openssl=installed"
+printf '%s\n' changed-provider-state >> "$manual_state_dir/openssl.state"
+consumer_after_provider_change=$(run_make \
+	--eval='dependency_capabilities_host_pkg-config := archivers/zlib' \
+	--eval='dependency_capabilities_target_openssl := devel/autoconf devel/automake' \
+	"PORTS_target_openssl_EXTRA_ENVS=$manual_openssl_env" \
+	"PORTS_host_pkg-config_EXTRA_ENVS=$manual_pkgconfig_env" \
+	"PORTS_target_libffi_EXTRA_ENVS=$manual_libffi_env" \
+	"TRACKING_ROOT=$manual_state_dir" \
+	--eval="$manual_tracking_command" \
+	UPORTS_DEPENDENCIES=yes target@libffi.build)
+assert_contains "changed provider state executes provider target" \
+	"$consumer_after_provider_change" "openssl=installed"
 rm -rf "$manual_state_dir"
 
 default_dispatch=$(run_make \

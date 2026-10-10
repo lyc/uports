@@ -407,7 +407,10 @@ PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
 DEPENDENCY_STATE_CLASS	?=
 DEPENDENCY_STATE_SOURCE	?=
+dependency-state-file-override := $(strip $(DEPENDENCY_STATE_FILE))
 DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
+dependency-state-file-for = $(if $(dependency-state-file-override),\
+	$(dependency-state-file-override),$(WRKDIR)/dependency.$1.state)
 dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
 	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
 	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
@@ -418,7 +421,7 @@ $(error DEPENDENCY_STATE_CLASS must be configure or stage)
 endif
 
 .PHONY: uports-dependency-state-check uports-dependency-state-save \
-	uports-dependency-state-invalidate
+	uports-dependency-state-invalidate uports-dependency-state-current
 uports-dependency-state-check uports-dependency-state-save \
 uports-dependency-state-invalidate:
 	@if test -z "$(DEPENDENCY_STATE_CLASS)"; then \
@@ -431,6 +434,39 @@ uports-dependency-state-invalidate:
 	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
 	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
 	  $(patsubst uports-dependency-state-%,%,$@)
+
+uports-dependency-state-current:
+	@test -n "$(DEPENDENCY_STATE_CLASS)" \
+	  && DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
+	     DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
+	     $(SH) $(SCRIPTSDIR)/dependency-state.sh current
+
+DEPENDENCY_TARGET_SUFFIX	?=
+DEPENDENCY_TARGET_LABEL		?= $(PORTNAME)
+dependency-target-cookie = $(strip \
+	$(if $(filter extract,$(DEPENDENCY_TARGET_SUFFIX)),$(EXTRACT_COOKIE),\
+	$(if $(filter patch,$(DEPENDENCY_TARGET_SUFFIX)),$(PATCH_COOKIE),\
+	$(if $(filter configure,$(DEPENDENCY_TARGET_SUFFIX)),$(CONFIGURE_COOKIE),\
+	$(if $(filter build,$(DEPENDENCY_TARGET_SUFFIX)),$(BUILD_COOKIE),\
+	$(if $(filter stage,$(DEPENDENCY_TARGET_SUFFIX)),$(STAGE_COOKIE),\
+	$(if $(filter package,$(DEPENDENCY_TARGET_SUFFIX)),$(PACKAGE_COOKIE),\
+	$(if $(filter install,$(DEPENDENCY_TARGET_SUFFIX)),$(INSTALL_COOKIE)))))))))
+
+.PHONY: uports-dependency-dispatch
+uports-dependency-dispatch:
+	@if test -z "$(DEPENDENCY_TARGET_SUFFIX)"; then \
+	  echo "missing DEPENDENCY_TARGET_SUFFIX" >&2; \
+	  exit 1; \
+	fi; \
+	cookie='$(dependency-target-cookie)'; \
+	if test -n "$$cookie" && test -f "$$cookie"; then \
+	  if test "$(PORTS_VERBOSE)" = 1; then \
+	    echo "  REUSE   $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
+	  fi; \
+	else \
+	  echo "  PORT    $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
+	  $(MAKE) --no-print-directory $(DEPENDENCY_TARGET_SUFFIX)$(trash); \
+	fi
 
 # Special macro for doing in-place file editing using regexps
 ifeq ($(USE_REINPLACE),yes)
@@ -2388,6 +2424,17 @@ uports-dependency-metadata:
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
 	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
 	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
+	@printf '%s\n' \
+	  'cookie|extract|$(EXTRACT_COOKIE)' \
+	  'cookie|patch|$(PATCH_COOKIE)' \
+	  'cookie|configure|$(CONFIGURE_COOKIE)' \
+	  'cookie|build|$(BUILD_COOKIE)' \
+	  'cookie|stage|$(STAGE_COOKIE)' \
+	  'cookie|package|$(PACKAGE_COOKIE)' \
+	  'cookie|install|$(INSTALL_COOKIE)'
+	@printf '%s\n' \
+	  'state-file|configure|$(call dependency-state-file-for,configure)' \
+	  'state-file|stage|$(call dependency-state-file-for,stage)'
 
 pkg-depends:
 extract-depends:

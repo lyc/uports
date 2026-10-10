@@ -288,6 +288,16 @@ define collect-dependency-capability
   $(eval dependency_capabilities_$(word 1,$(dependency_capability_words)) += $(word 3,$(dependency_capability_words)))
 endef
 
+define collect-dependency-cookie
+  $(eval dependency_cookie_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_cookie_$(word 1,$(dependency_cookie_words))_$(word 3,$(dependency_cookie_words)) := $(word 4,$(dependency_cookie_words)))
+endef
+
+define collect-dependency-state-file
+  $(eval dependency_state_file_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_state_file_$(word 1,$(dependency_state_file_words))_$(word 3,$(dependency_state_file_words)) := $(word 4,$(dependency_state_file_words)))
+endef
+
 # $(call dependency-provider-candidates, origin)
 dependency-provider-candidates = $(filter %$(AT)$1,$(ports_all_group))
 
@@ -353,6 +363,12 @@ load-dependency-records = 						\
 	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-capability,$d)))			\
 	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call collect-dependency-cookie,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter state-file,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call collect-dependency-state-file,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
 	$(if $(and $(dependency-scope-enabled),$(if $(dependency-invalid-requests),,yes)),\
@@ -402,7 +418,11 @@ endef
 define dependency-execution-input
   printf '%s\n' 'packaging-policy|$(UPORTS_DEPENDENCY_PROVENANCE)'; \
   $(foreach p,$(ports_all_group),				\
-    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
+    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(filter-out USE_GLOBALBASE=% DISTDIR_SITE=% PACKAGES_SITE=% SCMDIR_SITE=%,$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env))';) \
+  $(foreach p,$(ports_all_group),$(foreach s,$(dependency-lifecycle-provider-suffixes),\
+    printf '%s\n' 'cookie|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$s|$(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)|$(if $(wildcard $(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)),ready,missing)';)) \
+  $(foreach p,$(ports_all_group),$(foreach c,configure stage,\
+    printf '%s\n' 'state-file|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$c|$(dependency_state_file_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$c)';)) \
   $(foreach d,$(dependency_record_ids),			\
     printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))|$d';) \
   $(foreach p,$(dependency-provider-contribution-policies),	\
@@ -475,6 +495,9 @@ dependency-context-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_INVOCATION))
 dependency-context-output-dir = $(or $(strip $(DEPENDENCY_CONTEXT_DIR)),\
 	$(dependency-context-active-dir))
 dependency-context-targets = $(dependency-context-output-dir)/targets
+dependency-context-reuses = $(dependency-context-output-dir)/reuses
+dependency-context-input = $(dependency-context-output-dir)/input
+dependency-context-candidates = $(dependency-context-output-dir)/candidates
 dependency-context-environment = $(dependency-context-output-dir)/environment
 dependency-context-state = $(dependency-context-output-dir)/state
 dependency-context-provenance = $(dependency-context-output-dir)/provenance
@@ -489,6 +512,7 @@ dependency-context-ensure-command = $(if $(dependency-context-enabled),\
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(if $(dependency-context-enabled),\
+	  $(if $(filter 1,$(PORTS_VERBOSE)),cat "$(dependency-context-reuses)";) \
 	  targets=$$(cat "$(dependency-context-targets)"); \
 	  if test -n "$$targets"; then $(DEPENDENCY_EXECUTE_COMMAND) $$targets; fi &&,\
 	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
@@ -708,15 +732,49 @@ dependency-target-context-prepare:
 	  exit 1; \
 	fi
 	@set -e; \
-	  { $(dependency-execution-input) :; } | \
-	    awk -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
-	      -f "$(portdir)/Tools/dependency-execution.awk" \
-	    > "$(dependency-context-targets)"; \
-	  { $(dependency-execution-input) :; } | \
-	    awk -v state=1 \
+	  { $(dependency-execution-input) :; } > "$(dependency-context-input)"; \
+	  awk -v state=1 \
 	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
 	      -f "$(portdir)/Tools/dependency-execution.awk" \
+	      "$(dependency-context-input)" \
 	    > "$(dependency-context-state)"; \
+	  awk -v candidates=1 \
+	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	      -f "$(portdir)/Tools/dependency-execution.awk" \
+	      "$(dependency-context-input)" \
+	    > "$(dependency-context-candidates)"; \
+	  : > "$(dependency-context-targets)"; \
+	  : > "$(dependency-context-reuses)"; \
+	  provider_state="$(dependency-context-output-dir)/provider-state"; \
+	  trap 'rm -f "$$provider_state"' EXIT HUP INT TERM; \
+	  while IFS='|' read -r record node phase target cookie state_file; do \
+	    ready=no; \
+	    if test -n "$$cookie" && test -f "$$cookie" && \
+	       test -n "$$state_file" && test -f "$$state_file"; then \
+	      awk -v state=1 -v request_override="$$node" \
+	        -v request_override_phase="$$phase" \
+	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	        -f "$(portdir)/Tools/dependency-execution.awk" \
+	        "$(dependency-context-input)" > "$$provider_state"; \
+	      if DEPENDENCY_STATE_SOURCE="$$provider_state" \
+	         DEPENDENCY_STATE_FILE="$$state_file" \
+	         $(SH) "$(portdir)/Mk/Scripts/dependency-state.sh" current; then \
+	        ready=yes; \
+	      fi; \
+	    fi; \
+	    if test "$$ready" = yes; then \
+	      group_origin=$$(awk -F '|' -v wanted="$$node" \
+	        '$$1 == "node" && $$2 == wanted { print $$3 "@" $$4; exit }' \
+	        "$(dependency-context-input)"); \
+	      printf '  REUSE   %s %s\n' "$$group_origin" "$$phase" \
+	        >> "$(dependency-context-reuses)"; \
+	    else \
+	      printf '%s ' "$$target" >> "$(dependency-context-targets)"; \
+	    fi; \
+	  done < "$(dependency-context-candidates)"; \
+	  printf '\n' >> "$(dependency-context-targets)"; \
+	  rm -f "$$provider_state"; \
+	  trap - EXIT HUP INT TERM; \
 	  if test "$(dependency-external-providers-enabled)" = yes; then \
 	    { $(dependency-provider-environment-input) :; } | \
 	      $(dependency-provider-export-awk) \
@@ -805,6 +863,7 @@ dependency-lifecycle-check:
 # a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
 	DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST= \
+	UPORTS_DEPENDENCY_PROVIDER_EXECUTION=yes \
 	UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
