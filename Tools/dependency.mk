@@ -416,7 +416,7 @@ define dependency-graph-input
 endef
 
 define dependency-execution-input
-  printf '%s\n' 'packaging-policy|$(UPORTS_DEPENDENCY_PROVENANCE)'; \
+  printf '%s\n' 'packaging-policy|$(dependency-provenance-enabled)'; \
   $(foreach p,$(ports_all_group),				\
     printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(filter-out USE_GLOBALBASE=% DISTDIR_SITE=% PACKAGES_SITE=% SCMDIR_SITE=%,$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env))';) \
   $(foreach p,$(ports_all_group),$(foreach s,$(dependency-lifecycle-provider-suffixes),\
@@ -468,8 +468,8 @@ dependency-lifecycle-provider-target = $(call dependency-instance-target,\
 	$($1_provider_instance),$(call dependency-lifecycle-provider-suffix,$1))
 
 UPORTS_DEPENDENCIES	?= yes
-ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
-$(error UPORTS_DEPENDENCIES must be yes or no)
+ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no none),$(UPORTS_DEPENDENCIES))
+$(error UPORTS_DEPENDENCIES must be one of: yes no none)
 endif
 UPORTS_DEPENDENCY_STATE ?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCY_STATE),yes no),$(UPORTS_DEPENDENCY_STATE))
@@ -480,13 +480,21 @@ ifneq ($(filter $(UPORTS_DEPENDENCY_PROVENANCE),yes no),$(UPORTS_DEPENDENCY_PROV
 $(error UPORTS_DEPENDENCY_PROVENANCE must be yes or no)
 endif
 
+# "no" disables provider execution while retaining independently configured
+# state and provenance.  "none" is the umbrella dependency-neutral mode: it
+# bypasses metadata collection, execution, state, and provenance without
+# rewriting the public settings or changing recursive "no" semantics.
+dependency-framework-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,yes)
+dependency-state-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,$(UPORTS_DEPENDENCY_STATE))
+dependency-provenance-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,$(UPORTS_DEPENDENCY_PROVENANCE))
+
 dependency-state-class = $(if $(filter configure build rebuild,$1),configure,\
 	$(if $(filter stage package install restage reinstall generate-plist,$1),stage))
 dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 	$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 dependency-tracking-enabled = $(and $(dependency-dispatch-state-class),$(or \
-	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
-	$(and $(filter yes,$(UPORTS_DEPENDENCY_PROVENANCE)),\
+	$(filter yes,$(dependency-state-enabled)),\
+	$(and $(filter yes,$(dependency-provenance-enabled)),\
 	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))))
 dependency-context-key = $(call target-instance-key,$(resolved-port-target)).$(call extract-suffix,$(call rm-group,$(resolved-port-target)))
 dependency-context-active-dir = $(DEPENDENCY_CONTEXT_ROOT)/$(dependency-context-key)
@@ -520,7 +528,7 @@ dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 dependency-consumer-environment-command = $(if $(and \
 	$(filter yes,$(dependency-external-providers-enabled)),\
 	$(dependency-dispatch-state-class),\
-	$(or $(dependency-context-enabled),$(filter yes,$(UPORTS_DEPENDENCY_STATE)))),\
+	$(or $(dependency-context-enabled),$(filter yes,$(dependency-state-enabled)))),\
 	$(if $(dependency-context-enabled),\
 	  . "$(dependency-context-environment)";,\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
@@ -528,7 +536,7 @@ dependency-consumer-environment-command = $(if $(and \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
 	. "$$environment_file";))
-dependency-consumer-provenance-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_PROVENANCE)),\
+dependency-consumer-provenance-enabled = $(and $(filter yes,$(dependency-provenance-enabled)),\
 	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 dependency-consumer-provenance-command = $(if $(dependency-consumer-provenance-enabled),\
 	$(if $(dependency-context-enabled),\
@@ -551,14 +559,14 @@ dependency-context-state-command = dir=$(call target-instance-field,$(resolved-p
 	  DEPENDENCY_STATE_SOURCE="$(dependency-context-state)" \
 	  uports-dependency-state-$1 >/dev/null
 dependency-state-invalidate-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(filter yes,$(dependency-state-enabled)),\
 	$(dependency-dispatch-state-class)),\
 	$(if $(dependency-context-enabled),\
 	  $(call dependency-context-state-command,invalidate) &&,\
 	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	    dependency-state-invalidate >/dev/null &&))
 dependency-state-save-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(filter yes,$(dependency-state-enabled)),\
 	$(dependency-dispatch-state-class)),\
 	$(if $(dependency-context-enabled),\
 	  $(call dependency-context-state-command,save) &&,\
@@ -584,7 +592,11 @@ dependency-provider-mode-list:
 	  'dependency_provider_discovery = $(dependency-provider-discovery-enabled)' \
 	  'dependency_provider_cross_target = $(dependency-provider-cross-target)' \
 	  'dependency_provider_fallback = $(dependency-provider-fallback)' \
-	  'dependency_provider_mode_source = $(dependency-provider-mode-source)'
+	  'dependency_provider_mode_source = $(dependency-provider-mode-source)' \
+	  'dependency_framework = $(dependency-framework-enabled)' \
+	  'dependency_execution = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),yes,no)' \
+	  'dependency_state = $(dependency-state-enabled)' \
+	  'dependency_provenance = $(dependency-provenance-enabled)'
 
 dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\

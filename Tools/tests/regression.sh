@@ -2598,6 +2598,18 @@ assert_eq "canonical dispatch enables dependency execution by default" \
 target@openssl.install
 consumer=target@libffi.build"
 
+none_mode=$(run_make UPORTS_DEPENDENCIES=none dependency-provider-mode-check)
+assert_contains "none mode disables the complete dependency framework" \
+	"$none_mode" "dependency_framework = no
+dependency_execution = no
+dependency_state = no
+dependency_provenance = no"
+none_dispatch=$(run_make \
+	--eval='override cmd_generate-port-target = printf "%s\n" "consumer=$(resolved-port-target)"' \
+	UPORTS_DEPENDENCIES=none target@libffi.build)
+assert_eq "none mode dispatches the consumer without dependency analysis" \
+	"$none_dispatch" "consumer=target@libffi.build"
+
 if run_make UPORTS_DEPENDENCIES=invalid target@libffi.build \
 	>/dev/null 2>&1; then
 	fail "invalid dependency policy is rejected" "invalid policy was accepted"
