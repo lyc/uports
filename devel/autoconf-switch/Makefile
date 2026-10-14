@@ -4,7 +4,7 @@
 
 PORTNAME		= autoconf
 DISTVERSION		= 20250207
-PORTREVISION		= 1
+PORTREVISION		= 2
 CATEGORIES		= devel
 MASTER_SITES		=
 PKGNAMESUFFIX		= -switch
@@ -37,7 +37,7 @@ do-install:
 	cp $(FILESDIR)/$(PORTNAME) $(STAGEDIR)$(PREFIX)/bin/;		\
 	chmod +x $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME);			\
 	for l in $(FILES); do						\
-	    ln $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME)			\
+	    ln -f $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME)			\
 	       $(STAGEDIR)$(PREFIX)/bin/$${l};				\
 	done
 

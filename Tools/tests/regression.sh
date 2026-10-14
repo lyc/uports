@@ -1876,9 +1876,11 @@ assert_contains "relocated wrapper finds sibling Autoconf data" \
 assert_contains "relocated wrapper selects its matching autoconf version" \
 	"$autoconf_wrapper_environment" \
 	"$autoconf_wrapper_test/bin/autoconf2.72"
-assert_contains "relocated wrapper supplies autom4te include path" \
+assert_contains "relocated wrapper selects its matching autom4te version" \
 	"$autoconf_wrapper_environment" \
-	"autom4te2.72 --prepend-include=$autoconf_wrapper_test/bin/../share/autoconf2.72"
+	"$autoconf_wrapper_test/bin/autom4te2.72"
+assert_not_contains "relocated wrapper keeps autom4te arguments out of its executable variable" \
+	"$autoconf_wrapper_environment" "autom4te2.72 --prepend-include="
 autoconf_wrapper_override=$(AUTOCONF=/explicit/autoconf \
 	"$autoconf_wrapper_test/bin/autoreconf")
 assert_contains "relocated wrapper preserves explicit tool override" \

@@ -23,7 +23,7 @@ if [ -d "$datadir" ]; then
     : "${trailer_m4:=$datadir/autoconf/trailer.m4}"
     : "${AUTOCONF:=$bindir/autoconf$version}"
     : "${AUTOHEADER:=$bindir/autoheader$version}"
-    : "${AUTOM4TE:=$bindir/autom4te$version --prepend-include=$AC_MACRODIR}"
+    : "${AUTOM4TE:=$bindir/autom4te$version}"
     export autom4te_perllibdir autom4te_buildauxdir AC_MACRODIR trailer_m4
     export AUTOCONF AUTOHEADER AUTOM4TE
     if [ -z "${M4:-}" ] && [ -x "$bindir/m4" ]; then
