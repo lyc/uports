@@ -12,6 +12,11 @@ uports-dependency-metadata:
 install:
 	@printf '%s\n' 'provider=$(PORTNAME)' >> "$(PROVENANCE_TEST_ROOT)/events"
 
+# Exercise package creation reached through an install lifecycle request.
+ifeq ($(INSTALL_CREATES_PACKAGE),yes)
+install reinstall: package
+endif
+
 package:
 	@set -e; mkdir -p "$(WRKDIR)"; \
 	  if test -n "$${UPORTS_DEPENDENCY_PROVENANCE_FILE:-}"; then \

@@ -1358,6 +1358,31 @@ assert_eq "failed provenance generation leaves no temporary reports" \
 	"$(find "$aggregate_package_dir/tmp" -name 'uports-provider-provenance.*' -print)" ""
 assert_eq "failed provenance generation leaves no temporary environments" \
 	"$(find "$aggregate_package_dir/tmp" -name 'uports-provider-env.*' -print)" ""
+
+for install_phase in install reinstall; do
+	rm -rf "$aggregate_package_dir/work.alpha" "$aggregate_package_dir/work.tool"
+	run_package_make INSTALL_CREATES_PACKAGE=yes "consumer@alpha.$install_phase"
+	assert_eq "fresh $install_phase creates provenance package" \
+		"$(sed -n '1p' "$alpha_package")" "PVER: 2"
+	assert_contains "$install_phase report identifies its consumer request" \
+		"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$alpha_package")" \
+		"request|consumer_alpha|$install_phase"
+	assert_contains "provider install creates its own provenance package: $install_phase" \
+		"$(sed -n '1,/^%%%%%-PROVENANCE$/p' "$aggregate_package_dir/work.tool/tool.pkg")" \
+		"request|host_tool|install"
+done
+DESTDIR="$aggregate_package_dir/install-package-unpacked" \
+	"$portdir/Mk/Scripts/pkg.sh" add -q "$alpha_package"
+assert_eq "package created through install remains installable" \
+	"$(cat "$aggregate_package_dir/install-package-unpacked/usr/local/payload.txt")" "alpha payload"
+rm -rf "$aggregate_package_dir/work.alpha"
+run_package_make INSTALL_CREATES_PACKAGE=yes UPORTS_DEPENDENCY_PROVENANCE=no consumer@alpha.install
+assert_eq "install respects explicit provenance opt-out" \
+	"$(sed -n '1p' "$alpha_package")" "PVER: 1"
+rm -rf "$aggregate_package_dir/work.alpha"
+run_package_make INSTALL_CREATES_PACKAGE=yes UPORTS_DEPENDENCIES=none consumer@alpha.install
+assert_eq "none install creates legacy package without provenance" \
+	"$(sed -n '1p' "$alpha_package")" "PVER: 1"
 rm -rf "$aggregate_package_dir"
 
 external_execution=$(run_make "$resolved_provider_args" \

@@ -495,7 +495,7 @@ dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 dependency-tracking-enabled = $(and $(dependency-dispatch-state-class),$(or \
 	$(filter yes,$(dependency-state-enabled)),\
 	$(and $(filter yes,$(dependency-provenance-enabled)),\
-	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))))
+	$(filter package install reinstall,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))))
 dependency-context-key = $(call target-instance-key,$(resolved-port-target)).$(call extract-suffix,$(call rm-group,$(resolved-port-target)))
 dependency-context-active-dir = $(DEPENDENCY_CONTEXT_ROOT)/$(dependency-context-key)
 dependency-context-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),\
@@ -536,8 +536,9 @@ dependency-consumer-environment-command = $(if $(and \
 	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
 	. "$$environment_file";))
+dependency-provenance-phases = package install reinstall
 dependency-consumer-provenance-enabled = $(and $(filter yes,$(dependency-provenance-enabled)),\
-	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
+	$(filter $(dependency-provenance-phases),$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
 dependency-consumer-provenance-command = $(if $(dependency-consumer-provenance-enabled),\
 	$(if $(dependency-context-enabled),\
 	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$(dependency-context-provenance)";,\
@@ -794,7 +795,8 @@ dependency-target-context-prepare:
 	  else \
 	    : > "$(dependency-context-environment)"; \
 	  fi; \
-	  if test -n "$(dependency-consumer-provenance-enabled)"; then \
+	  if test "$(dependency-provenance-enabled)" = yes && \
+	      test -n "$(filter $(dependency-provenance-phases),$(dependency-request-phase))"; then \
 	    { $(dependency-execution-input) :; } | \
 	      awk -v provenance=1 \
 	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
