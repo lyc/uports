@@ -55,9 +55,9 @@ endef
 define fetch-expand-sites
 $(strip									\
   $(foreach entry,$1,							\
-    $(if $(and $(_GH_SITE),$(filter GH GITHUB,$(entry))),		\
-      $(_GH_SITE),							\
-      $(if $(findstring :/,$(entry)),				\
+    $(if $(and $(USE_GITHUB),$(call github-mirror-token,$(entry))),    \
+      $(call github-mirror-sites,$(entry)),			       \
+      $(if $(findstring :/,$(entry)),				       \
         $(entry),$(call fetch-expand-family,$(entry),$2)))))
 endef
 
@@ -65,6 +65,7 @@ endef
 ifeq ($(strip $(USE_SCM)),)
 _fetch_master_sites	:= $(call fetch-expand-sites,			\
 			    $(MASTER_SITES),MASTER_SITE_SUBDIR)
+_fetch_master_sites	+= $(_GH_GROUP_SITES)
 _fetch_patch_sites	:= $(call fetch-expand-sites,			\
 			    $(PATCH_SITES),PATCH_SITE_SUBDIR)
 else

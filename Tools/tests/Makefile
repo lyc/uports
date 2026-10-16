@@ -157,6 +157,7 @@ regression.snapshot:
 check-github:
 	@/bin/sh ./check-github.sh
 	@python3 ./check-github.py
+	@python3 ./check-github-groups.py
 
 check-fetch: check-fetch-contract
 	@python3 ./check-fetch.py

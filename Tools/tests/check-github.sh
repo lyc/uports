@@ -38,9 +38,9 @@ contains "$overridden" 'urls=https://mirror.invalid/'
 extra=$(probe --eval='DISTFILES = license.txt:extra')
 contains "$extra" 'files=license.txt:extra demo-demo-1.2_GH0.tar.gz'
 for setting in GH_TAGNAME=master GH_TAGNAME=main GH_TAGNAME=HEAD \
-    GH_TAGNAME=refs/heads/feature GH_ACCOUNT=owner:extra \
-    GH_TAGNAME=version:extra USE_GITHUB=nodefault GH_TUPLE=owner:project:tag \
-    GH_SUBDIR=nested MASTER_SITES=GH:extra; do
+    GH_TAGNAME=refs/heads/feature GH_ACCOUNT=owner:default \
+    GH_TAGNAME=version:all USE_GITHUB=invalid GH_TUPLE=owner:project \
+    GH_SUBDIR=../escape MASTER_SITES=GH:extra; do
     if probe "$setting" >/dev/null 2>&1; then
         echo "invalid/unimplemented GitHub declaration accepted: $setting" >&2
         exit 1

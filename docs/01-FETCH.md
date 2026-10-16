@@ -12,9 +12,10 @@ distinfo generation/verification, and raw Git through `USE_SCM=git`, including
 mirror caches and submodule preparation. The first normalization implementation
 adds family/path shorthand (including SF/GH aliases), group-specific expansion,
 and missing-group diagnostics. A shared portable archive executor now replaces
-the inline download loops. Basic single-repository `USE_GITHUB=yes` archives
-are implemented; grouped hosted sources and the new source selector remain
-migration work. Preserve existing ports until each replacement is validated.
+the inline download loops. Single and grouped `USE_GITHUB` archives are
+implemented, including `GH_TUPLE`, `nodefault`, and safe subdirectory placement.
+GitLab and the new source selector remain migration work. Preserve existing
+ports until each replacement is validated.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
 Relevant sources are `Mk/bsd.sites.mk`, the fetch sections of `Mk/bsd.port.mk`,
@@ -281,11 +282,11 @@ maintain distinfo; use DISTINFO_REQUIRED=yes when missing evidence must fail.
 Release tags can be moved upstream, so distinfo remains important even for tags.
 This slice does not add online ref classification or signed-tag verification.
 
-Grouped `GH_*`, GH_TUPLE, USE_GITHUB=nodefault, grouped GH mirror tokens, and
-GH_SUBDIR fail explicitly until slice 5. Nested placements will need depth
-ordering and confinement beneath the selected source tree. With legacy
-USE_SCM set, the helper leaves archive names/roots/mirrors alone and does not
-derive a repository URL; existing SCM declarations remain required.
+Grouped declarations and placement are described below. With legacy USE_SCM
+set, a single-repository helper leaves archive names/roots/mirrors alone and
+does not derive a repository URL; existing SCM declarations remain required.
+Grouped GitHub sources reject legacy USE_SCM rather than silently interpreting
+archives as submodules or materializing an incomplete layout.
 
 Run `make -C Tools/tests check-github` for metadata and loopback archive tests.
 They cover defaults, tags/commits, explicit overrides, errors, checksums,
@@ -297,6 +298,99 @@ Source identity/state integration remains slice 6 work. Use a fresh/separate
 work directory when changing GH_TAGNAME or repository coordinates; existing
 same-version cookies and binary packages are not automatically invalidated
 by this new helper. No dirty developer worktree is reset by this feature.
+
+### Grouped GitHub Sources
+
+Values can carry a group suffix, including comma-separated group lists:
+
+```make
+USE_GITHUB = yes
+GH_ACCOUNT = owner
+GH_PROJECT = main-project parser:parser unicode:data
+GH_TAGNAME = v1.0 v2.0:parser 0123456789abcdef:data
+GH_SUBDIR = vendor/parser:parser vendor/parser/data:data
+```
+
+Ungrouped account/project/tag values describe DEFAULT. A group missing one of
+those fields inherits the effective DEFAULT value, not a value from another
+named group. GH_SUBDIR is never inherited. Group names contain ASCII letters,
+digits, or underscores; `all`, `ALL`, and lowercase `default` are reserved.
+Repeated fields for the same group use the last declaration. Group discovery
+is deterministic: account, project, tag, subdir declarations, then tuples.
+
+`GH_TUPLE` is shorthand for `account:project:tag[:group[,group]][/subdir]`:
+
+```make
+GH_TUPLE = owner:parser:v2.0:parser/vendor/parser \
+           other:unicode:0123456789abcdef:data/vendor/parser/data
+```
+
+Tuple declarations are applied after the corresponding GH_* lists and thus
+override earlier values for their groups. A three-field tuple supplies DEFAULT;
+the fourth field can be `DEFAULT/path` or `/path` for a default self-alias.
+Slashes inside the third field belong to the tag, not the placement path.
+
+`USE_GITHUB=nodefault` (also `yes nodefault`) suppresses the implicit main
+GitHub archive while preserving DEFAULT inheritance for named groups. Existing
+explicit DISTFILES remain available for a non-GitHub primary source. With no
+primary archive, the generic WRKSRC is created for grouped assembly. An
+unplaced grouped archive can itself be WRKSRC, without any move.
+
+Each named group adds an independent codeload mirror and
+`<account>-<project>-<sanitized-tag>_GH0.tar.gz:<group>` distfile. `GH:group`
+and `GITHUB:group[,group]` explicitly select declared hosted groups; unknown
+groups fail. Overrides precede all group mirrors, while an ordinary DEFAULT
+mirror does not implicitly apply to named groups. Use MASTER_SITE_OVERRIDE to
+reroute all groups to a common mirror. Explicit grouped GH tokens do not add
+the same automatic mirror again.
+
+For inspection/build recipes, the helper derives GH_ACCOUNT_<group>,
+GH_PROJECT_<group>, GH_TAGNAME_<group>, GH_SUBDIR_<group>,
+GH_TAGNAME_<group>_SANITIZED/EXTRACT, DISTNAME_<group>, DISTFILE_<group>, and
+WRKSRC_<group>. Declare policy through the GH_* lists or GH_TUPLE, not by
+assigning these derived helpers. Unlike the BSD-make implementation, GNU make
+retains the public input lists; inspect the *_DEFAULT helpers for their
+effective ungrouped values. With alternative sources, group WRKSRC helpers
+refer to the physical extraction base. Moved roots remain reachable through
+symlinks at their original group locations.
+
+`github-normalize.awk` emits internal read-only
+`group|account|project|tag|subdir` records, with `-` representing no placement.
+This is a hosted-declaration adapter, not the future source/artifact identity
+schema. It rejects conflicting extraction-root identities before fetching.
+Groups can alias the same archive/root only with identical coordinates and
+placement; one source root cannot be moved into two different destinations.
+
+### Placement Safety And Lifecycle
+
+At extraction priority 690, before post-extract/alternative-source linking,
+`github-place.sh` assembles groups shallow-to-deep. The main physical source
+root and group extraction base are selected consistently with USE_ALTERNATIVE.
+Placement stays beneath that main root; absolute paths, `.`/`..`, empty path
+components, duplicate destinations, unexpected symlinks, and populated
+destinations fail rather than being replaced. The preflight also checks future
+nested parents inside the extracted group archives, before the first move.
+
+Ungrouped GH_SUBDIR creates a relative self-alias to the main root, matching
+the reference concept. It cannot overlap a grouped placement or replace a
+populated directory. Safe repeat placement accepts only its expected aliases
+and preserves developer edits; it never resets/stashes a tree or recursively
+deletes a destination. Filesystem failures during moves can still leave a
+partially assembled tree requiring inspection; this is not a transactional
+rollback mechanism. Existing force-extract/cleanup behavior remains outside
+this phase's preservation guarantee and is addressed in the worktree slice.
+
+Placed groups enter the main archive-derived Git baseline before maintained
+patch application. They are ordinary files, not upstream Git checkouts or
+submodules. Unplaced group roots stay separate; this slice does not initialize
+an independent Git repository for each one. Source/ref/layout changes still
+require a fresh work tree until source-state integration is implemented.
+
+The grouped loopback fixture covers defaults, comma groups, tuple overrides,
+nested placement in reverse declaration order, nodefault, alternative roots,
+self-aliases, real Git patch/stage/runtime behavior, repeat edit preservation,
+and conflict/symlink failures before mutation. GitLab remains a separate
+follow-up; Darwin execution is still pending closeout validation.
 
 Proposed Git development extension (not implemented in this slice): the same
 default GitHub declaration will also supply Git defaults:

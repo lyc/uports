@@ -19,13 +19,23 @@ include $(PORTSDIR)/Mk/linux.port.post.mk
 
 .PHONY: snapshot
 snapshot:
-	@printf '%s\n'							\
-	  'account=$(GH_ACCOUNT)'					\
-	  'project=$(GH_PROJECT)'					\
-	  'tag=$(GH_TAGNAME)'						\
-	  'sanitized=$(GH_TAGNAME_SANITIZED)'				\
-	  'extract=$(GH_TAGNAME_EXTRACT)'					\
-	  'name=$(DISTNAME)'						\
-	  'files=$(strip $(DISTFILES))'					\
-	  'source=$(notdir $(WRKSRC))'					\
+	@printf '%s\n'						       \
+	  'account=$(GH_ACCOUNT)'				       \
+	  'project=$(GH_PROJECT)'				       \
+	  'tag=$(GH_TAGNAME)'					       \
+	  'sanitized=$(GH_TAGNAME_SANITIZED)'			       \
+	  'extract=$(GH_TAGNAME_EXTRACT)'			       \
+	  'name=$(DISTNAME)'					       \
+	  'files=$(strip $(DISTFILES))'				       \
+	  'source=$(notdir $(WRKSRC))'				       \
 	  'urls=$(call generate-master-sites-by-group,DEFAULT)'
+
+.PHONY: group-snapshot
+group-snapshot:
+	@printf '%s\n' 'groups=$(_GITHUB_GROUPS)'
+	@$(foreach group,$(_GITHUB_GROUPS),			       \
+	  printf '%s|%s|%s|%s|%s|%s|%s\n'			       \
+	    '$(group)' '$(GH_ACCOUNT_$(group))'			       \
+	    '$(GH_PROJECT_$(group))' '$(GH_TAGNAME_$(group))'	       \
+	    '$(GH_SUBDIR_$(group))' '$(DISTFILE_$(group))'	       \
+	    '$(notdir $(WRKSRC_$(group)))';) true
