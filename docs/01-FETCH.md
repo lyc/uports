@@ -11,7 +11,8 @@ Current uports supports archive fetching, grouped distfiles and patchfiles,
 distinfo generation/verification, and raw Git through `USE_SCM=git`, including
 mirror caches and submodule preparation. The first normalization implementation
 adds family/path shorthand (including SF/GH aliases), group-specific expansion,
-and missing-group diagnostics. `USE_GITHUB`, the new source selector, and the consolidated fetch script are
+and missing-group diagnostics. A shared portable archive executor now replaces
+the inline download loops. `USE_GITHUB` and the new source selector remain
 migration work. Preserve existing ports until each replacement is validated.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
@@ -130,12 +131,15 @@ is removed rather than discarding the base URL. Unknown families and reserved
 groups fail clearly; missing named file groups fail before archive fetching.
 Legacy USE_SCM host declarations bypass shorthand expansion.
 
-Ordering currently remains declaration order between override and backup.
-Backup is empty unless explicitly configured; no automatic FreeBSD distcache
-is enabled. MASTER_SORT/MASTER_SORT_REGEX and optional randomization remain
-pending: their intended contract is stable preference buckets before fallback,
-with randomness opt-in and no randomization of the default normalized lists.
-Do not assume those controls are implemented by this normalization slice.
+The executor keeps override -> selected mirrors -> backup ordering. Backup is
+empty unless explicitly configured; no automatic FreeBSD distcache is enabled.
+`MASTER_SORT_REGEX` supplies ordered POSIX awk URL patterns (case-sensitive);
+`MASTER_SORT` supplies ordered case-insensitive domain suffix preferences.
+Regex buckets precede domain buckets; unmatched URLs remain in declaration
+order. `RANDOMIZE_MASTER_SITES=yes` shuffles within preference buckets only;
+override and backup ordering is preserved. The default is `no`, so normalized
+lists and default attempts remain deterministic. This is intentionally more
+conservative than randomizing the complete FreeBSD attempt list.
 
 Do not replace the entire mirror catalog mechanically. Import relevant
 families and validate changes to actual URLs independently of syntax alignment.
@@ -168,6 +172,66 @@ Required refinements:
 - Listing targets that neither download nor modify existing source trees.
 
 Keep raw Git retrieval outside this archive-download script.
+
+### Implemented Executor Contract
+
+`Mk/linux.fetch.mk` supplies the environment and invokes
+`Mk/Scripts/do-fetch.sh` separately for distfiles (`MASTER`) and patchfiles
+(`PATCH`). Its positional arguments are `filename:group[,group]` declarations.
+It consumes exported `_MASTER_SITES_<group>` or `_PATCH_SITES_<group>` URL
+lists without overrides/backups; these are added once by the executor.
+The older `__group_*`/`__patch_*` exports remain compatible.
+
+| Environment | Meaning |
+| --- | --- |
+| `dp_DISTDIR` | Effective local cache directory, including DIST_SUBDIR |
+| `dp_DIST_SUBDIR`, `dp_DISTINFO_FILE`, `dp_DISTINFO_REQUIRED` | Distinfo key namespace, absolute metadata path, and missing-file policy |
+| `dp_SITE_FLAVOR` | MASTER or PATCH |
+| `dp_TARGET` | do-fetch, fetch-list, or fetch-url-list |
+| `dp_FETCH_CMD`, `dp_FETCH_TOOL` | Downloader command and wget/curl argument dialect |
+| `dp_FETCH_ENV`, `dp_FETCH_BEFORE_ARGS`, `dp_FETCH_AFTER_ARGS` | Whitespace-delimited environment/options; not shell code |
+| `dp_FETCH_TIMEOUT`, `dp_FETCH_REGET` | Positive timeout seconds and attempt count |
+| `dp_FORCE_FETCH_ALL`, `dp_FORCE_FETCH_LIST` | Force-all flag or basename-matched file list |
+| `dp_NO_CHECKSUM`, `dp_DISABLE_SIZE` | Explicit checksum/size opt-outs |
+| `dp_NO_CHECK_CERTIFICATE` | Explicit TLS-verification opt-out |
+| `dp_MASTER_SITE_OVERRIDE`, `dp_MASTER_SITE_BACKUP` | Ordered outer mirror lists |
+| `dp_MASTER_SORT`, `dp_MASTER_SORT_REGEX`, `dp_RANDOMIZE_SITES` | Executor preference/randomization policy |
+
+`FETCH_CMD` defaults to available wget, then curl. `FETCH_TOOL` defaults to
+the command basename; set it explicitly for a wrapper. The executor supplies
+backend-specific explicit output arguments instead of wget directory/naming
+flags or FreeBSD fetch flags. Extra argument/environment lists support plain
+whitespace-separated words, not embedded shell quoting, pipelines, expansion,
+or environment values containing spaces; use a wrapper script for those cases.
+Cache paths are quoted, and printed commands shell-quote their settings.
+
+`FETCH_TIMEOUT` defaults to 30 seconds and `FETCH_REGET` to one attempt.
+Wget uses its I/O timeout and bounded try count; curl uses max-time and bounded
+retry count/retry window. Wget's timeout is not an absolute whole-download
+deadline: a continuously progressing download can exceed it. Neither setting
+changes the independent SCM timeout controls. TLS verification remains enabled
+unless `NO_CHECK_CERTIFICATE=yes` is explicitly selected.
+
+Downloads go to uniquely named temporary files in the destination directory.
+Available distinfo size and SHA256 evidence is checked before atomic rename;
+failed force-fetch leaves an existing archive untouched. Concurrent fetches
+may download twice but never publish partial data; they do not use persistent
+locks. Temporary-file readability follows the caller's umask. Broken/forced
+symlink destinations and unsafe relative filenames fail explicitly. Existing
+cached files (including legacy basename lookup) retain the existing checksum
+phase as their integrity check.
+
+Direct-port `fetch-url-list` prints normalized candidate URLs; `fetch-list`
+prints executable invocations of this same executor. Neither creates cache
+directories or downloads files. Printed commands retain normal cache/force
+semantics when executed later. Wrapper aliases for these new inspection
+targets are not yet added. Both listing targets skip raw SCM sources.
+
+Run `make -C Tools/tests check-fetch` for loopback HTTP regressions with both
+available downloaders plus make-level distfile/patchfile and makesum/checksum
+checks. The fixture requires Python 3 and permission to bind a loopback socket;
+Python is not an archive-fetch runtime dependency. Linux is validated; Darwin
+execution remains a closeout requirement, not a completed verification claim.
 
 ## 6. GitHub Archives And Easy Git Development
 

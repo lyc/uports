@@ -649,21 +649,15 @@ $(if $(patch_sites),							\
       $(call export-variable,__patch,$g,$(patch_sites),$(patch_site_subdir))), \
         $(call export-variable,__patch,DEFAULT,$(patch_sites),$(patch_site_subdir)))
 
-FETCH_CMD		?= $(firstword $(wildcard /usr/bin/wget /bin/wget) $(shell $(WHICH) wget 2>/dev/null))
-$(if $(FETCH_CMD),,							\
-  $(error Ports need \"wget\" utility to get distfiles))
+FETCH_CMD		?= $(firstword					\
+			    $(shell command -v wget 2>/dev/null)		\
+			    $(shell command -v curl 2>/dev/null))
 
        fetch_opts	= --verbose --progress=bar:force
  quiet_fetch_opts	= -q --show-progress --progress=bar:force
 silent_fetch_opts	= -q
 
 FETCH_REGET		?= 1
-FETCH_CMD		+=						\
-	-nd -N --connect-timeout=3 --read-timeout=10 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
-
-ifeq ($(NO_CHECK_CERTIFICATE),yes)
-FETCH_CMD		+= --no-check-certificate
-endif
 
 # stuff for extract ...
 
@@ -1146,104 +1140,12 @@ endif
 # Fetch...
 #
 
-quiet_cmd_fetch-sanity-check	?=
-      cmd_fetch-sanity-check	?= set -e;				\
-	if [ ! -d $(_DISTDIR) ] && [ ! -h $(_DISTDIR) ]; then		\
-	    mkdir -p $(_DISTDIR);					\
-	fi
-
-.PHONY: do-fetch-sanity-check
-do-fetch-sanity-check:
-	@$(call cmd,fetch-sanity-check)
-
-fetch_msg1 = "  ERR     $(DISTDIR) is not writable by you; cannot fetch."
-fetch_msg2 = "  ERR     Couldn't fetch it - please try to retrieve this port manually into $(_DISTDIR) and try again"
+include $(PORTSDIR)/Mk/linux.fetch.mk
 
 ifeq ($(filter $(override_targets),do-fetch),)
 ifeq ($(USE_SCM),)
-do-fetch: do-fetch-sanity-check
-	@(cd $(_DISTDIR);						\
-	for f in $(distfiles); do					\
-	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
-	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
-	    force_fetch=false;						\
-	    filebasename=`basename $$file`;				\
-	    for afile in $(FORCE_FETCH); do				\
-	        afile=`basename $$afile`;				\
-	        if [ x$$afile = x$$filebasename ]; then			\
-	            force_fetch=true;					\
-	        fi;							\
-	    done;							\
-	    $(kecho) "  CHK     $$file";				\
-	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
-	        if [ ! -w $(DISTDIR) ]; then				\
-	            $(kecho) $(fetch_msg1);				\
-	            exit 1;						\
-	        fi;							\
-	        __master_sites_tmp= ;					\
-	        for g in $$groups; do					\
-	            eval __TMP=\$${__group_$${g}};			\
-	            __master_sites_tmp="$${__master_sites_tmp} $${__TMP}"; \
-	        done;							\
-	        __TMP= ;						\
-	        for s in $$__master_sites_tmp; do			\
-	            $(kecho) "  WGET    $$file from $$s";		\
-	            case $$file in					\
-	            */*) $(MKDIR) $${file%/*};				\
-	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
-	            *)  args=$$s$$file;;				\
-	            esac;						\
-	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
-	               continue 2;					\
-	            fi;							\
-	        done;							\
-	        $(kecho) $(fetch_msg2);					\
-	        exit 1; \
-	    fi; \
-	done)
-ifneq ($(PATCHFILES),)
-	@(cd $(_DISTDIR);						\
-	for f in $(patchfiles); do					\
-	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
-	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
-	    force_fetch=false;						\
-	    filebasename=`basename $$file`;				\
-	    for afile in $(FORCE_FETCH); do				\
-	        afile=`basename $$afile`;				\
-	        if [ x$$afile = x$$filebasename ]; then			\
-	            force_fetch=true;					\
-	        fi;							\
-	    done;							\
-	    $(kecho) "  CHK     $$file";				\
-	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
-	        if [ ! -w $(DISTDIR) ]; then				\
-	            $(kecho) $(fetch_msg1);				\
-	            exit 1;						\
-	        fi;							\
-	        __patch_sites_tmp= ;					\
-	        for g in $$groups; do					\
-	            eval __TMP=\$${__patch_$${g}};			\
-	            __patch_sites_tmp="$${__patch_sites_tmp} $${__TMP}"; \
-	        done;							\
-	        __TMP= ;						\
-	        for s in $$__patch_sites_tmp; do			\
-	            $(kecho) "  WGET    $$file from $$s";		\
-	            case $$file in					\
-	            */*) $(MKDIR) $${file%/*};				\
-	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
-	            *)  args=$$s$$file;;				\
-	            esac;						\
-	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
-	               continue 2;					\
-	            fi;							\
-	        done;							\
-	        $(kecho) $(fetch_msg2);					\
-	        exit 1;							\
-	    fi;								\
-	done)
-else
 do-fetch:
-endif
+	@$(call archive-fetch,do-fetch)
 endif
 endif
 
