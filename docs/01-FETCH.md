@@ -9,8 +9,9 @@ claims that the current framework already implements them.
 
 Current uports supports archive fetching, grouped distfiles and patchfiles,
 distinfo generation/verification, and raw Git through `USE_SCM=git`, including
-mirror caches and submodule preparation. FreeBSD-style shorthand expansion,
-`USE_GITHUB`, the new source selector, and the consolidated fetch script are
+mirror caches and submodule preparation. The first normalization implementation
+adds family/path shorthand (including SF/GH aliases), group-specific expansion,
+and missing-group diagnostics. `USE_GITHUB`, the new source selector, and the consolidated fetch script are
 migration work. Preserve existing ports until each replacement is validated.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
@@ -117,6 +118,24 @@ otherwise usable mirrors. Validate missing groups and reserved group names.
 Keep mirror preference sorting and optional randomization separate from source
 declarations. Define whether FreeBSD distcache is applicable to a given uports
 distfile; do not assume private/generated sources exist there.
+
+Implemented normalization uses `Mk/linux.fetch-sites.mk`: full URLs retain
+their port/path, family/path declarations substitute the remote subdirectory,
+and GNU defaults to PORTNAME only when MASTER_SITE_SUBDIR is undefined.
+Explicit empty subdirectories suppress that default. Grouped subdirectories
+accept both FreeBSD `path/:group` and uports convenience `path:group` spelling.
+Only the selected group's subdirectories expand its mirrors; shared membership
+does not multiply the same URL across unrelated groups. Missing `%SUBDIR%/`
+is removed rather than discarding the base URL. Unknown families and reserved
+groups fail clearly; missing named file groups fail before archive fetching.
+Legacy USE_SCM host declarations bypass shorthand expansion.
+
+Ordering currently remains declaration order between override and backup.
+Backup is empty unless explicitly configured; no automatic FreeBSD distcache
+is enabled. MASTER_SORT/MASTER_SORT_REGEX and optional randomization remain
+pending: their intended contract is stable preference buckets before fallback,
+with randomness opt-in and no randomization of the default normalized lists.
+Do not assume those controls are implemented by this normalization slice.
 
 Do not replace the entire mirror catalog mechanically. Import relevant
 families and validate changes to actual URLs independently of syntax alignment.

@@ -621,28 +621,6 @@ filter-sites-by-group	= $(strip $(call filter-x-by-group,$1,$2,$(SLASH)))
 # $(call filter-subdirs-by-group, lists, group)
 filter-subdirs-by-group	= $(strip $(call filter-x-by-group,$1,$2))
 
-# $(call transform-subdirs, pattern, group, subdir)
-define transform-subdirs
-$(if									\
-  $(filter $1,$(subst $(SUBDIR),,$1)),					\
-      $1,								\
-      $(foreach x,							\
-        $(call filter-subdirs-by-group,$3,$2),				\
-          $(subst $(SUBDIR),$x,$1)))
-endef
-
-# $(call generate-sites-by-group, group, sites, subdir)
-define generate-sites-by-group
-$(strip									\
-$(__master_site_override)						\
-  $(foreach s,								\
-    $(call filter-sites-by-group,$2,$1),				\
-      $(foreach g,							\
-        $(call find-groups-by-site,$2,$s),				\
-          $(call transform-subdirs,$s,$g,$3)))				\
-$(__master_site_backup))
-endef
-
 # $(call generate-master-sites-by-group, group)
 generate-master-sites-by-group =					\
 	$(call generate-sites-by-group,$1,$(master_sites),$(master_site_subdir))
@@ -655,6 +633,8 @@ generate-patch-sites-by-group =						\
 define export-variable
 $(eval export $1_$2 = $(call generate-sites-by-group,$2,$3,$4))
 endef
+
+include $(PORTSDIR)/Mk/linux.fetch-sites.mk
 
 # generate "__group_$f" and __patch_$f shell env for late rule use
 $(if $(master_sites),							\

@@ -4,7 +4,9 @@ DISTVERSION = 1
 CATEGORIES = devel
 MASTERDIR = $(CURDIR)
 MASTER_SITES = https://dist.invalid:8443/%SUBDIR%/:src,extra https://plain.invalid/
+ifneq ($(OMIT_SUBDIR),yes)
 MASTER_SITE_SUBDIR = releases/:src,extra
+endif
 PATCH_SITES = https://patch.invalid/%SUBDIR%/:fix
 PATCH_SITE_SUBDIR = fixes/:fix
 DISTFILES = source.tar.gz:src,extra plain.tar.gz
