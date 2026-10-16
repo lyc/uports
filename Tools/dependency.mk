@@ -746,10 +746,9 @@ dependency-target-context-prepare:
 	fi
 	@set -e; \
 	  { $(dependency-execution-input) :; } > "$(dependency-context-input)"; \
-	  awk -v state=1 \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" \
 	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
-	      -f "$(portdir)/Tools/dependency-execution.awk" \
-	      "$(dependency-context-input)" \
+	      < "$(dependency-context-input)" \
 	    > "$(dependency-context-state)"; \
 	  awk -v candidates=1 \
 	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
@@ -764,11 +763,10 @@ dependency-target-context-prepare:
 	    ready=no; \
 	    if test -n "$$cookie" && test -f "$$cookie" && \
 	       test -n "$$state_file" && test -f "$$state_file"; then \
-	      awk -v state=1 -v request_override="$$node" \
+	      $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" -v request_override="$$node" \
 	        -v request_override_phase="$$phase" \
 	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
-	        -f "$(portdir)/Tools/dependency-execution.awk" \
-	        "$(dependency-context-input)" > "$$provider_state"; \
+	        < "$(dependency-context-input)" > "$$provider_state"; \
 	      if DEPENDENCY_STATE_SOURCE="$$provider_state" \
 	         DEPENDENCY_STATE_FILE="$$state_file" \
 	         $(SH) "$(portdir)/Mk/Scripts/dependency-state.sh" current; then \
@@ -802,6 +800,8 @@ dependency-target-context-prepare:
 	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
 	        -f "$(portdir)/Tools/dependency-execution.awk" \
 	      > "$(dependency-context-provenance)"; \
+	    sed 's/^/artifact-state|/' "$(dependency-context-state)" \
+	      >> "$(dependency-context-provenance)"; \
 	  else \
 	    : > "$(dependency-context-provenance)"; \
 	  fi
@@ -909,7 +909,7 @@ dependency-execution-state:
 	  exit 1; \
 	fi
 	@{ $(dependency-execution-input) :; } | \
-	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk"
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk"
 
 dependency-provider-provenance:
 	@$(load-dependency-records)
@@ -921,6 +921,9 @@ dependency-provider-provenance:
 	fi
 	@{ $(dependency-execution-input) :; } | \
 	  awk -v provenance=1 -f "$(portdir)/Tools/dependency-execution.awk"
+	@{ $(dependency-execution-input) :; } | \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" | \
+	  sed 's/^/artifact-state|/'
 
 define dependency-state-operation
 	@$(load-dependency-records)
@@ -934,7 +937,7 @@ define dependency-state-operation
 	@state_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-dependency-state.XXXXXX"); \
 	trap 'rm -f "$$state_file"' EXIT HUP INT TERM; \
 	{ $(dependency-execution-input) :; } | \
-	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk" \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" \
 	  > "$$state_file"; \
 	dir="$(call target-instance-field,$(dependency-request-target),root)"; \
 	category="$(call target-instance-field,$(dependency-request-target),category)"; \

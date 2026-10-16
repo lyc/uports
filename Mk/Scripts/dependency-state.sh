@@ -21,7 +21,7 @@ mode=${1:-}
 
 source_normalized=$(mktemp "${TMPDIR:-/tmp}/uports-dependency-state-source.XXXXXX")
 saved_normalized=$(mktemp "${TMPDIR:-/tmp}/uports-dependency-state-saved.XXXXXX")
-trap 'rm -f "$source_normalized" "$saved_normalized"' EXIT HUP INT TERM
+trap 'rm -f "$source_normalized" "$saved_normalized" "$source_normalized.build" "$saved_normalized.build"' EXIT HUP INT TERM
 
 normalize_state()
 {
@@ -63,6 +63,25 @@ printf 'dependency_state = %s\n' "$state"
 	[ "$state" = unchanged ] && exit 0
 	[ -n "${DEPENDENCY_STATE_COOKIES:-}" ] ||
 		fail 'missing DEPENDENCY_STATE_COOKIES'
+	# A stage request can also carry a changed configure/build projection.
+	if grep -q '^build-state|' "$source_normalized"; then
+		grep '^build-state|' "$source_normalized" > "$source_normalized.build"
+		grep '^build-state|' "$saved_normalized" > "$saved_normalized.build" || :
+		if ! cmp -s "$source_normalized.build" "$saved_normalized.build"; then
+			if [ -n "${DEPENDENCY_STATE_BUILD_MARKER:-}" ]; then
+				mkdir -p "${DEPENDENCY_STATE_BUILD_MARKER%/*}"
+				: > "$DEPENDENCY_STATE_BUILD_MARKER"
+			fi
+			for cookie in ${DEPENDENCY_STATE_BUILD_COOKIES:-}; do
+				rm -f -- "$cookie"
+			done
+		fi
+		rm -f "$source_normalized.build" "$saved_normalized.build"
+	fi
+	if [ -n "${DEPENDENCY_STATE_REBUILD_MARKER:-}" ]; then
+		mkdir -p "${DEPENDENCY_STATE_REBUILD_MARKER%/*}"
+		: > "$DEPENDENCY_STATE_REBUILD_MARKER"
+	fi
 	for cookie in $DEPENDENCY_STATE_COOKIES
 	do
 		rm -f -- "$cookie"

@@ -618,7 +618,7 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 # dependency execution enabled, validate and prepare the union first, then let a
 # dependency-neutral recursive make dispatch the consumers.
 ifeq ($(UPORTS_DEPENDENCIES),yes)
-ports_cleanup_aggregate_targets := $(filter %.clean %.distclean,$(ports_aggregate_target_unique))
+ports_cleanup_aggregate_targets := $(filter %.clean %.distclean %.deinstall %.uninstall,$(ports_aggregate_target_unique))
 ports_dependency_aggregate_targets := $(filter-out $(ports_cleanup_aggregate_targets),$(ports_aggregate_target_unique))
 $(ports_cleanup_aggregate_targets): %: uports-force
 	@roots="$(call aggregate-prerequisites,$@)"; \
@@ -648,7 +648,7 @@ endif
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
-ifneq ($(filter clean distclean,$1),)
+ifneq ($(filter clean distclean deinstall uninstall,$1),)
 	$$(call cmd,generate-port-target)
 else
 ifeq ($$(UPORTS_DEPENDENCY_INVOCATION),yes)

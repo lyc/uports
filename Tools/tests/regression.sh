@@ -3137,7 +3137,8 @@ system_only_scope=$(run_make DEPENDENCY_PROVIDER_MODE=system-only \
 assert_contains "system-only fallback rejection is confined to the closure" \
 	"$system_only_scope" "dependency_execution_instances = 1"
 
-for cleanup_target in target@libffi.clean host.distclean ports.distclean; do
+for cleanup_target in target@libffi.clean host.distclean ports.distclean \
+    target@libffi.deinstall target@libffi.uninstall host.deinstall ports.uninstall; do
 	provider_independent_cleanup=$(run_make DEPENDENCY_PROVIDER_MODE=host \
 		DEPENDENCY_PROVIDER_REGISTRY=invalid \
 		"$scope_policy" "$scope_validator" \
@@ -3607,6 +3608,14 @@ fi
 
 rm -f "$error_file"
 trap - EXIT HUP INT TERM
+
+if [ "$(uname -s)" = Linux ]; then
+	if /bin/sh "$testdir/check-archive-reuse.sh"; then
+		pass "library dependency changes rebuild cached consumers and preserve repeat reuse"
+	else
+		fail "library dependency changes rebuild cached consumers and preserve repeat reuse" "archive transition fixture failed"
+	fi
+fi
 
 if [ "$failures" -ne 0 ]; then
 	printf '1..%d\n' "$tests"

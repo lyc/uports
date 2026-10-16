@@ -431,6 +431,9 @@ uports-dependency-state-invalidate:
 	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
 	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
+	  DEPENDENCY_STATE_BUILD_COOKIES="$(CONFIGURE_COOKIE) $(BUILD_COOKIE)" \
+	  DEPENDENCY_STATE_BUILD_MARKER="$(WRKDIR)/dependency.configure.changed" \
+	  DEPENDENCY_STATE_REBUILD_MARKER="$(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).changed" \
 	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
 	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
 	  $(patsubst uports-dependency-state-%,%,$@)
@@ -1101,6 +1104,18 @@ else
 PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
+
+# An install may select a shared archive even after local state invalidation.
+# Reject archives whose prefix or provider report differs from this request.
+dependency-package-mismatch := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(strip $(UPORTS_DEPENDENCY_PROVENANCE_FILE)),\
+	$(shell for archive in $(sort $(wildcard $(PKGFILE) $(WRKDIR_PKGFILE))); do \
+	  if ! $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
+	      "$(UPORTS_DEPENDENCY_PROVENANCE_FILE)" "$(PREFIX)"; then \
+	    echo yes; break; \
+	  fi; \
+	done)))
+dependency-package-reconfigure := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),,$(dependency-package-mismatch)))
+dependency-package-rebuild := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(or $(dependency-package-mismatch),$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),yes)))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
@@ -1839,10 +1854,17 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
-	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create
+	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create; \
+	rm -f "$(WRKDIR)/dependency.configure.changed" "$(WRKDIR)/dependency.stage.changed"
 
 $(WRKDIR_PKGFILE): $(WRKDIR)/pkg
 	$(call cmd,wrkdir-package)
+
+ifeq ($(dependency-package-rebuild),yes)
+.PHONY: dependency-package-force
+dependency-package-force:
+$(WRKDIR_PKGFILE): dependency-package-force
+endif
 
 _EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
 # This will be the end of the loop
@@ -2028,7 +2050,7 @@ endif
 
 # $(warning PKGFILE=$(wildcard $(PKGFILE)))
 ifneq (,$(wildcard $(PKGFILE)))
-ifneq ($(FORCE_REBUILD),yes)
+ifeq ($(filter yes,$(FORCE_REBUILD) $(dependency-package-rebuild)),)
 _INSTALL_DEP		= patch
 else
 _INSTALL_DEP		= package
@@ -2151,7 +2173,7 @@ _PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
-ifeq ($(wildcard $($2_COOKIE)),)
+ifeq ($(if $(and $(filter yes,$(dependency-package-reconfigure)),$(filter configure build stage package install,$1)),,$(wildcard $($2_COOKIE))),)
 ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
 $$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
 endif
