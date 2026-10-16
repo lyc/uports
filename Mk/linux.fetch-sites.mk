@@ -55,8 +55,10 @@ endef
 define fetch-expand-sites
 $(strip									\
   $(foreach entry,$1,							\
-    $(if $(findstring :/,$(entry)),					\
-      $(entry),$(call fetch-expand-family,$(entry),$2))))
+    $(if $(and $(_GH_SITE),$(filter GH GITHUB,$(entry))),		\
+      $(_GH_SITE),							\
+      $(if $(findstring :/,$(entry)),				\
+        $(entry),$(call fetch-expand-family,$(entry),$2)))))
 endef
 
 # Legacy Git uses MASTER_SITES as a host, not an archive family.

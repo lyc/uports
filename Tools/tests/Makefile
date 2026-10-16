@@ -153,7 +153,11 @@ regression.snapshot:
 	  'origin.openssl=$(call get-dir,security/openssl)'			\
 	  'env.target.libffi=$(port_target_libffi_env)'
 
-.PHONY: check check-fetch-contract check-fetch
+.PHONY: check check-fetch-contract check-fetch check-github
+check-github:
+	@/bin/sh ./check-github.sh
+	@python3 ./check-github.py
+
 check-fetch: check-fetch-contract
 	@python3 ./check-fetch.py
 

@@ -12,7 +12,8 @@ distinfo generation/verification, and raw Git through `USE_SCM=git`, including
 mirror caches and submodule preparation. The first normalization implementation
 adds family/path shorthand (including SF/GH aliases), group-specific expansion,
 and missing-group diagnostics. A shared portable archive executor now replaces
-the inline download loops. `USE_GITHUB` and the new source selector remain
+the inline download loops. Basic single-repository `USE_GITHUB=yes` archives
+are implemented; grouped hosted sources and the new source selector remain
 migration work. Preserve existing ports until each replacement is validated.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
@@ -235,7 +236,7 @@ execution remains a closeout requirement, not a completed verification claim.
 
 ## 6. GitHub Archives And Easy Git Development
 
-Proposed FreeBSD-compatible declaration:
+Implemented single-repository declaration:
 
 ```make
 USE_GITHUB = yes
@@ -244,18 +245,61 @@ GH_PROJECT = cpython
 GH_TAGNAME = $(DISTVERSIONFULL)
 ```
 
-Implement FreeBSD defaults (`PORTNAME` for account/project and
-`DISTVERSIONFULL` for tag), codeload URLs, collision-resistant `_GH0` distfile
-names, tag sanitization, and extracted-directory naming. Prefer immutable
-commits or release tags; branch-based archive inputs are unsuitable as stable
-package sources. Match the reference's validation behavior and document any
-stronger uports policy explicitly.
+`Mk/linux.github.mk` applies FreeBSD defaults: `PORTNAME` for account/project,
+`DISTVERSIONFULL` for tag. It feeds the existing fetch/checksum/extract phases;
+it is not another downloader or a Git checkout request.
 
-Support grouped `GH_*` values, `GH_TUPLE`, `USE_GITHUB=nodefault`, and
-`GH_SUBDIR` placement. Nested placements must be ordered by path depth and
-confined beneath the selected source tree.
+The generated URL is
+`https://codeload.github.com/<account>/<project>/tar.gz/<tag>?dummy=/`.
+The executor appends the local archive filename to the harmless query string
+and explicitly sets the output path. `GH`/`GITHUB` mirror tokens resolve to
+this URL only when the helper is active; legacy catalog use is unchanged.
 
-The same default GitHub declaration also supplies Git defaults:
+Default cache names match the reference:
+
+- Tag equals DISTVERSIONFULL: `<account>-<project>-<sanitized-tag>_GH0.tar.gz`.
+- Otherwise: `<account>-<project>-<DISTVERSIONFULL>-<sanitized-tag>_GH0.tar.gz`.
+
+Tag sanitization replaces `/` with `-`. Extraction naming additionally removes
+a leading `v`/`V` before a digit, replaces `+` with `-`, and collapses repeated
+hyphens. Default WRKSRC is `<WRKDIR>/<project>-<extraction-tag>`, independent
+of the account-qualified cache filename. GitHub archives are always `.tar.gz`.
+DIST_SUBDIR still controls the local namespace and distinfo key, not the URL.
+
+The helper sets DISTNAME and appends its archive to file-defined DISTFILES;
+additional distfiles remain supported. An explicit WRKSRC remains authoritative.
+Normal GNU make command-line precedence permits intentional DISTNAME/DISTFILES
+and mirror overrides. File-defined alternative mirrors remain before the added
+GH mirror; command-line MASTER_SITES can select a mirror alone. An explicit
+archive list must name the intended GitHub archive if the default is replaced.
+
+Package sources must use a release tag or immutable commit, not a moving
+branch. Unlike the reference's explicit `master` check, uports also rejects
+`main`, `HEAD`, and `refs/heads/*`. Other arbitrary branch names cannot be
+distinguished from tags offline: the port author must select a tag/commit and
+maintain distinfo; use DISTINFO_REQUIRED=yes when missing evidence must fail.
+Release tags can be moved upstream, so distinfo remains important even for tags.
+This slice does not add online ref classification or signed-tag verification.
+
+Grouped `GH_*`, GH_TUPLE, USE_GITHUB=nodefault, grouped GH mirror tokens, and
+GH_SUBDIR fail explicitly until slice 5. Nested placements will need depth
+ordering and confinement beneath the selected source tree. With legacy
+USE_SCM set, the helper leaves archive names/roots/mirrors alone and does not
+derive a repository URL; existing SCM declarations remain required.
+
+Run `make -C Tools/tests check-github` for metadata and loopback archive tests.
+They cover defaults, tags/commits, explicit overrides, errors, checksums,
+extraction roots, real Git patching, compiled runtime behavior, and repeat
+staging. The parent Mini-XML port is the first separately reviewable migration;
+its report records actual codeload/build/stage/shared-library verification.
+
+Source identity/state integration remains slice 6 work. Use a fresh/separate
+work directory when changing GH_TAGNAME or repository coordinates; existing
+same-version cookies and binary packages are not automatically invalidated
+by this new helper. No dirty developer worktree is reset by this feature.
+
+Proposed Git development extension (not implemented in this slice): the same
+default GitHub declaration will also supply Git defaults:
 
 ```text
 SCM_REPO_URL = https://github.com/<GH_ACCOUNT>/<GH_PROJECT>.git

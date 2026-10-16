@@ -359,6 +359,8 @@ _POSTMKINCLUDED		= yes
 
 WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
 
+include $(PORTSDIR)/Mk/linux.github.mk
+
 ifneq ($(NO_WRKSUBDIR),yes)
 WRKSRC			?= $(WRKDIR)/$(DISTNAME)
 else
