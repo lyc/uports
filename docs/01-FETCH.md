@@ -1,245 +1,298 @@
-# uports Fetch Design And USE_SCM Redesign
+# uports Fetch Architecture
 
-## 1. Design Philosophy
+## 1. Scope And Status
 
-uports fetch design should follow three principles:
+This document defines the fetch architecture and its migration contract.
+Implementation tasks and verification gates are tracked separately in
+[01-FETCH-TASKS.md](01-FETCH-TASKS.md). Proposed interfaces below are not
+claims that the current framework already implements them.
 
-1. Align with FreeBSD ports first.
-2. Add uports-specific extensions on top of the FreeBSD model.
-3. Let the uports wrapper/project system select how a real project build uses
-   those declarations.
+Current uports supports archive fetching, grouped distfiles and patchfiles,
+distinfo generation/verification, and raw Git through `USE_SCM=git`, including
+mirror caches and submodule preparation. FreeBSD-style shorthand expansion,
+`USE_GITHUB`, the new source selector, and the consolidated fetch script are
+migration work. Preserve existing ports until each replacement is validated.
 
-This means port Makefiles should be declarative. They should describe available
-source locations and source backends, while the framework and wrapper decide
-which backend is active for a particular project build.
+The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
+Relevant sources are `Mk/bsd.sites.mk`, the fetch sections of `Mk/bsd.port.mk`,
+and `Mk/Scripts/do-fetch.sh` with its required `functions.sh` helpers.
+Record the reference revision when importing behavior and retain applicable
+attribution/license notices.
 
-## 2. FreeBSD Alignment
+## 2. Ownership And Source Model
 
-FreeBSD ports use `MASTER_SITES`, `DISTFILES`, `DISTNAME`, `EXTRACT_SUFX`, and
-related variables for normal archive distfiles. For hosted source repositories,
-FreeBSD also provides helper knobs such as:
+Follow FreeBSD archive semantics first, with SCM as a first-class uports
+extension for development and source trees that require Git.
 
-```make
-USE_GITHUB= yes
-GH_ACCOUNT= account
-GH_PROJECT= project
-GH_TAGNAME= tag
-```
+- Ports declare available archives, repositories, revisions, and bootstrap needs.
+- Projects choose source mode through make/environment settings and group or
+  instance environment overlays.
+- The framework normalizes declarations and dispatches the selected backend.
+- Explicit operator commands control updates to development worktrees.
 
-and similarly for GitLab:
+Archive builds are useful for checksum-verified package production; Git builds
+provide history, branches, submodules, and editable worktrees. Neither mode
+should require a second independent copy of the same repository metadata.
+Release archives and repository snapshots can have different generated files
+and bootstrap requirements, so equivalence must be tested per port.
 
-```make
-USE_GITLAB= yes
-GL_SITE= https://gitlab.com
-GL_ACCOUNT= account
-GL_PROJECT= project
-GL_TAGNAME= tag
-```
-
-For GitHub and GitLab, the normal FreeBSD-style fetch path uses generated
-archive distfiles. It does not use live `git clone` as the default packaging
-source. This keeps fetches closer to the distfile model: cacheable, mirrorable,
-and reproducible.
-
-uports should follow that model before adding local extensions.
-
-## 3. uports Extensions
-
-uports has practical requirements beyond the base FreeBSD-style archive model.
-The redesigned fetch layer should preserve these capabilities:
-
-- raw SCM source mode for projects where archive distfiles are unavailable,
-  unsuitable, or intentionally bypassed;
-- coexisting tarball and SCM source declarations in one port;
-- SCM mirror/cache repositories;
-- bounded SCM fetch/update behavior with timeouts;
-- explicit cache update policy, such as fail on update failure or use the
-  existing cached repository when update fails;
-- source mode selection by the wrapper/project system.
-
-These should be extensions layered on top of FreeBSD-style fetch declarations,
-not replacements for them.
-
-## 4. Wrapper Selection
-
-The uports wrapper/project system should decide which source backend is used for
-the actual project build. It can pass that policy through environment or make
-variables, the same way it already supplies values such as:
+Proposed flow:
 
 ```text
-DESTDIR
-PREFIX
-PORTSDIR
+Port declarations + project policy
+               |
+               v
+Normalized source records
+  kind, identity, URL, revision, cache key, source root, placement, bootstrap
+               |
+        +------+-------+
+        |              |
+   SOURCE_MODE=dist  SOURCE_MODE=git
+        |              |
+   mirror/archive   mirror repository + checkout
+   fetch script     SCM backend
+        |              |
+   checksum/extract  verify commit/submodules
+        +------+-------+
+               |
+       selected WRKSRC
+               |
+       bootstrap -> patch -> configure -> build
 ```
 
-A source selector can be introduced as a framework variable:
+Internal source records are separate from package-dependency records. Document
+their schema before implementation; preserve deterministic grouping and order.
+The slice 1 logical schema and legacy baseline are recorded in
+[01-FETCH-CONTRACT.md](01-FETCH-CONTRACT.md); serialization is not implemented.
+
+## 3. Source Selection And Compatibility
+
+Proposed public selector:
 
 ```make
-SOURCE_MODE ?= dist
+SOURCE_MODE = dist  # archive distfiles, including hosted-repository archives
+SOURCE_MODE = git   # raw Git checkout
 ```
 
-Possible values:
+`github` and `gitlab` identify archive helpers, not additional source modes.
+Other SCM backends can be added later with explicit contracts.
+
+Selection precedence:
+
+1. An explicitly selected `SOURCE_MODE` controls the backend.
+2. If it is absent, existing `USE_SCM=git` selects Git for compatibility.
+3. Otherwise the framework default is `dist`.
+
+Ordinary GNU make precedence still applies to project/environment assignments;
+the framework must not use `override` to defeat command-line policy.
+Unsupported modes or unavailable declarations fail clearly. A failed archive
+download must not silently switch to Git, or vice versa.
+
+Keep existing `USE_SCM`, `SCM_REPO_URL`, `SCM_DETACH`, `SCM_BRANCH`, cache,
+and submodule behavior during migration. New declarations should not rewrite
+`MASTER_SITES` conditionally to represent a Git host.
+
+The earlier `USE_GIT=yes` proposal is deferred: a repository declaration plus
+`SOURCE_MODE=git` is sufficient. Do not introduce another public switch unless
+a concrete requirement needs it. Existing `USES=git:ownership` remains a
+separate worktree helper.
+
+## 4. FreeBSD Archive And Mirror Compatibility
+
+Preserve `MASTER_SITES`, `DISTFILES`, `PATCH_SITES`, `PATCHFILES`, `DISTNAME`,
+`EXTRACT_SUFX`, and their documented defaults.
+
+| Interface | Required behavior |
+| --- | --- |
+| `MASTER_SITE_<family>` | Mirror templates from the maintained sites catalog |
+| `MASTER_SITES` | Full URLs, family names, abbreviations, and family/path shorthand |
+| `MASTER_SITE_SUBDIR` | Remote `%SUBDIR%` substitution, including group-specific paths |
+| `DIST_SUBDIR` | Local cache namespace and distinfo key prefix; not the remote path |
+| Named groups | Distfile-to-mirror association, comma-separated groups, implicit `DEFAULT` |
+| Overrides/backups | Overrides first, selected mirrors next, backups last |
+| Patch sources | Same grouping/expansion model, independently selected |
+
+Match FreeBSD's handling of absent `%SUBDIR%/` values instead of dropping
+otherwise usable mirrors. Validate missing groups and reserved group names.
+Keep mirror preference sorting and optional randomization separate from source
+declarations. Define whether FreeBSD distcache is applicable to a given uports
+distfile; do not assume private/generated sources exist there.
+
+Do not replace the entire mirror catalog mechanically. Import relevant
+families and validate changes to actual URLs independently of syntax alignment.
+
+## 5. Portable do-fetch.sh Integration
+
+Adapt FreeBSD's procedural structure behind a documented environment contract:
+
+- One script handles distfiles and patchfiles through a site-flavor parameter.
+- Make normalizes groups/mirrors and exports the required `dp_*` variables.
+- Shared helpers cover environment validation, distinfo lookup, and quoting.
+- Fetch, command-list, and URL-list operations use the same normalized inputs.
+
+Preserve override -> selected mirrors -> backup ordering, force-fetch policy,
+local-cache checks, missing-group diagnostics, and expected-size validation.
+Retain SHA256 verification in the checksum phase; size alone is not integrity.
+
+Linux/Darwin portability must address shell `pipefail`, `env -S`, `stat`
+arguments, hash utilities, and downloader-specific flags such as FreeBSD
+`fetch -S`. Do not pass those flags directly to wget or curl.
+
+Required refinements:
+
+- Explicit output filenames, including redirects and hosted-repository archives.
+- Temporary download files; publish only completed, validated downloads.
+- Bounded attempts/timeouts and reliable failure propagation.
+- TLS verification enabled by default; preserve explicit project opt-outs.
+- Concurrent fetches of the same cache entry without exposing partial files.
+- Correct nested filenames, quoting, and broken-symlink diagnostics.
+- Listing targets that neither download nor modify existing source trees.
+
+Keep raw Git retrieval outside this archive-download script.
+
+## 6. GitHub Archives And Easy Git Development
+
+Proposed FreeBSD-compatible declaration:
+
+```make
+USE_GITHUB = yes
+GH_ACCOUNT = python
+GH_PROJECT = cpython
+GH_TAGNAME = $(DISTVERSIONFULL)
+```
+
+Implement FreeBSD defaults (`PORTNAME` for account/project and
+`DISTVERSIONFULL` for tag), codeload URLs, collision-resistant `_GH0` distfile
+names, tag sanitization, and extracted-directory naming. Prefer immutable
+commits or release tags; branch-based archive inputs are unsuitable as stable
+package sources. Match the reference's validation behavior and document any
+stronger uports policy explicitly.
+
+Support grouped `GH_*` values, `GH_TUPLE`, `USE_GITHUB=nodefault`, and
+`GH_SUBDIR` placement. Nested placements must be ordered by path depth and
+confined beneath the selected source tree.
+
+The same default GitHub declaration also supplies Git defaults:
 
 ```text
-dist
-github
-gitlab
-git
+SCM_REPO_URL = https://github.com/<GH_ACCOUNT>/<GH_PROJECT>.git
+SCM_DETACH   = <GH_TAGNAME>
 ```
 
-The exact names can evolve, but the ownership should be clear:
-
-- the port declares available source backends;
-- the wrapper selects one;
-- the framework activates the selected backend.
-
-Port Makefiles should avoid policy-heavy conditional rewrites such as:
-
-```make
-USE_SCM ?= git
-ifeq ($(USE_SCM),git)
-MASTER_SITES = git.example.org
-MASTER_SITE_SUBDIR = git
-SCM_DEST = $(PORTNAME)
-endif
-```
-
-Instead, they should declare both source forms plainly.
-
-## 5. Proposed Public Interface
-
-### Archive Source
-
-Keep the existing archive path:
-
-```make
-MASTER_SITES= https://example.org/releases/
-DISTFILES= $(DISTNAME).tar.xz
-USES+= tar:xz
-```
-
-### GitHub Archive Source
-
-Add FreeBSD-style GitHub support:
-
-```make
-USE_GITHUB= yes
-GH_ACCOUNT= python
-GH_PROJECT= cpython
-GH_TAGNAME= $(DISTVERSIONFULL)
-```
-
-Framework responsibilities:
-
-- derive `MASTER_SITES` for GitHub archive download;
-- derive `DISTFILES`;
-- derive the expected extracted directory and `WRKSRC`;
-- reject or warn for unstable branch names when appropriate, such as `master`;
-- support future `GH_TUPLE`-style multi-distfile use.
-
-### GitLab Archive Source
-
-Add FreeBSD-style GitLab support later:
-
-```make
-USE_GITLAB= yes
-GL_SITE= https://gitlab.com
-GL_ACCOUNT= account
-GL_PROJECT= project
-GL_TAGNAME= $(DISTVERSIONFULL)
-```
-
-Framework responsibilities should mirror the GitHub helper.
-
-### Raw Git Source
-
-Keep raw git clone as an explicit uports extension. It should not be the default
-model for GitHub/GitLab packages.
-
-Possible interface:
-
-```make
-USE_GIT= yes
-GIT_REPO= https://git.savannah.gnu.org/git/gforth.git
-GIT_TAGNAME= $(DISTVERSIONFULL)
-GIT_DEST= $(PORTNAME)
-WRKSRC_GIT= $(WRKDIR)/$(GIT_DEST)
-```
-
-The current `USE_SCM=git` behavior can be kept temporarily as compatibility
-glue, but new ports should move toward `USE_GIT` or another final raw-git
-interface.
-
-## 6. Coexisting Source Declarations
-
-A port should be able to declare both a canonical archive source and a raw SCM
-source.
-
-Example:
-
-```make
-PORTNAME= gforth
-DISTVERSION= 0.7.9_20260513
-
-SOURCE_MODE ?= dist
-
-MASTER_SITES= https://www.complang.tuwien.ac.at/forth/gforth/Snapshots/current/
-DISTFILES= $(PORTNAME).tar.xz
-DIST_SUBDIR= $(PORTNAME)-$(DISTVERSIONFULL)
-USES+= tar:xz
-
-USE_GIT= yes
-GIT_REPO= https://git.savannah.gnu.org/git/gforth.git
-GIT_TAGNAME= $(DISTVERSIONFULL)
-GIT_DEST= $(PORTNAME)
-WRKSRC_GIT= $(WRKDIR)/$(GIT_DEST)
-```
-
-The wrapper can choose:
+Explicit SCM declarations take precedence over these derived defaults.
+This permits the common development selection without repeating the URL:
 
 ```sh
-SOURCE_MODE=dist make V=1 gforth.extract
-SOURCE_MODE=git make V=1 gforth.extract
+# Proposed commands, available after source-selector implementation:
+make SOURCE_MODE=dist cpython.build
+make SOURCE_MODE=git cpython.build
+make SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/cpython.git \
+  SCM_BRANCH=my-feature cpython.build
 ```
 
-The port should not rewrite `MASTER_SITES` based on source mode. The framework
-should activate only the selected backend.
+An explicit `SCM_BRANCH` selects branch checkout semantics instead of an
+implicitly derived detached archive tag. Define precedence for conflicting
+explicit branch/detach settings and reject ambiguous combinations.
+A tracking branch is a deliberate development choice; record its resolved
+commit and require an immutable revision for reproducible package policy.
 
-## 7. SCM Cache Requirements
+Initially derive only the default/main repository. Multi-repository GitHub
+archive declarations must not silently become Git submodules. Define a later
+grouped-checkout mapping, or fail clearly when Git mode cannot materialize
+the declared layout.
 
-Raw SCM mode should preserve and refine the cache behavior that already exists
-in uports.
+## 7. GitLab And Other Repositories
 
-Recommended variables:
+Reserve FreeBSD-compatible GitLab declarations for a later slice:
 
 ```make
-SCM_CACHE ?= yes
-SCM_CACHE_UPDATE ?= yes
-SCM_CACHE_UPDATE_REQUIRED ?= no
-SCM_TIMEOUT ?= 10s
-SCM_FETCH_ENV ?= GIT_TERMINAL_PROMPT=0
+USE_GITLAB = yes
+GL_SITE = https://gitlab.com
+GL_ACCOUNT = account
+GL_PROJECT = project
+GL_COMMIT = <full-commit-hash>
 ```
 
-Behavior:
+The reference uses `GL_COMMIT`, not `GL_TAGNAME`. Add grouped tuples and
+subdirectory placement only with matching extraction/layout tests. Account
+for self-hosted sites, nested namespaces, ports, and webroot paths when
+deriving repository URLs.
 
-- if cache is enabled, maintain a local mirror repository;
-- if cache update fails and `SCM_CACHE_UPDATE_REQUIRED=no`, warn and use the
-  existing cache;
-- if cache update fails and `SCM_CACHE_UPDATE_REQUIRED=yes`, fail the fetch;
-- apply `SCM_TIMEOUT` to network operations such as mirror clone, remote update,
-  and direct clone;
-- verify requested tag/commit exists in the cache before extract/clone.
+Non-hosted or explicitly overridden Git sources remain straightforward:
 
-## 8. Current Distinfo Support
+```make
+MASTER_SITES = https://example.org/releases/
+# DISTFILES / USES describe the canonical release archive.
+SCM_REPO_URL = https://git.example.org/project.git
+SCM_DETACH = <full-commit-hash>
+```
 
-uports now has initial FreeBSD-style `distinfo` support for archive distfiles.
-This is implemented in the normal fetch/checksum path and is intentionally
-non-breaking for existing ports that do not yet have a `distinfo` file.
-The public targets stay in `linux.port.mk`, while the procedural work is handled
-by helper scripts under `Mk/Scripts`, matching the FreeBSD ports framework
-style more closely.
+The project selects `SOURCE_MODE=dist` or `SOURCE_MODE=git`; the port retains
+both declarations. A Git-only port declares its repository and the caller
+selects Git explicitly, or uses the legacy selector during migration.
 
-Supported variables:
+## 8. SCM Caches And Developer Worktrees
+
+Preserve current controls:
+
+```make
+SCM_CACHE = yes
+SCM_CACHE_UPDATE = yes
+SCM_CACHE_UPDATE_REQUIRED = no
+SCM_FETCH_ENV = GIT_TERMINAL_PROMPT=0
+```
+
+Separate mirror refresh from active checkout mutation:
+
+- Fetch refreshes the repository cache according to explicit update policy.
+- A failed optional refresh may use the cache only if the requested revision
+  is present; a required refresh failure stops the operation.
+- Verify the requested ref resolves to a commit before materialization.
+- Bound network clone/update/submodule operations on Linux and Darwin.
+
+`SCM_TIMEOUT` currently inherits `SCM_RETRIEVE_TIMEOUT`, whose default is 0;
+do not describe a nonzero bounded default as already implemented. The new
+design needs a documented finite default and an explicit opt-out, including
+clear behavior when a timeout utility is unavailable.
+
+Developer checkout contract:
+
+- Repeated fetch/build operations reuse the checkout without resetting a branch
+  or discarding tracked or untracked edits.
+- Moving between source modes uses separate work/source roots and lifecycle
+  identities; never reuse archive build cookies for a Git tree.
+- Checkout creation and updates must not recursively replace an existing
+  developer worktree through alternative-source directory handling.
+- Define a dedicated explicit update operation. It fails on local changes
+  unless the operator resolves them; it does not force-reset or auto-stash.
+- Submodule revisions and patch-series state are validated before mutation.
+- Source changes require explicit rebuild/restage until reliable dirty-tree
+  change tracking is implemented; do not promise automatic edit detection.
+
+A Git checkout used for packaging records the resolved commit. Dirty-tree
+packaging needs an explicit policy and cannot claim the clean commit alone
+fully identifies its source. Provenance extension and state schema changes
+must be reviewed together with dependency/archive identity handling.
+
+## 9. Bootstrap, Patch, And Artifact Identity
+
+A Git checkout can require autoconf, automake, libtool, gettext, parser
+generators, or an existing language runtime even when a release archive does
+not. Ports must declare those tools for the selected source mode.
+
+Normalize source selection before dependency metadata collection. The planner
+must see SCM bootstrap requirements before `pre-init-repo`/bootstrap executes.
+Preserve existing bootstrap hooks during migration; do not infer that every
+repository should run `autogen.sh` unconditionally.
+
+Include source mode and resolved revision in the artifact identity used by
+dependency state and package provenance. Mode/revision changes invalidate
+configure/build and downstream artifacts and reject incompatible archives.
+Do not add volatile cache paths or fetch timestamps to this identity.
+
+## 10. Existing Distinfo Contract
+
+Preserve these implemented controls:
 
 ```make
 DISTINFO_FILE ?= $(MASTERDIR)/distinfo
@@ -247,120 +300,45 @@ DISTINFO_REQUIRED ?= no
 NO_CHECKSUM ?= no
 ```
 
-Current behavior:
+`makesum` depends on fetch and delegates to `Mk/Scripts/makesum.sh`.
+`checksum` delegates to `Mk/Scripts/checksum.sh`. Both cover `ALLFILES`
+(normal distfiles and patchfiles), using the FreeBSD layout:
 
-- `make makesum` depends on `fetch` and writes `$(DISTINFO_FILE)`.
-- `make makesum` delegates generation to `Mk/Scripts/makesum.sh`.
-- `make checksum` delegates verification to `Mk/Scripts/checksum.sh`.
-- The generated file uses FreeBSD-style entries:
-
-  ```text
-  TIMESTAMP = <unix-time>
-  SHA256 (<distfile-key>) = <sha256>
-  SIZE (<distfile-key>) = <bytes>
-  ```
-
-- `make checksum` verifies every file in `$(ALLFILES)`, which currently covers
-  normal distfiles and patchfiles.
-- The checksum key is `$(DIST_SUBDIR)/<file>` when `DIST_SUBDIR` is set, and
-  `<file>` otherwise.
-- Verification checks both `SHA256` and `SIZE`.
-- Hash calculation uses the first available command from `sha256 -q`,
-  `sha256sum`, or `shasum -a 256`.
-- If `NO_CHECKSUM=yes`, checksum verification is skipped.
-- If `$(DISTINFO_FILE)` is missing and `DISTINFO_REQUIRED=no`, checksum prints a
-  skip message and succeeds. This keeps old ports building while ports are
-  migrated.
-- If `$(DISTINFO_FILE)` is missing and `DISTINFO_REQUIRED=yes`, checksum fails.
-- `USE_SCM` ports currently skip `makesum` and checksum verification, because
-  raw SCM sources do not map cleanly to archive distinfo yet.
-- The wrapper target list includes `makesum`, so project-level targets such as
-  `compiler@port.makesum` can call into a port's `make makesum`.
-
-Operator workflow:
-
-1. For an archive-backed port, fetch and generate `distinfo` from the port
-   directory:
-
-   ```sh
-   make V=1 makesum PORTSDIR=/path/to/uports
-   ```
-
-2. Review the generated `distinfo`. It should contain one `TIMESTAMP`, one
-   `SHA256` line, and one `SIZE` line for each file in `$(ALLFILES)`.
-
-3. Verify the cached distfiles against `distinfo`:
-
-   ```sh
-   make V=1 checksum PORTSDIR=/path/to/uports
-   ```
-
-4. For wrapper/project builds, run the wrapper target instead of entering the
-   port directory directly:
-
-   ```sh
-   make USE_GLOBALBASE=yes compiler@port.makesum
-   make USE_GLOBALBASE=yes compiler@port.fetch
-   ```
-
-   `compiler@port.fetch` reaches the normal fetch sequence, including checksum
-   verification before extract.
-
-5. To enforce checksums during migration or CI, pass:
-
-   ```sh
-   DISTINFO_REQUIRED=yes
-   ```
-
-   Without this, missing `distinfo` is still allowed for compatibility with old
-   ports.
-
-Open items:
-
-- Add `distinfo` files to archive-backed ports as they are migrated.
-- Decide when project policy should switch `DISTINFO_REQUIRED` from `no` to
-  `yes`.
-- Extend or separately define integrity metadata for raw SCM mode, likely by
-  verified tag or commit identity rather than archive `SHA256` and `SIZE`.
-- Improve multi-source support as `USE_GITHUB`, `USE_GITLAB`, and tuple-style
-  distfiles are added.
-
-## 9. Migration Plan
-
-1. Implement FreeBSD-style `USE_GITHUB` and `GH_*` archive support.
-2. Implement or reserve `USE_GITLAB` and `GL_*` archive support.
-3. Introduce `SOURCE_MODE` as the wrapper-controlled selector.
-4. Move raw git implementation out of generic `linux.port.mk` internals into a
-   clearer source backend module.
-5. Keep `USE_SCM=git` as compatibility glue during migration.
-6. Convert current ports such as `cpython`, `sbcl`, and `gforth` to declare
-   archive and SCM sources separately.
-7. Warn on new direct `USE_SCM=git` use after replacement variables exist.
-8. Remove public `USE_SCM` only after existing ports have moved.
-
-## 10. Open Naming Decision
-
-The final raw-git public API still needs one decision:
-
-```make
-USE_GIT= yes
+```text
+TIMESTAMP = <unix-time>
+SHA256 (<distfile-key>) = <sha256>
+SIZE (<distfile-key>) = <bytes>
 ```
 
-or:
+The key is `DIST_SUBDIR/file` when a local namespace is set, otherwise `file`.
+Hash tools are selected from `sha256 -q`, `sha256sum`, or `shasum -a 256`.
+`NO_CHECKSUM=yes` skips verification. Missing distinfo remains allowed when
+`DISTINFO_REQUIRED=no`, and fails when it is `yes`.
 
-```make
-USES+= scm:git
+Raw SCM mode currently skips archive makesum/checksum. Its integrity contract
+is verified revision/submodule identity rather than hashing a generated
+archive. Future signed-tag verification is a separate policy extension.
+
+Operator workflow, with archive mode selected using currently supported knobs:
+
+```sh
+make -C feeds/category/port USE_SCM= PORTSDIR=/path/to/uports makesum
+make -C feeds/category/port USE_SCM= PORTSDIR=/path/to/uports checksum
+make USE_SCM= compiler@port.makesum
+make USE_SCM= DISTINFO_REQUIRED=yes compiler@port.fetch
 ```
 
-For strongest FreeBSD alignment, `USE_GIT=yes` fits better beside
-`USE_GITHUB=yes` and `USE_GITLAB=yes`. `USES+=scm:git` is more mechanically
-generic but less FreeBSD-like.
+Do not silently accept changed checksums during migration. Review generated
+distinfo after a completed download and maintain it as port-owned source.
 
-Current recommendation:
+## 11. Migration And Acceptance
 
-```make
-USE_GIT= yes
-```
+Use the separate task checklist for implementation order and evidence.
+Each framework slice must preserve legacy archive and SCM ports; port
+conversions are separate reviewable changes. Remove no legacy selector until
+its replacement covers actual users and migration is explicitly approved.
 
-Keep existing `USES=git:ownership` as a separate worktree helper and do not
-reuse it as the source retrieval interface.
+Required verification includes local HTTP and Git fixtures, Linux/Darwin
+portability, archive and SCM alternatives of representative ports, real
+bootstrap/build/runtime tests, cache repeat behavior, and failure recovery.
+FreeBSD-like variable names alone do not establish compatibility.
