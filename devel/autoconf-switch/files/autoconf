@@ -1,4 +1,37 @@
 #! /bin/sh
-${DEFAULT_AUTOCONF:+exec "$0${DEFAULT_AUTOCONF}" "$@"}
-c=$(ls -d "$0"[0-9]* 2>/dev/null | sort -Vr | head -n1)
-exec "${c:?$0: not installed}" "$@"
+set -e
+
+if [ -n "${DEFAULT_AUTOCONF:-}" ]; then
+    c=$0$DEFAULT_AUTOCONF
+else
+    c=$(ls -d "$0"[0-9]* 2>/dev/null | sort -Vr | head -n1)
+fi
+: "${c:?$0: not installed}"
+test -x "$c" || { echo "$c: not installed" >&2; exit 1; }
+
+bindir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+name=$(basename -- "$0")
+version=${c#"$0"}
+datadir=$bindir/../share/autoconf$version
+
+# Cached packages may have been built for another DESTDIR.  Autoconf's
+# supported overrides locate the selected installation at invocation time.
+if [ -d "$datadir" ]; then
+    : "${autom4te_perllibdir:=$datadir}"
+    : "${autom4te_buildauxdir:=$datadir/build-aux}"
+    : "${AC_MACRODIR:=$datadir}"
+    : "${trailer_m4:=$datadir/autoconf/trailer.m4}"
+    : "${AUTOCONF:=$bindir/autoconf$version}"
+    : "${AUTOHEADER:=$bindir/autoheader$version}"
+    : "${AUTOM4TE:=$bindir/autom4te$version}"
+    export autom4te_perllibdir autom4te_buildauxdir AC_MACRODIR trailer_m4
+    export AUTOCONF AUTOHEADER AUTOM4TE
+    if [ -z "${M4:-}" ] && [ -x "$bindir/m4" ]; then
+        M4=$bindir/m4
+        export M4
+    fi
+    if [ "$name" = autom4te ]; then
+        exec "$c" --prepend-include="$AC_MACRODIR" "$@"
+    fi
+fi
+exec "$c" "$@"

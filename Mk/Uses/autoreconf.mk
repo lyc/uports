@@ -66,7 +66,7 @@ _INCLUDE_USES_AUTORECONF_POST_MK := yes
 BUILD_DEPENDS		+= autoconf>=2.69:devel/autoconf \
 			   automake>=1.16.1:devel/automake
 
-ifdef libtool_ARGS
+ifneq ($(filter libtool,$(USES)),)
 ifeq ($(call find-uses-arg,build,$(libtool_ARGS)),)
 BUILD_DEPENDS		+= libtoolize:devel/libtool
 endif

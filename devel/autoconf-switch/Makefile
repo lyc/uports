@@ -4,6 +4,7 @@
 
 PORTNAME		= autoconf
 DISTVERSION		= 20250207
+PORTREVISION		= 2
 CATEGORIES		= devel
 MASTER_SITES		=
 PKGNAMESUFFIX		= -switch
@@ -13,6 +14,10 @@ MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= Wrapper script to switch bwtween autoconf versions
 
 LICENSE			= BSD2CLAUS
+
+# This package provides the unsuffixed interface used by consumers.
+PORT_PROVIDES		+= devel/autoconf
+RUN_DEPENDS		+= autoconf2.72:devel/autoconf-2.72
 
 FILES			= autoheader autom4te autoreconf autoscan autoupdate ifnames
 
@@ -32,9 +37,8 @@ do-install:
 	cp $(FILESDIR)/$(PORTNAME) $(STAGEDIR)$(PREFIX)/bin/;		\
 	chmod +x $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME);			\
 	for l in $(FILES); do						\
-	    ln $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME)			\
+	    ln -f $(STAGEDIR)$(PREFIX)/bin/$(PORTNAME)			\
 	       $(STAGEDIR)$(PREFIX)/bin/$${l};				\
 	done
 
 include $(PORTSDIR)/Mk/linux.port.post.mk
-

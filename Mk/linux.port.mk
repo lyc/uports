@@ -407,7 +407,10 @@ PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
 
 DEPENDENCY_STATE_CLASS	?=
 DEPENDENCY_STATE_SOURCE	?=
+dependency-state-file-override := $(strip $(DEPENDENCY_STATE_FILE))
 DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
+dependency-state-file-for = $(if $(dependency-state-file-override),\
+	$(dependency-state-file-override),$(WRKDIR)/dependency.$1.state)
 dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
 	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
 	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
@@ -418,7 +421,7 @@ $(error DEPENDENCY_STATE_CLASS must be configure or stage)
 endif
 
 .PHONY: uports-dependency-state-check uports-dependency-state-save \
-	uports-dependency-state-invalidate
+	uports-dependency-state-invalidate uports-dependency-state-current
 uports-dependency-state-check uports-dependency-state-save \
 uports-dependency-state-invalidate:
 	@if test -z "$(DEPENDENCY_STATE_CLASS)"; then \
@@ -428,9 +431,45 @@ uports-dependency-state-invalidate:
 	@DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
 	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
+	  DEPENDENCY_STATE_BUILD_COOKIES="$(CONFIGURE_COOKIE) $(BUILD_COOKIE)" \
+	  DEPENDENCY_STATE_BUILD_MARKER="$(WRKDIR)/dependency.configure.changed" \
+	  DEPENDENCY_STATE_REBUILD_MARKER="$(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).changed" \
 	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
 	  $(SH) $(SCRIPTSDIR)/dependency-state.sh \
 	  $(patsubst uports-dependency-state-%,%,$@)
+
+uports-dependency-state-current:
+	@test -n "$(DEPENDENCY_STATE_CLASS)" \
+	  && DEPENDENCY_STATE_SOURCE="$(DEPENDENCY_STATE_SOURCE)" \
+	     DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
+	     $(SH) $(SCRIPTSDIR)/dependency-state.sh current
+
+DEPENDENCY_TARGET_SUFFIX	?=
+DEPENDENCY_TARGET_LABEL		?= $(PORTNAME)
+dependency-target-cookie = $(strip \
+	$(if $(filter extract,$(DEPENDENCY_TARGET_SUFFIX)),$(EXTRACT_COOKIE),\
+	$(if $(filter patch,$(DEPENDENCY_TARGET_SUFFIX)),$(PATCH_COOKIE),\
+	$(if $(filter configure,$(DEPENDENCY_TARGET_SUFFIX)),$(CONFIGURE_COOKIE),\
+	$(if $(filter build,$(DEPENDENCY_TARGET_SUFFIX)),$(BUILD_COOKIE),\
+	$(if $(filter stage,$(DEPENDENCY_TARGET_SUFFIX)),$(STAGE_COOKIE),\
+	$(if $(filter package,$(DEPENDENCY_TARGET_SUFFIX)),$(PACKAGE_COOKIE),\
+	$(if $(filter install,$(DEPENDENCY_TARGET_SUFFIX)),$(INSTALL_COOKIE)))))))))
+
+.PHONY: uports-dependency-dispatch
+uports-dependency-dispatch:
+	@if test -z "$(DEPENDENCY_TARGET_SUFFIX)"; then \
+	  echo "missing DEPENDENCY_TARGET_SUFFIX" >&2; \
+	  exit 1; \
+	fi; \
+	cookie='$(dependency-target-cookie)'; \
+	if test -n "$$cookie" && test -f "$$cookie"; then \
+	  if test "$(PORTS_VERBOSE)" = 1; then \
+	    echo "  REUSE   $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
+	  fi; \
+	else \
+	  echo "  PORT    $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
+	  $(MAKE) --no-print-directory $(DEPENDENCY_TARGET_SUFFIX)$(trash); \
+	fi
 
 # Special macro for doing in-place file editing using regexps
 ifeq ($(USE_REINPLACE),yes)
@@ -1065,6 +1104,18 @@ else
 PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
+
+# An install may select a shared archive even after local state invalidation.
+# Reject archives whose prefix or provider report differs from this request.
+dependency-package-mismatch := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(strip $(UPORTS_DEPENDENCY_PROVENANCE_FILE)),\
+	$(shell for archive in $(sort $(wildcard $(PKGFILE) $(WRKDIR_PKGFILE))); do \
+	  if ! $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
+	      "$(UPORTS_DEPENDENCY_PROVENANCE_FILE)" "$(PREFIX)"; then \
+	    echo yes; break; \
+	  fi; \
+	done)))
+dependency-package-reconfigure := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),,$(dependency-package-mismatch)))
+dependency-package-rebuild := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(or $(dependency-package-mismatch),$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),yes)))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
@@ -1803,10 +1854,17 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
-	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create
+	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create; \
+	rm -f "$(WRKDIR)/dependency.configure.changed" "$(WRKDIR)/dependency.stage.changed"
 
 $(WRKDIR_PKGFILE): $(WRKDIR)/pkg
 	$(call cmd,wrkdir-package)
+
+ifeq ($(dependency-package-rebuild),yes)
+.PHONY: dependency-package-force
+dependency-package-force:
+$(WRKDIR_PKGFILE): dependency-package-force
+endif
 
 _EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
 # This will be the end of the loop
@@ -1992,7 +2050,7 @@ endif
 
 # $(warning PKGFILE=$(wildcard $(PKGFILE)))
 ifneq (,$(wildcard $(PKGFILE)))
-ifneq ($(FORCE_REBUILD),yes)
+ifeq ($(filter yes,$(FORCE_REBUILD) $(dependency-package-rebuild)),)
 _INSTALL_DEP		= patch
 else
 _INSTALL_DEP		= package
@@ -2115,7 +2173,7 @@ _PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
-ifeq ($(wildcard $($2_COOKIE)),)
+ifeq ($(if $(and $(filter yes,$(dependency-package-reconfigure)),$(filter configure build stage package install,$1)),,$(wildcard $($2_COOKIE))),)
 ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
 $$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
 endif
@@ -2388,6 +2446,17 @@ uports-dependency-metadata:
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
 	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
 	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
+	@printf '%s\n' \
+	  'cookie|extract|$(EXTRACT_COOKIE)' \
+	  'cookie|patch|$(PATCH_COOKIE)' \
+	  'cookie|configure|$(CONFIGURE_COOKIE)' \
+	  'cookie|build|$(BUILD_COOKIE)' \
+	  'cookie|stage|$(STAGE_COOKIE)' \
+	  'cookie|package|$(PACKAGE_COOKIE)' \
+	  'cookie|install|$(INSTALL_COOKIE)'
+	@printf '%s\n' \
+	  'state-file|configure|$(call dependency-state-file-for,configure)' \
+	  'state-file|stage|$(call dependency-state-file-for,stage)'
 
 pkg-depends:
 extract-depends:

@@ -13,6 +13,15 @@ $1 == "node" {
 	}
 }
 
+$1 == "cookie" {
+	cookie_state[$2, $3] = $5
+	cookie_file[$2, $3] = $4
+}
+
+$1 == "state-file" {
+	state_file[$2, $3] = $4
+}
+
 $1 == "dependency" {
 	consumer = $2
 	dep_index = ++dependency_count[consumer]
@@ -28,12 +37,21 @@ $1 == "dependency" {
 	dependency_provider_context[consumer, dep_index] = $12
 	dependency_provider_opsys[consumer, dep_index] = $13
 	dependency_provider_arch[consumer, dep_index] = $14
+	dependency_record_id[consumer, dep_index] = $15
 }
 
 $1 == "external-environment" {
 	key = $2 SUBSEP $3
-	for (field = 4; field <= 9; field++)
+	for (field = 4; field <= 10; field++)
 		external_environment[key, field] = $field
+}
+
+$1 == "native-tool-versions" {
+	native_tool_versions[$2, $3] = $4
+}
+
+$1 == "packaging-policy" {
+	package_provenance = $2
 }
 
 $1 == "request" {
@@ -99,11 +117,17 @@ function add_provider_target(node, phase, target, rank) {
 	rank = target_rank(phase)
 	if (!(node in provider_target) || rank > provider_target_rank[node]) {
 		provider_target[node] = target
+		provider_target_phase[node] = phase
 		provider_target_rank[node] = rank
 	}
 }
 
 END {
+	if (request_override != "") {
+		request_count = 1
+		request_node[1] = request_override
+		request_phase[1] = request_override_phase
+	}
 	if (request_count == 0 && root != "") {
 		request_node[++request_count] = root
 		request_phase[request_count] = root_phase
@@ -163,11 +187,24 @@ END {
 		}
 	}
 
-	if (unresolved_count) {
+	# Scope extraction precedes readiness/graph errors. Those errors are checked
+	# after the caller validates precisely the records reached by this closure.
+	if (scope) {
+		for (n = 1; n <= node_count; n++) {
+			consumer = node_order[n]
+			if (!(consumer in requested)) continue
+			print "scope-node|" consumer
+			for (i = 1; i <= dependency_count[consumer]; i++)
+				if (dependency_needed(requested_phase[consumer], dependency_type[consumer, i]))
+					print "scope-record|" dependency_record_id[consumer, i]
+		}
+		exit 0
+	}
+	if (unresolved_count && !unchecked) {
 		printf "unresolved_dependencies = %d\n", unresolved_count > "/dev/stderr"
 		exit 1
 	}
-	if (invalid_target_count) {
+	if (invalid_target_count && !unchecked) {
 		printf "invalid_dependency_targets = %d\n", invalid_target_count > "/dev/stderr"
 		exit 1
 	}
@@ -222,6 +259,12 @@ END {
 		for (n = 1; n <= processed; n++) {
 			node = ordered[n]
 			for (i = 1; i <= dependency_count[node]; i++) {
+				if (unresolved[node, i] || invalid_target[node, i]) {
+					printf "unchecked-dependency|%s|%s|%s|%s|%s\n", node,
+					       dependency_type[node, i], dependency_requirement[node, i],
+					       dependency_origin[node, i], dependency_resolution[node, i]
+					continue
+				}
 				if (!selected_edge[node, i])
 					continue
 				kind = dependency_provider_kind[node, i]
@@ -250,7 +293,15 @@ END {
 			       (is_root[node] ? dependency_state_class(requested_phase[node]) : requested_phase[node]),
 			       node_group[node],
 			       node_origin[node], node_environment[node]
+			if (is_root[node] && dependency_state_class(requested_phase[node]) == "stage" && package_provenance != "")
+				printf "packaging-policy|%s|provenance|%s\n", node, package_provenance
 			for (i = 1; i <= dependency_count[node]; i++) {
+				if (unresolved[node, i] || invalid_target[node, i]) {
+					printf "unchecked-dependency|%s|%s|%s|%s|%s\n", node,
+					       dependency_type[node, i], dependency_requirement[node, i],
+					       dependency_origin[node, i], dependency_resolution[node, i]
+					continue
+				}
 				if (!selected_edge[node, i])
 					continue
 				kind = dependency_provider_kind[node, i]
@@ -269,6 +320,10 @@ END {
 					       external_environment[key, 4], external_environment[key, 5],
 					       external_environment[key, 6], external_environment[key, 7],
 					       external_environment[key, 8], external_environment[key, 9]
+					if (external_environment[key, 10] != "")
+						printf "external-commands|%s|%s|%s|%s\n", node, identity, origin, external_environment[key, 10]
+					if (native_tool_versions[key] != "")
+						printf "external-tool-versions|%s|%s|%s|%s\n", node, identity, origin, native_tool_versions[key]
 					continue
 				}
 				printf "dependency|%s|%s|%s|%s|%s|%s|%s\n", node,
@@ -297,9 +352,36 @@ END {
 		printf "dependency_execution_targets ="
 		separator = " "
 	}
+	if (candidates) {
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			if (!(node in provider_target))
+				continue
+			phase = provider_target_phase[node]
+			class = dependency_state_class(phase)
+			printf "candidate|%s|%s|%s|%s|%s\n", node, phase,
+			       provider_target[node], cookie_file[node, phase],
+			       state_file[node, class]
+		}
+		exit 0
+	}
+	if (reuse_report) {
+		if (!reuse)
+			exit 0
+		for (n = 1; n <= processed; n++) {
+			node = ordered[n]
+			if ((node in provider_target) &&
+			    cookie_state[node, provider_target_phase[node]] == "ready")
+				printf "  REUSE   %s@%s %s\n", node_group[node],
+				       node_origin[node], provider_target_phase[node]
+		}
+		exit 0
+	}
 	for (n = 1; n <= processed; n++) {
 		node = ordered[n]
 		if (!(node in provider_target))
+			continue
+		if (reuse && cookie_state[node, provider_target_phase[node]] == "ready")
 			continue
 		printf "%s%s", separator, provider_target[node]
 		separator = " "

@@ -13,8 +13,6 @@ COMMENT			= Generate configure scripts and related files
 
 LICENSE			= GPLv3
 
-PORT_PROVIDES		+= devel/autoconf
-
 BUILD_DEPENDS		= m4:devel/m4
 RUN_DEPENDS		= m4:devel/m4
 

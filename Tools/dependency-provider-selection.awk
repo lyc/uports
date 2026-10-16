@@ -22,6 +22,53 @@ $1 == "validation" {
 	validation[$2, $3] = $4
 }
 
+$1 == "native-tool-policy" {
+	if (split($2, native_policy_field, "@") == 7)
+		native_tool_policy[native_policy_field[2], native_policy_field[3], native_policy_field[4], native_policy_field[5], native_policy_field[6]] = native_policy_field[7]
+}
+
+$1 == "native-tool" {
+	native_origin = $2
+	native_index = ++native_tool_count[native_origin]
+	native_tool_identity[native_origin, native_index] = $3
+	native_version_count = split($4, native_versions, ":")
+	for (native_v = 1; native_v <= native_version_count; native_v++) {
+		split(native_versions[native_v], native_command_version, "=")
+		native_tool_version[native_origin, native_index, native_command_version[1]] = native_command_version[2]
+	}
+}
+
+function compare_versions(actual, wanted, a, b, n, m, j) {
+	n = split(actual, a, "."); m = split(wanted, b, ".")
+	for (j = 1; j <= (n > m ? n : m); j++) {
+		if (a[j] + 0 > b[j] + 0) return 1
+		if (a[j] + 0 < b[j] + 0) return -1
+	}
+	return 0
+}
+
+function choose_native_tool(origin, requirement, name, constraint, op, wanted, actual, comparison, j) {
+	name = requirement; sub(/[<>=!].*$/, "", name)
+	constraint = substr(requirement, length(name) + 1)
+	sub(/^.*\//, "", name)
+	op = constraint; sub(/[0-9].*$/, "", op)
+	wanted = substr(constraint, length(op) + 1)
+	if (constraint != "" && (op !~ /^(>=|<=|>|<|=|==|!=)$/ || wanted !~ /^[0-9]+(\.[0-9]+)*$/))
+		return ""
+	for (j = 1; j <= native_tool_count[origin]; j++) {
+		actual = native_tool_version[origin, j, name]
+		if (requirement == "") return native_tool_identity[origin, j]
+		if (actual == "") continue
+		if (constraint == "") return native_tool_identity[origin, j]
+		comparison = compare_versions(actual, wanted)
+		if ((op == ">=" && comparison >= 0) || (op == ">" && comparison > 0) ||
+		    (op == "<=" && comparison <= 0) || (op == "<" && comparison < 0) ||
+		    ((op == "=" || op == "==") && comparison == 0) || (op == "!=" && comparison != 0))
+			return native_tool_identity[origin, j]
+	}
+	return ""
+}
+
 $1 == "readiness" {
 	readiness[$2, $3, $4] = $5
 }
@@ -61,11 +108,17 @@ END {
 		resolution = uports_resolution[i]
 		state = resolution
 
-		if (key in policy_kind) {
+		apply_policy = (key in policy_kind)
+		native_identity = ""
+		if (apply_policy && native_tool_policy[key] == policy_identity[key]) {
+			native_identity = choose_native_tool(origin[i], requirement[i])
+			apply_policy = (native_identity != "")
+		}
+		if (apply_policy) {
 			kind = policy_kind[key]
-			identity = policy_identity[key]
-			validator = validation[identity, origin[i]]
-			if (kind == "system" && context == "target" &&
+			identity = (native_identity != "" ? native_identity : policy_identity[key])
+			validator = (planning || native_identity != "" ? "valid" : validation[identity, origin[i]])
+			if (!planning && kind == "system" && context == "target" &&
 			    context_cross[context, group[i]] == "yes") {
 				resolution = "invalid-provider"
 				state = "system-cross-provider"
@@ -183,6 +236,24 @@ function append_paths(node, identity, origin, type, key, j) {
 		add_path(node, type, contribution[key, j])
 }
 
+function append_commands(node, identity, origin, key, j, value, variable, path) {
+	key = identity SUBSEP origin SUBSEP "command"
+	for (j = 1; j <= contribution_count[key]; j++) {
+		value = contribution[key, j]
+		variable = value; sub(/=.*/, "", variable)
+		path = value; sub(/^[^=]*=/, "", path)
+		if (variable !~ /^(M4|AUTOCONF|AUTORECONF|AUTOHEADER|AUTOM4TE|AUTOMAKE|ACLOCAL|LIBTOOLIZE|LIBTOOL|CMAKE_BIN|CTEST|PKG_CONFIG)$/ || !valid_path(path)) {
+			invalid_count++; environment_error[node] = "invalid-command"
+		} else if (environment_command[node, variable] != "" && environment_command[node, variable] != path) {
+			invalid_count++; environment_error[node] = "conflicting-commands"
+		} else {
+			if (environment_command[node, variable] == "")
+				environment_command_name[node, ++environment_command_count[node]] = variable
+			environment_command[node, variable] = path
+		}
+	}
+}
+
 function joined_paths(node, type, separator, result, j) {
 	result = ""
 	for (j = 1; j <= environment_path_count[node, type]; j++)
@@ -209,6 +280,8 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j, r
 			environment_target_opsys[node] = resolved_opsys[i]
 		if (!exports || resolved_context[i] == "build")
 			append_paths(node, identity, origin[i], "bindir")
+		if (resolved_context[i] == "build")
+			append_commands(node, identity, origin[i])
 		append_paths(node, identity, origin[i], "includedir")
 		append_paths(node, identity, origin[i], "libdir")
 		append_paths(node, identity, origin[i], "pkgconfigdir")
@@ -281,12 +354,17 @@ function flags(node, type, prefix, result, j) {
 	return result
 }
 
-function emit_exports(node, value, sysroot, sysroot_flag, runtime) {
+function emit_exports(node, value, sysroot, sysroot_flag, runtime, j, variable) {
 	if (external_library_count && !uports_library_count)
 		print "UPORTS_LIB_DEPENDS_USES_UPORTS=no; export UPORTS_LIB_DEPENDS_USES_UPORTS"
 	value = joined_paths(node, "bindir", ":")
 	if (value != "none")
 		printf "PATH='%s':\"${PATH-}\"; export PATH\n", value
+	for (j = 1; j <= environment_command_count[node]; j++) {
+		variable = environment_command_name[node, j]
+		printf "%s='%s'; export %s\n", variable, environment_command[node, variable], variable
+		printf "UPORTS_NATIVE_%s='%s'; export UPORTS_NATIVE_%s\n", variable, environment_command[node, variable], variable
+	}
 	sysroot_flag = ""
 	if (environment_sysroot[node] != "") {
 		sysroot = environment_sysroot[node]

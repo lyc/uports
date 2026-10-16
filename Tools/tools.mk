@@ -98,6 +98,11 @@ suffix_all_lists	:=						\
 SLASH			:= /
 rm-slash		= $(subst $(SLASH), ,$1)
 
+# $(call stable-unique, word list)
+stable-unique		= $(if $1,$(firstword $1)$(if $(filter-out 	\
+			    $(firstword $1),$1), $(call stable-unique,	\
+			      $(filter-out $(firstword $1),$1))))
+
 AT			:= @
 rm-at			= $(subst $(AT), ,$1)
 
@@ -176,9 +181,17 @@ get-dir			= $(port_$(call get-port,$1)_root)
 #   ports_all:
 #
 
-ifneq ($(PORTS_LISTS),)
+ifneq ($(strip $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS)),)
 ports_all_raw		:= $(foreach p,					\
-			    $(PORTS_LISTS),$(call purify_ports_raw,$p))
+			    $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS),	\
+			      $(call purify_ports_raw,$p))
+ports_all_raw		:= $(call stable-unique,$(ports_all_raw))
+endif
+
+ifneq ($(strip $(PORTS_FALLBACK_LISTS)),)
+ifeq ($(strip $(PORTS_LISTS)),)
+$(error PORTS_FALLBACK_LISTS requires explicit PORTS_LISTS roots)
+endif
 endif
 
 ports_all_raw_unknown	:= $(filter-out $(ports_all_raw_lists),$(ports_all_raw))
@@ -256,13 +269,26 @@ $(foreach p,$(ports_all_raw_lists),					\
 
 PORTS_GROUP_DEFAULT	?= host
 
-ports_all_group		:= $(strip					\
+ports_root_group	:= $(strip					\
 			    $(foreach p,				\
 			      $(if $(PORTS_LISTS),$(PORTS_LISTS),	\
 			        $(call set-special-groups,		\
 			          $(special_groups_all),$(ports_all_raw))),\
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
+
+ports_fallback_group	:= $(strip					\
+			    $(foreach p,$(PORTS_FALLBACK_LISTS),		\
+			      $(call complete-group-default,		\
+			        $p,$(PORTS_GROUP_DEFAULT))))
+
+ports_root_fallback_overlap := $(filter $(ports_root_group),		\
+			    $(ports_fallback_group))
+ifneq ($(ports_root_fallback_overlap),)
+$(error instances cannot be both roots and fallbacks: $(ports_root_fallback_overlap))
+endif
+
+ports_all_group		:= $(strip $(ports_root_group) $(ports_fallback_group))
 
 groups_all		:= $(sort					\
 			    $(foreach p,$(ports_all_group),		\
@@ -274,6 +300,8 @@ groups_all		:= $(sort					\
 define generate-groups-lists
   groups_$1		:= $(foreach p,$(filter $1$(AT)%,		\
 			    $(ports_all_group)),$(lastword $(call rm-slash,$p)))
+  root_groups_$1	:= $(foreach p,$(filter $1$(AT)%,		\
+			    $(ports_root_group)),$(lastword $(call rm-slash,$p)))
 endef
 
 $(foreach g,$(groups_all),						\
@@ -495,13 +523,19 @@ aggregate-target-name	= $(call extract-port,$1)
 # $(call aggregate-target-suffix, aggregate.suffix)
 aggregate-target-suffix	= $(call extract-suffix,$1)
 
+# Cleanup owns every selected work tree, including fallback providers that
+# are intentionally omitted from normal build/install aggregate roots.
+aggregate-includes-fallbacks = $(filter clean distclean,$(call aggregate-target-suffix,$1))
+
 # $(call aggregate-category-prerequisites, category.suffix)
 aggregate-category-prerequisites = $(foreach c,			\
 			    $(filter $(call aggregate-target-name,$1),	\
 			      $(categories_all)),				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
-			      $(call transform_category,$c)))
+			      $(if $(call aggregate-includes-fallbacks,$1),\
+			        $(call transform_category,$c),		\
+			        $(call transform_root_category,$c))))
 
 # $(call aggregate-group-prerequisites, group.suffix)
 aggregate-group-prerequisites = $(if				\
@@ -520,7 +554,8 @@ aggregate-global-prerequisites = $(if				\
 			    $(addsuffix					\
 			      .$(call aggregate-target-suffix,$1),	\
 			      $(call transform_all_group,		\
-			        $(ports_all_group))))
+			        $(if $(call aggregate-includes-fallbacks,$1),\
+			          $(ports_all_group),$(ports_root_group)))))
 
 # $(call aggregate-prerequisites, aggregate.suffix)
 aggregate-prerequisites = $(strip					\
@@ -532,7 +567,9 @@ get-envs		= $(call target-instance-field,$1,env)
 
 include $(portdir)/Tools/dependency.mk
 
-quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin) $(call extract-suffix,$(call rm-group,$(resolved-port-target)))
+dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
+dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
+quiet_cmd_generate-port-target	?= $(if $(dependency-provider-execution),,PORT    $(dependency-target-label) $(call extract-suffix,$(call rm-group,$(resolved-port-target))))
       cmd_generate-port-target	?= set -e;				\
 	dir=$(call target-instance-field,$(resolved-port-target),root);	\
 	category=$(call target-instance-field,				\
@@ -541,10 +578,27 @@ quiet_cmd_generate-port-target	?= PORT    $(call target-instance-field,$(resolve
 	suffix=$(call extract-suffix,				\
 	  $(call rm-group,$(resolved-port-target)));			\
 	envs="$(call get-envs,$(resolved-port-target))";			\
+	$(dependency-consumer-cleanup-command)				\
 	$(dependency-consumer-environment-command)			\
 	$(dependency-consumer-provenance-command)			\
-	$(dependency-consumer-cleanup-command)				\
-	make -C $$dir/$$category/$$port --no-print-directory $$envs $$suffix$(trash)
+	if test "$(dependency-provider-execution)" = yes; then		\
+	  status=0;							\
+	  make -q -C $$dir/$$category/$$port --no-print-directory	\
+	    $$envs uports-dependency-dispatch >/dev/null 2>&1 || status=$$?; \
+	  if test "$$status" -lt 2; then				\
+	    make -s -C $$dir/$$category/$$port --no-print-directory	\
+	      $$envs DEPENDENCY_TARGET_SUFFIX="$$suffix"			\
+	      DEPENDENCY_TARGET_LABEL="$(dependency-target-label)"	\
+	      uports-dependency-dispatch;				\
+	  else							\
+	    echo "  PORT    $(dependency-target-label) $$suffix";		\
+	    make -C $$dir/$$category/$$port --no-print-directory	\
+	      $$envs $$suffix$(trash);					\
+	  fi;							\
+	else							\
+	  make -C $$dir/$$category/$$port --no-print-directory		\
+	    $$envs $$suffix$(trash);					\
+	fi
 
 depends_exclude_targets	+= $(ports_target_all) $(ports_alias_target_all) \
 			    $(ports_aggregate_target_all)
@@ -564,17 +618,26 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 # dependency execution enabled, validate and prepare the union first, then let a
 # dependency-neutral recursive make dispatch the consumers.
 ifeq ($(UPORTS_DEPENDENCIES),yes)
+ports_cleanup_aggregate_targets := $(filter %.clean %.distclean %.deinstall %.uninstall,$(ports_aggregate_target_unique))
+ports_dependency_aggregate_targets := $(filter-out $(ports_cleanup_aggregate_targets),$(ports_aggregate_target_unique))
+$(ports_cleanup_aggregate_targets): %: uports-force
+	@roots="$(call aggregate-prerequisites,$@)"; \
+	  if test -n "$$roots"; then \
+	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
+	      UPORTS_DEPENDENCY_STATE=no $$roots; \
+	  fi
 ifeq ($(UPORTS_DEPENDENCY_INVOCATION),yes)
-$(ports_aggregate_target_unique): %: uports-force
+$(ports_dependency_aggregate_targets): %: uports-force
 	@roots="$(call aggregate-prerequisites,$@)"; \
 	  if test -n "$$roots"; then \
 	    $(MAKE) --no-print-directory DEPENDENCY_REQUESTS="$$roots" \
 	      dependency-lifecycle-execute && \
 	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
+	      UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
 	      UPORTS_DEPENDENCY_STATE=yes $$roots; \
 	  fi
 else
-$(ports_aggregate_target_unique): %: uports-force
+$(ports_dependency_aggregate_targets): %: uports-force
 	@$(call dependency-invocation-command,$@)
 endif
 else
@@ -585,14 +648,19 @@ endif
 define generate-port-lifecycle-pattern
 %.$1: uports-force
 	$$(validate-port-target)
+ifneq ($(filter clean distclean deinstall uninstall,$1),)
+	$$(call cmd,generate-port-target)
+else
 ifeq ($$(UPORTS_DEPENDENCY_INVOCATION),yes)
+	@$$(dependency-context-ensure-command)
 	@$$(dependency-dispatch-command) $$(dependency-state-invalidate-command) :
 	$$(call cmd,generate-port-target)
 	@$$(dependency-state-save-command) :
 else
-	@$$(if $$(filter yes,$$(UPORTS_DEPENDENCIES)),\
+	@$$(if $$(or $$(filter yes,$$(UPORTS_DEPENDENCIES)),$$(dependency-tracking-enabled)),\
 	  $$(call dependency-invocation-command,$$@),\
 	  $$(call cmd,generate-port-target))
+endif
 endif
 endef
 
@@ -622,6 +690,11 @@ $(foreach s,$(suffix_special_all),					\
 transform_category	= $(foreach p,$(categories_$1),			\
 			    $(foreach g,$($p_groups),$g$(AT)$p))
 
+transform_root_category = $(foreach p,$(categories_$1),		\
+			    $(foreach g,$($p_groups),			\
+			      $(if $(filter $g$(AT)%/$p,		\
+			        $(ports_root_group)),$g$(AT)$p)))
+
 transform_all_group	= $(foreach p,$1,				\
 			    $(call get-group,$p)@$(call get-port,$p))
 
@@ -631,7 +704,8 @@ transform_all_group	= $(foreach p,$1,				\
 
 .PHONY: ports
 depends_exclude_targets	+= ports
-ports: $(addsuffix .install,$(ports_all))
+ports: $(addsuffix .install,$(sort $(foreach p,$(ports_root_group),	\
+			    $(call get-port,$p))))
 
 #
 # planner statistics...
@@ -704,12 +778,12 @@ ifneq ($(USE_HOSTTOOLS),)
 
 # check pkg-config
   ifneq ($(filter pkg-config,$(groups_$(USE_HOSTTOOLS))),)
-    export PKG_CONFIG	:= $($(USE_HOSTTOOLS)_BASE)/bin/pkg-config
+    export PKG_CONFIG	:= $(or $(UPORTS_NATIVE_PKG_CONFIG),$($(USE_HOSTTOOLS)_BASE)/bin/pkg-config)
   endif
 
 # check cmake
   ifneq ($(filter cmake,$(groups_$(USE_HOSTTOOLS))),)
-    export CMAKE_BIN	:= $($(USE_HOSTTOOLS)_BASE)/bin/cmake
+    export CMAKE_BIN	:= $(or $(UPORTS_NATIVE_CMAKE_BIN),$($(USE_HOSTTOOLS)_BASE)/bin/cmake)
   endif
 
 # check ninja

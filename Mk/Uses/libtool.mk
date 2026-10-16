@@ -17,7 +17,7 @@ _INCLUDE_USES_LIBTOOL_MK:= yes
 _USES_POST		+= libtool
 
 ifneq ($(call find-uses-arg,build,$(libtool_ARGS)),)
-#BUILD_DEPENDS+=	libtool:devel/libtool
+BUILD_DEPENDS		+= libtool:devel/libtool
 endif
 endif
 

@@ -106,19 +106,19 @@ dependency-group-cross-context-error = $(strip \
 	$(if $(and $(call dependency-group-cross-compile,$1),$(if $(call dependency-cross-opsys,$(call dependency-group-cross-compile,$1)),,yes)),$1:unknown-cross-triplet) \
 	$(if $(and $(call dependency-configured-target-opsys,$1),$(filter-out $(call dependency-derived-target-opsys,$1),$(call dependency-configured-target-opsys,$1))),$1:target-opsys-mismatch) \
 	$(if $(and $(call dependency-configured-target-arch,$1),$(filter-out $(call dependency-derived-target-arch,$1),$(call dependency-configured-target-arch,$1))),$1:target-arch-mismatch))
-dependency-cross-context-errors = $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-context-error,$g)))
+dependency-cross-context-errors = $(strip $(foreach g,$(dependency-active-groups),$(call dependency-group-cross-context-error,$g)))
 dependency-provider-mode-context-errors = $(strip $(if \
 	$(and $(filter rejected,$(dependency-provider-cross-target)),\
-	  $(strip $(foreach g,$(groups_all),$(call dependency-group-cross-compile,$g)))),\
+	  $(strip $(foreach g,$(dependency-active-groups),$(call dependency-group-cross-compile,$g)))),\
 	$(DEPENDENCY_PROVIDER_MODE):cross-target-requires-explicit))
 DEPENDENCY_CROSS_TOOLCHAIN_TOOLS ?= gcc g++ ld as ar nm objdump ranlib strip
-dependency-cross-groups = $(foreach g,$(groups_all),\
+dependency-cross-groups = $(foreach g,$(dependency-active-groups),\
 	$(if $(call dependency-group-cross-compile,$g),$g))
 define dependency-cross-toolchain-input
   $(foreach g,$(dependency-cross-groups),printf '%s\n' 'toolchain|$g|$(call dependency-group-cross-compile,$g)'; \
     $(foreach t,$(DEPENDENCY_CROSS_TOOLCHAIN_TOOLS),command='$(call dependency-group-cross-compile,$g)-$t'; path=$$(command -v "$$command" 2>/dev/null || :); if test -n "$$path" && test -x "$$path"; then printf '%s\n' 'tool|$g|$t|'"$$command"'|ready|'"$$path"; else printf '%s\n' 'tool|$g|$t|'"$$command"'|missing|none'; fi;))
 endef
-dependency-cross-toolchain-preflight = $(if $(dependency-cross-groups),\
+dependency-cross-toolchain-preflight = $(if $(and $(dependency-cross-groups),$(dependency-preflight-required)),\
 	{ $(dependency-cross-toolchain-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-cross-toolchain.awk" >/dev/null &&)
 dependency-record-context = $(if $(filter build,$($1_type)),build,target)
@@ -151,22 +151,43 @@ define dependency-provider-policy-input
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';)
 endef
 
+dependency-scoped-targets = dependency-execution-plan dependency-execution-state \
+	dependency-provider-provenance dependency-lifecycle-execute \
+	dependency-state-check dependency-state-save dependency-state-invalidate \
+	dependency-provider-environment-export dependency-provider-environment-run
+dependency-scope-enabled = $(and $(dependency-requests),$(filter $@,$(dependency-scoped-targets)))
+dependency-preflight-required = $(if $(dependency-requests),$(strip $(foreach r,$(dependency-request-targets),$(call dependency-state-class,$(call extract-suffix,$(call rm-group,$r))))),yes)
+dependency-scope-active = $(and $(dependency-scope-enabled),$(filter yes,$(dependency_scope_ready)))
+dependency-active-record-ids = $(if $(dependency-scope-active),$(dependency_scope_record_ids),$(dependency_record_ids))
+dependency-active-groups = $(if $(dependency-scope-active),$(sort $(foreach n,$(dependency_scope_nodes),$(call instance-field,$n,group))),$(groups_all))
+dependency-policy-matches-record = $(and \
+	$(filter $(call dependency-policy-field,2,$1),$(call dependency-record-context,$2)),\
+	$(filter $(call dependency-policy-field,3,$1),$(call instance-field,$($2_consumer),group)),\
+	$(filter $(call dependency-policy-field,4,$1),$(call dependency-record-opsys,$2)),\
+	$(filter $(call dependency-policy-field,5,$1),$(call dependency-record-arch,$2)),\
+	$(filter $(call dependency-policy-field,6,$1),$($2_origin)))
+dependency-active-policies = $(if $(dependency-scope-active),\
+	$(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $(foreach d,$(dependency-active-record-ids),$(call dependency-policy-matches-record,$p,$d))),$p)),\
+	$(DEPENDENCY_PROVIDER_POLICIES))
+
 define dependency-provider-selection-input
   $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)|no';) \
   $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(call dependency-target-opsys,$g)|$(call dependency-target-arch,$g)|$(if $(call dependency-group-cross-compile,$g),yes,no)';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';)) \
-  $(foreach d,$(dependency_record_ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
+  $(dependency-provider-native-tool-input) \
+  $(if $(filter yes,$(dependency_planning_only)),,$(foreach p,$(dependency-active-policies),$(if $(strip $($(call dependency-policy-validator,$p))),if { $($(call dependency-policy-validator,$p)); } >/dev/null 2>&1; then printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|valid'; else printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|failed'; fi;,printf '%s\n' 'validation|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|missing';))) \
+  $(foreach d,$(dependency-active-record-ids),printf '%s\n' 'dependency|$d|$($(d)_consumer)|$(call instance-field,$($(d)_consumer),group)|$($(d)_type)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_instance)|$($(d)_resolution)';)
 endef
 
 define dependency-provider-environment-input
   $(dependency-provider-selection-input) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,LIBDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|libdir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,PKGCONFIGDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|pkgconfigdir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,RUNTIMEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|runtimedir|$v';)) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,COMMANDS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|command|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,LIBDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|libdir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,PKGCONFIGDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|pkgconfigdir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,RUNTIMEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|runtimedir|$v';)) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
 endef
 
 define generate-dependency-metadata-probe
@@ -190,9 +211,14 @@ $(foreach p,$(ports_all_group),					\
 depends_exclude_targets += dependency-metadata-probes $(dependency_metadata_probe_targets)
 dependency-metadata-probes: $(dependency_metadata_probe_targets)
 
+# Reuse an inherited GNU make jobserver when the caller is already parallel.
+# A serial top-level invocation still receives the configured probe limit.
+dependency-metadata-jobs-flag = $(if $(filter --jobserver-auth=% \
+	--jobserver-fds=%,$(MAKEFLAGS)),,-j$(DEPENDENCY_METADATA_JOBS))
+
 dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
-	$(MAKE) -s --no-print-directory -j$(DEPENDENCY_METADATA_JOBS) 	\
+	$(MAKE) -s --no-print-directory $(dependency-metadata-jobs-flag) \
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
 	  >/dev/null &&							\
 	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\
@@ -216,7 +242,30 @@ dependency-metadata-command = $(if $(and \
 	cat "$(DEPENDENCY_METADATA_SOURCE)",\
 	$(dependency-metadata-collect-command))
 
-define dependency-invocation-command
+DEPENDENCY_CONTEXT_ROOT ?=
+DEPENDENCY_CONTEXT_DIR ?=
+
+define dependency-scoped-invocation-command
+	set -e; \
+	invocation_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependency-invocation.XXXXXX"); \
+	trap 'exit 1' HUP INT TERM; \
+	trap 'status=$$?; trap - EXIT HUP INT TERM; case "$$invocation_dir" in "$${TMPDIR:-/tmp}"/uports-dependency-invocation.*) if test -d "$$invocation_dir"; then find "$$invocation_dir" -type f -delete; find "$$invocation_dir" -depth -type d -exec rmdir {} \;; fi;; esac; exit $$status' EXIT; \
+	metadata_source="$$invocation_dir/metadata"; \
+	context_root="$$invocation_dir/context"; \
+	context_dir="$$context_root/$(call target-instance-key,$(call resolve-port-target,$1)).$(call extract-suffix,$(call rm-group,$(call resolve-port-target,$1)))"; \
+	mkdir -p "$$context_dir"; \
+	$(MAKE) -s --no-print-directory dependency-metadata-snapshot > "$$metadata_source"; \
+	$(MAKE) -s --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
+	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" \
+	  DEPENDENCY_CONTEXT_DIR="$$context_dir" \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$1' \
+	  dependency-target-context-prepare; \
+	$(MAKE) --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
+	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" \
+	  DEPENDENCY_CONTEXT_ROOT="$$context_root" $1
+endef
+
+define dependency-aggregate-invocation-command
 	set -e; \
 	invocation_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependency-invocation.XXXXXX"); \
 	trap 'exit 1' HUP INT TERM; \
@@ -227,12 +276,26 @@ define dependency-invocation-command
 	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" $1
 endef
 
+dependency-invocation-command = $(if $(call resolve-port-target,$1),\
+	$(call dependency-scoped-invocation-command,$1),\
+	$(call dependency-aggregate-invocation-command,$1))
+
 dependency_metadata_raw =
 
 # $(call collect-dependency-capability, provider-key|provides|origin)
 define collect-dependency-capability
   $(eval dependency_capability_words := $(subst $(VERTICAL_BAR), ,$1))
   $(eval dependency_capabilities_$(word 1,$(dependency_capability_words)) += $(word 3,$(dependency_capability_words)))
+endef
+
+define collect-dependency-cookie
+  $(eval dependency_cookie_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_cookie_$(word 1,$(dependency_cookie_words))_$(word 3,$(dependency_cookie_words)) := $(word 4,$(dependency_cookie_words)))
+endef
+
+define collect-dependency-state-file
+  $(eval dependency_state_file_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_state_file_$(word 1,$(dependency_state_file_words))_$(word 3,$(dependency_state_file_words)) := $(word 4,$(dependency_state_file_words)))
 endef
 
 # $(call dependency-provider-candidates, origin)
@@ -285,20 +348,44 @@ endef
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(eval dependency_scope_ready := no) \
+	$(eval dependency_planning_only := no) \
+	$(if $(dependency-scope-enabled),,\
 	$(if $(dependency-cross-context-errors),			\
 	  $(error invalid dependency cross context: $(dependency-cross-context-errors))) \
 	$(if $(dependency-provider-mode-context-errors),		\
-	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors))) \
+	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))) \
 	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
 	  $(error dependency metadata collection failed),)		\
-	$(load-dependency-provider-discovery)				\
+	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),,$(load-dependency-provider-discovery)) \
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-capability,$d)))			\
 	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call collect-dependency-cookie,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),				\
+	  $(if $(filter state-file,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
+	    $(call collect-dependency-state-file,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
+	$(if $(and $(dependency-scope-enabled),$(if $(dependency-invalid-requests),,yes)),\
+	  $(if $(and $(filter yes,$(dependency-external-providers-enabled)),$(dependency-preflight-required)),\
+	    $(eval dependency_planning_only := yes) \
+	    $(eval dependency_provider_projection := $(shell { $(dependency-provider-selection-input) :; } | awk -v planning=1 -v records=1 -f "$(portdir)/Tools/dependency-provider-selection.awk")) \
+	    $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency scope projection failed)) \
+	    $(foreach p,$(dependency_provider_projection),$(call apply-dependency-provider-projection,$p)) \
+	    $(eval dependency_planning_only := no)) \
+	  $(eval dependency_scope_raw := $(shell { $(dependency-execution-input) :; } | awk -v scope=1 -f "$(portdir)/Tools/dependency-execution.awk")) \
+	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error invalid dependency scope request)) \
+	  $(eval dependency_scope_nodes := $(patsubst scope-node$(VERTICAL_BAR)%,%,$(filter scope-node$(VERTICAL_BAR)%,$(dependency_scope_raw)))) \
+	  $(eval dependency_scope_record_ids := $(patsubst scope-record$(VERTICAL_BAR)%,%,$(filter scope-record$(VERTICAL_BAR)%,$(dependency_scope_raw)))) \
+	  $(eval dependency_scope_ready := yes) \
+	  $(if $(dependency-preflight-required),\
+	    $(if $(dependency-cross-context-errors),$(error invalid dependency cross context: $(dependency-cross-context-errors))) \
+	    $(if $(dependency-provider-mode-context-errors),$(error invalid dependency provider mode: $(dependency-provider-mode-context-errors))))) \
 	$(if $(filter yes,$(dependency-external-providers-enabled)),	\
 	  $(eval dependency_policy_result := $(shell { $(dependency-provider-policy-input) :; } | awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-policy.awk" >/dev/null))\
 	  $(if $(filter-out 0,$(.SHELLSTATUS)),$(error dependency provider policy validation failed))\
@@ -307,7 +394,7 @@ load-dependency-records = 						\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
 	      $(call apply-dependency-provider-projection,$p))))		\
 	$(if $(and $(filter none,$(dependency-provider-fallback)),\
-	  $(filter uports,$(foreach d,$(dependency_record_ids),$($(d)_provider_kind)))),\
+	  $(filter uports,$(foreach d,$(dependency-active-record-ids),$($(d)_provider_kind)))),\
 	  $(error system-only provider mode has dependencies without external providers))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
@@ -329,12 +416,18 @@ define dependency-graph-input
 endef
 
 define dependency-execution-input
+  printf '%s\n' 'packaging-policy|$(dependency-provenance-enabled)'; \
   $(foreach p,$(ports_all_group),				\
-    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env)';) \
+    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(filter-out USE_GLOBALBASE=% DISTDIR_SITE=% PACKAGES_SITE=% SCMDIR_SITE=%,$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env))';) \
+  $(foreach p,$(ports_all_group),$(foreach s,$(dependency-lifecycle-provider-suffixes),\
+    printf '%s\n' 'cookie|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$s|$(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)|$(if $(wildcard $(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)),ready,missing)';)) \
+  $(foreach p,$(ports_all_group),$(foreach c,configure stage,\
+    printf '%s\n' 'state-file|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$c|$(dependency_state_file_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$c)';)) \
   $(foreach d,$(dependency_record_ids),			\
-    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))';) \
-  $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),		\
-    printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)';) \
+    printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))|$d';) \
+  $(foreach p,$(dependency-provider-contribution-policies),	\
+    printf '%s\n' 'external-environment|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,BINDIRS,$p)|$(call dependency-provider-value,INCLUDEDIRS,$p)|$(call dependency-provider-value,LIBDIRS,$p)|$(call dependency-provider-value,PKGCONFIGDIRS,$p)|$(call dependency-provider-value,RUNTIMEDIRS,$p)|$(call dependency-provider-value,SYSROOT,$p)|$(call dependency-provider-value,COMMANDS,$p)';) \
+  $(foreach p,$(dependency-provider-contribution-policies),$(if $(call dependency-provider-value,TOOL_VERSIONS,$p),printf '%s\n' 'native-tool-versions|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|$(call dependency-provider-value,TOOL_VERSIONS,$p)';)) \
   $(foreach r,$(dependency-request-targets),			\
     printf '%s\n' 'request|$(call target-instance-key,$r)|$(call extract-suffix,$(call rm-group,$r))';)
 endef
@@ -375,51 +468,111 @@ dependency-lifecycle-provider-target = $(call dependency-instance-target,\
 	$($1_provider_instance),$(call dependency-lifecycle-provider-suffix,$1))
 
 UPORTS_DEPENDENCIES	?= yes
-ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no),$(UPORTS_DEPENDENCIES))
-$(error UPORTS_DEPENDENCIES must be yes or no)
+ifneq ($(filter $(UPORTS_DEPENDENCIES),yes no none),$(UPORTS_DEPENDENCIES))
+$(error UPORTS_DEPENDENCIES must be one of: yes no none)
 endif
-UPORTS_DEPENDENCY_STATE ?= $(UPORTS_DEPENDENCIES)
+UPORTS_DEPENDENCY_STATE ?= yes
 ifneq ($(filter $(UPORTS_DEPENDENCY_STATE),yes no),$(UPORTS_DEPENDENCY_STATE))
 $(error UPORTS_DEPENDENCY_STATE must be yes or no)
 endif
+UPORTS_DEPENDENCY_PROVENANCE ?= yes
+ifneq ($(filter $(UPORTS_DEPENDENCY_PROVENANCE),yes no),$(UPORTS_DEPENDENCY_PROVENANCE))
+$(error UPORTS_DEPENDENCY_PROVENANCE must be yes or no)
+endif
+
+# "no" disables provider execution while retaining independently configured
+# state and provenance.  "none" is the umbrella dependency-neutral mode: it
+# bypasses metadata collection, execution, state, and provenance without
+# rewriting the public settings or changing recursive "no" semantics.
+dependency-framework-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,yes)
+dependency-state-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,$(UPORTS_DEPENDENCY_STATE))
+dependency-provenance-enabled = $(if $(filter none,$(UPORTS_DEPENDENCIES)),no,$(UPORTS_DEPENDENCY_PROVENANCE))
 
 dependency-state-class = $(if $(filter configure build rebuild,$1),configure,\
 	$(if $(filter stage package install restage reinstall generate-plist,$1),stage))
 dependency-dispatch-state-class = $(strip $(call dependency-state-class,\
 	$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
+dependency-tracking-enabled = $(and $(dependency-dispatch-state-class),$(or \
+	$(filter yes,$(dependency-state-enabled)),\
+	$(and $(filter yes,$(dependency-provenance-enabled)),\
+	$(filter package install reinstall,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))))
+dependency-context-key = $(call target-instance-key,$(resolved-port-target)).$(call extract-suffix,$(call rm-group,$(resolved-port-target)))
+dependency-context-active-dir = $(DEPENDENCY_CONTEXT_ROOT)/$(dependency-context-key)
+dependency-context-enabled = $(and $(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),\
+	$(strip $(DEPENDENCY_CONTEXT_ROOT)),$(dependency-dispatch-state-class))
+dependency-context-output-dir = $(or $(strip $(DEPENDENCY_CONTEXT_DIR)),\
+	$(dependency-context-active-dir))
+dependency-context-targets = $(dependency-context-output-dir)/targets
+dependency-context-reuses = $(dependency-context-output-dir)/reuses
+dependency-context-input = $(dependency-context-output-dir)/input
+dependency-context-candidates = $(dependency-context-output-dir)/candidates
+dependency-context-environment = $(dependency-context-output-dir)/environment
+dependency-context-state = $(dependency-context-output-dir)/state
+dependency-context-provenance = $(dependency-context-output-dir)/provenance
+dependency-context-ensure-command = $(if $(dependency-context-enabled),\
+	if test ! -f "$(dependency-context-state)"; then \
+	  mkdir -p "$(dependency-context-active-dir)"; \
+	  $(MAKE) -s --no-print-directory \
+	    DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    DEPENDENCY_CONTEXT_DIR="$(dependency-context-active-dir)" \
+	    dependency-target-context-prepare; \
+	fi)
 
 dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-lifecycle-execute &&)
-dependency-consumer-environment-command = $(if $(filter yes,$(dependency-external-providers-enabled)),\
+	$(if $(dependency-context-enabled),\
+	  $(if $(filter 1,$(PORTS_VERBOSE)),cat "$(dependency-context-reuses)";) \
+	  targets=$$(cat "$(dependency-context-targets)"); \
+	  if test -n "$$targets"; then $(DEPENDENCY_EXECUTE_COMMAND) $$targets; fi &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-lifecycle-execute &&))
+dependency-consumer-environment-command = $(if $(and \
+	$(filter yes,$(dependency-external-providers-enabled)),\
+	$(dependency-dispatch-state-class),\
+	$(or $(dependency-context-enabled),$(filter yes,$(dependency-state-enabled)))),\
+	$(if $(dependency-context-enabled),\
+	  . "$(dependency-context-environment)";,\
 	environment_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-env.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
-	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-environment-export > "$$environment_file"; \
-	. "$$environment_file";)
-dependency-consumer-provenance-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCIES)),\
-	$(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target))))),\
+	. "$$environment_file";))
+dependency-provenance-phases = package install reinstall
+dependency-consumer-provenance-enabled = $(and $(filter yes,$(dependency-provenance-enabled)),\
+	$(filter $(dependency-provenance-phases),$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))
+dependency-consumer-provenance-command = $(if $(dependency-consumer-provenance-enabled),\
+	$(if $(dependency-context-enabled),\
+	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$(dependency-context-provenance)";,\
 	provenance_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-provider-provenance.XXXXXX"); \
 	$(MAKE) -s --no-print-directory \
-	  DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	  DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	  dependency-provider-provenance > "$$provenance_file"; \
-	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";)
+	export UPORTS_DEPENDENCY_PROVENANCE_FILE="$$provenance_file";))
 dependency-consumer-cleanup-command = $(if $(or \
 	$(filter yes,$(dependency-external-providers-enabled)),\
-	$(and $(filter yes,$(UPORTS_DEPENDENCIES)),\
-	  $(filter package,$(call extract-suffix,$(call rm-group,$(resolved-port-target)))))),\
+	$(dependency-consumer-provenance-enabled)),\
 	trap 'rm -f $${environment_file:+"$$environment_file"} $${provenance_file:+"$$provenance_file"}' EXIT HUP INT TERM;)
+dependency-context-state-command = dir=$(call target-instance-field,$(resolved-port-target),root); \
+	category=$(call target-instance-field,$(resolved-port-target),category); \
+	port=$(call target-instance-field,$(resolved-port-target),port); \
+	envs="$(call get-envs,$(resolved-port-target))"; \
+	$(MAKE) -s -C "$$dir/$$category/$$port" --no-print-directory $$envs \
+	  DEPENDENCY_STATE_CLASS="$(dependency-dispatch-state-class)" \
+	  DEPENDENCY_STATE_SOURCE="$(dependency-context-state)" \
+	  uports-dependency-state-$1 >/dev/null
 dependency-state-invalidate-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(filter yes,$(dependency-state-enabled)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-state-invalidate >/dev/null &&)
+	$(if $(dependency-context-enabled),\
+	  $(call dependency-context-state-command,invalidate) &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-state-invalidate >/dev/null &&))
 dependency-state-save-command = $(if $(and \
-	$(filter yes,$(UPORTS_DEPENDENCY_STATE)),\
+	$(filter yes,$(dependency-state-enabled)),\
 	$(dependency-dispatch-state-class)),\
-	$(MAKE) --no-print-directory DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	  dependency-state-save >/dev/null &&)
+	$(if $(dependency-context-enabled),\
+	  $(call dependency-context-state-command,save) &&,\
+	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
+	    dependency-state-save >/dev/null &&))
 
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
@@ -440,13 +593,18 @@ dependency-provider-mode-list:
 	  'dependency_provider_discovery = $(dependency-provider-discovery-enabled)' \
 	  'dependency_provider_cross_target = $(dependency-provider-cross-target)' \
 	  'dependency_provider_fallback = $(dependency-provider-fallback)' \
-	  'dependency_provider_mode_source = $(dependency-provider-mode-source)'
+	  'dependency_provider_mode_source = $(dependency-provider-mode-source)' \
+	  'dependency_framework = $(dependency-framework-enabled)' \
+	  'dependency_execution = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),yes,no)' \
+	  'dependency_state = $(dependency-state-enabled)' \
+	  'dependency_provenance = $(dependency-provenance-enabled)'
 
 dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\
 	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))
 
 .PHONY: dependency-provider-registry-list dependency-provider-registry-check \
+	dependency-provider-tool-registry-list dependency-provider-tool-registry-check \
 	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-policy-list dependency-provider-policy-check \
 	dependency-provider-selection-list dependency-provider-selection-check \
@@ -455,7 +613,8 @@ dependency-provider-mode-check: dependency-provider-mode-list
 	dependency-provider-environment-list dependency-provider-environment-check \
 	dependency-provider-environment-export dependency-provider-environment-run
 depends_exclude_targets += dependency-provider-registry-list \
-	dependency-provider-registry-check dependency-provider-policy-list \
+	dependency-provider-registry-check dependency-provider-tool-registry-list \
+	dependency-provider-tool-registry-check dependency-provider-policy-list \
 	dependency-provider-profile-list dependency-provider-profile-check \
 	dependency-provider-discovery-list dependency-provider-discovery-check \
 	dependency-provider-policy-check dependency-provider-selection-list \
@@ -485,19 +644,30 @@ dependency-provider-registry-check:
 	@{ $(dependency-provider-registry-input) :; } | \
 	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk"
 
+dependency-provider-tool-registry-list:
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=0 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk"
+
+dependency-provider-tool-registry-check:
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-tool-registry.awk"
+
 .PHONY: dependency-provider-discovery-list dependency-provider-discovery-check
 
 dependency-provider-discovery-list:
-	@{ $(dependency-provider-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@$(dependency-provider-registries-validate-command)
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command)
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  $(dependency-provider-tool-discovery-command)
 
 dependency-provider-discovery-check:
-	@{ $(dependency-provider-registry-input) :; } | \
-	  awk -v fail=1 -f "$(portdir)/Tools/dependency-provider-registry.awk" >/dev/null
+	@$(dependency-provider-registries-validate-command)
 	@{ $(dependency-provider-registry-input) :; } | \
 	  $(dependency-provider-discovery-command) | \
+	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
+	@{ $(dependency-provider-tool-registry-input) :; } | \
+	  $(dependency-provider-tool-discovery-command) | \
 	  awk -F '|' '{ print } $$1 == "discovery" && $$4 != "available" { failed = 1 } END { exit failed }'
 
 dependency-provider-policy-list:
@@ -560,6 +730,81 @@ dependency-provider-export-awk = awk -v environment=1 -v exports=1 \
 	-v build_opsys="$(DEPENDENCY_BUILD_OPSYS)" \
 	-v build_arch="$(DEPENDENCY_BUILD_ARCH)" \
 	-f "$(portdir)/Tools/dependency-provider-selection.awk"
+
+.PHONY: dependency-target-context-prepare
+depends_exclude_targets += dependency-target-context-prepare
+dependency-target-context-prepare:
+	@$(load-dependency-records)
+	@$(dependency-cross-toolchain-preflight) :
+	@$(dependency-external-preflight) :
+	@if test "$(words $(dependency-requests))" -ne 1 || \
+	    test -n "$(dependency-invalid-requests)" || \
+	    test -z "$(strip $(DEPENDENCY_CONTEXT_DIR))" || \
+	    test ! -d "$(DEPENDENCY_CONTEXT_DIR)"; then \
+	  echo "invalid dependency context request: $(dependency-requests)" >&2; \
+	  exit 1; \
+	fi
+	@set -e; \
+	  { $(dependency-execution-input) :; } > "$(dependency-context-input)"; \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" \
+	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	      < "$(dependency-context-input)" \
+	    > "$(dependency-context-state)"; \
+	  awk -v candidates=1 \
+	      -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	      -f "$(portdir)/Tools/dependency-execution.awk" \
+	      "$(dependency-context-input)" \
+	    > "$(dependency-context-candidates)"; \
+	  : > "$(dependency-context-targets)"; \
+	  : > "$(dependency-context-reuses)"; \
+	  provider_state="$(dependency-context-output-dir)/provider-state"; \
+	  trap 'rm -f "$$provider_state"' EXIT HUP INT TERM; \
+	  while IFS='|' read -r record node phase target cookie state_file; do \
+	    ready=no; \
+	    if test -n "$$cookie" && test -f "$$cookie" && \
+	       test -n "$$state_file" && test -f "$$state_file"; then \
+	      $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" -v request_override="$$node" \
+	        -v request_override_phase="$$phase" \
+	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	        < "$(dependency-context-input)" > "$$provider_state"; \
+	      if DEPENDENCY_STATE_SOURCE="$$provider_state" \
+	         DEPENDENCY_STATE_FILE="$$state_file" \
+	         $(SH) "$(portdir)/Mk/Scripts/dependency-state.sh" current; then \
+	        ready=yes; \
+	      fi; \
+	    fi; \
+	    if test "$$ready" = yes; then \
+	      group_origin=$$(awk -F '|' -v wanted="$$node" \
+	        '$$1 == "node" && $$2 == wanted { print $$3 "@" $$4; exit }' \
+	        "$(dependency-context-input)"); \
+	      printf '  REUSE   %s %s\n' "$$group_origin" "$$phase" \
+	        >> "$(dependency-context-reuses)"; \
+	    else \
+	      printf '%s ' "$$target" >> "$(dependency-context-targets)"; \
+	    fi; \
+	  done < "$(dependency-context-candidates)"; \
+	  printf '\n' >> "$(dependency-context-targets)"; \
+	  rm -f "$$provider_state"; \
+	  trap - EXIT HUP INT TERM; \
+	  if test "$(dependency-external-providers-enabled)" = yes; then \
+	    { $(dependency-provider-environment-input) :; } | \
+	      $(dependency-provider-export-awk) \
+	      > "$(dependency-context-environment)"; \
+	  else \
+	    : > "$(dependency-context-environment)"; \
+	  fi; \
+	  if test "$(dependency-provenance-enabled)" = yes && \
+	      test -n "$(filter $(dependency-provenance-phases),$(dependency-request-phase))"; then \
+	    { $(dependency-execution-input) :; } | \
+	      awk -v provenance=1 \
+	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
+	        -f "$(portdir)/Tools/dependency-execution.awk" \
+	      > "$(dependency-context-provenance)"; \
+	    sed 's/^/artifact-state|/' "$(dependency-context-state)" \
+	      >> "$(dependency-context-provenance)"; \
+	  else \
+	    : > "$(dependency-context-provenance)"; \
+	  fi
 
 dependency-provider-environment-export:
 	@$(load-dependency-records)
@@ -631,6 +876,9 @@ dependency-lifecycle-check:
 # has already ordered the complete closure. Tests may replace this command with
 # a recorder.
 DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
+	DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST= \
+	UPORTS_DEPENDENCY_PROVIDER_EXECUTION=yes \
+	UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
@@ -661,7 +909,7 @@ dependency-execution-state:
 	  exit 1; \
 	fi
 	@{ $(dependency-execution-input) :; } | \
-	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk"
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk"
 
 dependency-provider-provenance:
 	@$(load-dependency-records)
@@ -673,6 +921,9 @@ dependency-provider-provenance:
 	fi
 	@{ $(dependency-execution-input) :; } | \
 	  awk -v provenance=1 -f "$(portdir)/Tools/dependency-execution.awk"
+	@{ $(dependency-execution-input) :; } | \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" | \
+	  sed 's/^/artifact-state|/'
 
 define dependency-state-operation
 	@$(load-dependency-records)
@@ -686,7 +937,7 @@ define dependency-state-operation
 	@state_file=$$(mktemp "$${TMPDIR:-/tmp}/uports-dependency-state.XXXXXX"); \
 	trap 'rm -f "$$state_file"' EXIT HUP INT TERM; \
 	{ $(dependency-execution-input) :; } | \
-	  awk -v state=1 -f "$(portdir)/Tools/dependency-execution.awk" \
+	  $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" \
 	  > "$$state_file"; \
 	dir="$(call target-instance-field,$(dependency-request-target),root)"; \
 	category="$(call target-instance-field,$(dependency-request-target),category)"; \
