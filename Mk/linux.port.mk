@@ -10,9 +10,16 @@ PORTSDIR		:= $(abspath $(call subdirectory,linux.port.mk)/..)
 include $(PORTSDIR)/Mk/linux.debug.mk
 
 LOCALBASE		?= /usr/local
-DISTDIR			?= $(PORTSDIR)/distfiles
+
+# $(call global-cache-site, directory-variable)
+global-cache-site	= $(if $(filter yes,$(USE_GLOBALBASE)),$($1_SITE))
+
+# $(call global-cache-directory, directory-variable, fallback-subdirectory)
+global-cache-directory	= $(or $(call global-cache-site,$1),$(PORTSDIR)/$2)
+
+DISTDIR			?= $(call global-cache-directory,DISTDIR,distfiles)
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
-SCMDIR			?= $(PORTSDIR)/scm
+SCMDIR			?= $(call global-cache-directory,SCMDIR,scm)
 USESDIR			?= ${PORTSDIR}/Mk/Uses
 SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 STAGEDIR		?= $(WRKDIR)/stage
@@ -187,6 +194,8 @@ check-if-pre-makefile	:= $(strip					\
         $(error ERR, you cannot include linux.port[.pre].mk twice),)
 _PREMKINCLUDED		= yes
 
+include $(PORTSDIR)/Mk/linux.source.mk
+
 portversion-tr1		= $(shell echo $1 | sed -e 's/[-_,]//g')
 portversion-tr2		= $(shell echo $1 | sed -e 's/[-_,]/./g')
 portversion-tr3		= $(shell echo $1 | sed -e 's/:/::/g')
@@ -226,7 +235,7 @@ DISTNAME		?= $(PORTNAME)-$(DISTVERSIONFULL)
 
 INDEXFILE		?= INDEX
 
-PACKAGES		?= $(PORTSDIR)/packages
+PACKAGES		?= $(call global-cache-directory,PACKAGES,packages)
 TEMPLATES		?= $(PORTSDIR)/Templates
 
 PATCHDIR		?= $(MASTERDIR)/files
@@ -267,8 +276,7 @@ endif
 $(foreach d, $(global_link_all),					\
   $(eval								\
     $(if $($($d_NAME)_SITE),						\
-      $(if $(wildcard $(portdir)/$d),,					\
-        $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME)))),	\
+      $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME))),	\
       $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
 endif #'
 
@@ -359,6 +367,7 @@ _POSTMKINCLUDED		= yes
 
 WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
 
+include $(PORTSDIR)/Mk/linux.source.mk
 include $(PORTSDIR)/Mk/linux.github.mk
 
 ifneq ($(NO_WRKSUBDIR),yes)
@@ -399,13 +408,47 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
-EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
-PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(PKGNAME)
-CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(PKGNAME)
-BUILD_COOKIE		?= $(WRKDIR)/build._done.$(PKGNAME)
-STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
-INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
-PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
+source-cookie-suffix	:= $(strip \
+	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),.$(source-identity-key)))
+source-cookie-name	= $(PKGNAME)$(source-cookie-suffix)
+EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(source-cookie-name)
+PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(source-cookie-name)
+CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(source-cookie-name)
+BUILD_COOKIE		?= $(WRKDIR)/build._done.$(source-cookie-name)
+STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(source-cookie-name)
+INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(source-cookie-name)
+PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(source-cookie-name)
+
+source-state-cookies	= $(EXTRACT_COOKIE) $(PATCH_COOKIE) \
+	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) \
+	$(PACKAGE_COOKIE) $(INSTALL_COOKIE)
+source-state-artifacts	= $(WRKDIR_PKGFILE)
+source-state-shared-cookies = $(CONFIGURE_COOKIE) $(BUILD_COOKIE) \
+	$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE)
+source-state-environment = \
+	SOURCE_STATE_FILE='$(SOURCE_STATE_FILE)' \
+	SOURCE_STATE_REQUEST_KEY='$(source-identity-key)' \
+	SOURCE_STATE_MODE='$(_SOURCE_MODE)' \
+	SOURCE_STATE_PROVIDER='$(_SOURCE_PROVIDER)' \
+	SOURCE_STATE_REPOSITORY='$(or $(SCM_REPO_URL),-)' \
+	SOURCE_STATE_REF_KIND='$(_SOURCE_REF_KIND)' \
+	SOURCE_STATE_REF='$(_SOURCE_REF)' \
+	SOURCE_STATE_ROOT='$(_SOURCE_ROOT_IDENTITY)' \
+	SOURCE_STATE_PATH='$(WRKSRC)' \
+	SOURCE_STATE_ARCHIVES='$(strip $(DISTFILES) $(PATCHFILES))' \
+	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'
+
+.PHONY: uports-source-state-check uports-source-state-save
+uports-source-state-check:
+	@$(source-state-environment) \
+	  SOURCE_STATE_COOKIES='$(source-state-cookies)' \
+	  SOURCE_STATE_SHARED_COOKIES='$(source-state-shared-cookies)' \
+	  SOURCE_STATE_ARTIFACTS='$(source-state-artifacts)' \
+	  $(SH) $(SCRIPTSDIR)/source-state.sh check
+
+uports-source-state-save:
+	@$(source-state-environment) \
+	  $(SH) $(SCRIPTSDIR)/source-state.sh save
 
 DEPENDENCY_STATE_CLASS	?=
 DEPENDENCY_STATE_SOURCE	?=
@@ -721,7 +764,7 @@ EXTRACT_LISTS		+= $(EXTRACT_ONLY)
 SCM_BRANCH		?=
 SCM_REPO_PREINIT_CMD	?= autogen.sh
 
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
 GIT_CMD			?= $(firstword $(wildcard /usr/bin/git /bin/git) $(shell $(WHICH) git 2>/dev/null))
 SCM_LS_CMD		?= $(GIT_CMD) ls-remote
 SCM_CMD			?= $(GIT_CMD) clone
@@ -738,8 +781,10 @@ SCM_REPO_PREFIX		?=
 # DISTNAME
 SCM_REPO_SUFFIX		?= .git
 
+ifeq ($(strip $(SCM_REPO_URL)),)
 ifneq ($(words $(MASTER_SITES)),1)
-$(error Oops, you set multiple MASTER_SITES while using USE_SCM is set)
+$(error Git source mode needs SCM_REPO_URL or exactly one MASTER_SITES entry)
+endif
 endif
 
 SCM_REPO_URL		?= $(SCM_PROTOCOL)$(if $(SCM_USER),$(SCM_USER)@)$(MASTER_SITES)$(if $(SCM_PROTOCOL),,:)$(MASTER_SITE_SUBDIR)/$(SCM_REPO_PREFIX)$(PORTNAME)$(SCM_REPO_SUFFIX)
@@ -1011,6 +1056,17 @@ ext			= $(call config.ext,$(WRKDIR),$(PLIST))
 # $(call get-port-origin,$(MASTERDIR))
 get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
 
+source-package-provenance = $(WRKDIR)/package.source-provenance
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+package-provenance-file = $(source-package-provenance)
+package-source-state	= $(SOURCE_STATE_FILE)
+package-source-key	= $(source-identity-key)
+else
+package-provenance-file = $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
+package-source-state	=
+package-source-key	=
+endif
+
 PKG_ENV			+=						\
 	STAGEDIR=$(STAGEDIR)						\
 	PKGNAME=$(PKGNAME)						\
@@ -1021,7 +1077,7 @@ PKG_ENV			+=						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
-	PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE_FILE)			\
+	PROVENANCE=$(package-provenance-file)				\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #
@@ -1081,17 +1137,46 @@ PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
 
+# Invalidate an earlier selection before make inspects its existing cookies.
+# Diagnostic and fetch-only requests must not invalidate build artifacts.
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifeq ($(findstring n,$(firstword -$(MAKEFLAGS))),)
+ifneq ($(filter all extract patch configure build stage package install \
+  reinstall rebuild restage,$(MAKECMDGOALS)),)
+source-state-check-result := $(shell $(source-state-environment) \
+	SOURCE_STATE_COOKIES='$(source-state-cookies)' \
+	SOURCE_STATE_SHARED_COOKIES='$(source-state-shared-cookies)' \
+	SOURCE_STATE_ARTIFACTS='$(source-state-artifacts)' \
+	$(SH) $(SCRIPTSDIR)/source-state.sh check && printf success)
+ifneq ($(source-state-check-result),success)
+$(error Source state validation failed)
+endif
+endif
+endif
+endif
+
 # An install may select a shared archive even after local state invalidation.
 # Reject archives whose prefix or provider report differs from this request.
-dependency-package-mismatch := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(strip $(UPORTS_DEPENDENCY_PROVENANCE_FILE)),\
+ifeq ($(UPORTS_DEPENDENCIES),none)
+package-dependency-provenance :=
+else
+package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
+endif
+package-provenance-required := $(strip $(package-dependency-provenance) \
+	$(package-source-state))
+dependency-package-mismatch := $(if $(package-provenance-required),\
 	$(shell for archive in $(sort $(wildcard $(PKGFILE) $(WRKDIR_PKGFILE))); do \
 	  if ! $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
-	      "$(UPORTS_DEPENDENCY_PROVENANCE_FILE)" "$(PREFIX)"; then \
+	      "$(package-dependency-provenance)" "$(PREFIX)" \
+	      "$(package-source-state)" "$(package-source-key)"; then \
 	    echo yes; break; \
 	  fi; \
-	done)))
+	done))
 dependency-package-reconfigure := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),,$(dependency-package-mismatch)))
-dependency-package-rebuild := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(or $(dependency-package-mismatch),$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),yes)))
+dependency-package-rebuild := $(or $(dependency-package-mismatch),\
+	$(if $(filter-out none,$(UPORTS_DEPENDENCIES)),\
+	  $(if $(wildcard $(WRKDIR)/dependency.configure.changed \
+	    $(WRKDIR)/dependency.stage.changed),yes)))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
@@ -1145,23 +1230,19 @@ endif
 include $(PORTSDIR)/Mk/linux.fetch.mk
 
 ifeq ($(filter $(override_targets),do-fetch),)
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 do-fetch:
 	@$(call archive-fetch,do-fetch)
 endif
 endif
 
 ifeq ($(filter $(override_targets),do-fetch),)
-ifneq ($(USE_SCM),)
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
 ifeq ($(SCM_CACHE),no)
 do-fetch:
 else
 do-fetch:
 	$(call cmd,git-cache-fetch)
-endif
-else
-do-fetch:
 endif
 endif
 endif
@@ -1250,7 +1331,7 @@ else
 	$(call cmd,extract-only)
 endif
 
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
 quiet_cmd_git-cache-fetch	?= GIT     $(DISTNAME)(mirror)
       cmd_git-cache-fetch	?= set -e;				\
 	$(MKDIR) `dirname $(SCM_CACHE_REPO)`;				\
@@ -1346,14 +1427,12 @@ quiet_cmd_git-clone	?=
 endif
 
 ifeq ($(filter $(override_targets),do-extract),)
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 do-extract: $(EXTRACT_ONLY)
 else
 do-extract:
-ifeq ($(USE_SCM),git)
 	$(call cmd,git-check-cache-ref)
 	$(call cmd,git-clone)
-endif
 endif
 endif
 
@@ -1394,7 +1473,7 @@ endif
 
 ask-license:
 
-ifneq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),git)
 quiet_cmd_pre-init-repo	?=
       cmd_pre-init-repo	?= set -e;					\
 	cd $(WRKSRC);							\
@@ -1528,7 +1607,7 @@ ifneq ($(EXTRA_PATCHES),)
 endif
 	$(call cmd,apply-patches)
 else
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 do-patch: git-init
 	$(call cmd,apply-git-patches)
 else
@@ -1738,6 +1817,11 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
+	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),\
+	  $(SH) $(SCRIPTSDIR)/package-provenance-merge.sh \
+	    $(source-package-provenance) \
+	    '$(package-dependency-provenance)' \
+	    $(SOURCE_STATE_FILE);) \
 	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create; \
 	rm -f "$(WRKDIR)/dependency.configure.changed" "$(WRKDIR)/dependency.stage.changed"
 
@@ -1748,6 +1832,12 @@ ifeq ($(dependency-package-rebuild),yes)
 .PHONY: dependency-package-force
 dependency-package-force:
 $(WRKDIR_PKGFILE): dependency-package-force
+endif
+
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+.PHONY: source-package-force
+source-package-force:
+$(WRKDIR_PKGFILE): source-package-force
 endif
 
 _EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
@@ -2284,7 +2374,7 @@ endif
 #- makesum:
 
 checksum:
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 ifneq ($(NO_CHECKSUM),yes)
 	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
 	DISTINFO_REQUIRED="$(DISTINFO_REQUIRED)"			\
@@ -2297,14 +2387,14 @@ endif
 
 .PHONY: makesum
 makesum: fetch
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
 	_DISTDIR="$(_DISTDIR)"					\
 	ALLFILES="$(ALLFILES)"					\
 	DIST_SUBDIR="$(DIST_SUBDIR)"				\
 	$(SH) $(SCRIPTSDIR)/makesum.sh
 else
-	@echo "  SKIP    makesum is not used with USE_SCM=$(USE_SCM)"
+	@echo "  SKIP    makesum is not used with SOURCE_MODE=$(_SOURCE_MODE)"
 endif
 
 ################################################################

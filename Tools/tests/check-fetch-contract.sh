@@ -14,6 +14,7 @@ contains() {
     }
 }
 snapshot=$(probe snapshot)
+contains "$snapshot" 'mode=dist'
 contains "$snapshot" 'distfiles=source.tar.gz:src,extra plain.tar.gz:DEFAULT'
 contains "$snapshot" 'patchfiles=fix.patch:fix'
 contains "$snapshot" 'src=https://dist.invalid:8443/releases/'
@@ -52,6 +53,7 @@ if probe snapshot MASTER_SITE_SUBDIR=bad:default >/dev/null 2>&1; then
 fi
 git_snapshot=$(probe snapshot USE_SCM=git MASTER_SITES=git.invalid/ \
     MASTER_SITE_SUBDIR=team SCM_PROTOCOL=https://)
+contains "$git_snapshot" 'mode=git'
 contains "$git_snapshot" 'repo=https://git.invalid/team/fetch-contract.git'
 contains "$git_snapshot" 'cache=git.invalid_team_fetch-contract'
 contains "$git_snapshot" 'timeout=0'
@@ -59,6 +61,14 @@ override=$(probe snapshot USE_SCM=git MASTER_SITES=git.invalid \
     SCM_REPO_URL=https://fork.invalid/project.git SCM_TIMEOUT=15)
 contains "$override" 'repo=https://fork.invalid/project.git'
 contains "$override" 'timeout=15'
+selected_dist=$(probe snapshot SOURCE_MODE=dist USE_SCM=git)
+contains "$selected_dist" 'mode=dist'
+for setting in SOURCE_MODE= SOURCE_MODE=unknown USE_SCM=svn; do
+    if probe snapshot "$setting" >/dev/null 2>&1; then
+        echo "invalid source selection unexpectedly accepted: $setting" >&2
+        exit 1
+    fi
+done
 # Inspect the real checkout recipe without running clone or touching worktrees.
 checkout=$(probe -n do-extract USE_SCM=git MASTER_SITES=git.invalid \
     SCM_REPO_URL=https://git.invalid/project.git SCM_BRANCH=feature SCM_DETACH=pinned)

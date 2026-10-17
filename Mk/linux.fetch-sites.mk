@@ -28,13 +28,16 @@ fetch-default-subdir	= $(word 2,$(subst :, ,				\
 fetch-declaration-path	=						\
 	$(call remove-terminator,$(call fetch-path,$(call get-file-name,$1)))
 
-# $(call fetch-declaration-subdir, declaration)
-fetch-declaration-subdir	=					\
+# $(call fetch-decl-subdir, declaration)
+fetch-decl-subdir	=						\
 	$(call fetch-default-subdir,$(call fetch-family,$1))
 
 # $(call fetch-group-suffix, declaration)
 fetch-group-suffix	=						\
 	$(if $(call get-file-group,$1),:$(call get-file-group,$1))
+
+# $(call fetch-expand-subdir, declaration, mirror)
+fetch-expand-subdir	= $(subst %SUBDIR%,$(call fetch-decl-subdir,$1),$2)
 
 # $(call fetch-expand-family, declaration, subdirectory-variable)
 define fetch-expand-family
@@ -45,7 +48,7 @@ $(if $(MASTER_SITE_$(call fetch-family,$1)),				\
         $(subst %SUBDIR%,$(call fetch-declaration-path,$1),$(mirror)),	\
         $(if $(filter undefined,$(origin $2)),				\
           $(if $(call fetch-default-subdir,$(call fetch-family,$1)),	\
-            $(subst %SUBDIR%,$(call fetch-declaration-subdir,$1),$(mirror)),\
+            $(call fetch-expand-subdir,$1,$(mirror)),                   \
             $(mirror)),							\
           $(mirror))))/$(call fetch-group-suffix,$1)),			\
   $(error Unknown mirror family '$(call fetch-family,$1)' in $1))
@@ -55,14 +58,15 @@ endef
 define fetch-expand-sites
 $(strip									\
   $(foreach entry,$1,							\
-    $(if $(and $(USE_GITHUB),$(call github-mirror-token,$(entry))),    \
-      $(call github-mirror-sites,$(entry)),			       \
-      $(if $(findstring :/,$(entry)),				       \
+    $(if $(and							        \
+      $(USE_GITHUB),$(call github-mirror-token,$(entry))),	        \
+      $(call github-mirror-sites,$(entry)),                             \
+      $(if $(findstring :/,$(entry)),                                   \
         $(entry),$(call fetch-expand-family,$(entry),$2)))))
 endef
 
 # Legacy Git uses MASTER_SITES as a host, not an archive family.
-ifeq ($(strip $(USE_SCM)),)
+ifeq ($(_SOURCE_MODE),dist)
 _fetch_master_sites	:= $(call fetch-expand-sites,			\
 			    $(MASTER_SITES),MASTER_SITE_SUBDIR)
 _fetch_master_sites	+= $(_GH_GROUP_SITES)
@@ -121,7 +125,7 @@ $(foreach group,							\
 # DEFAULT may be empty (local-only distfiles and NO_FETCH ports are valid).
 .PHONY: fetch-groups-check
 fetch-groups-check:
-ifeq ($(strip $(USE_SCM)),)
+ifeq ($(_SOURCE_MODE),dist)
 	@$(foreach file,$(distfiles),					\
 	  $(foreach group,						\
 	    $(call remove-comma,$(call get-file-group,$(file))),	\

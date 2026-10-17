@@ -33,7 +33,7 @@ _GH_RECORDS		:= $(shell				       \
 	gh_subdir=$(call github-quote,$(GH_SUBDIR))		       \
 	gh_tuple=$(call github-quote,$(GH_TUPLE))		       \
 	gh_nodefault=$(call github-quote,$(_GH_NODEFAULT))	       \
-	awk -f "$(SCRIPTSDIR)/github-normalize.awk")
+	awk -f "$(SCRIPTSDIR)/github-normalize.awk" </dev/null)
 
 ifeq ($(strip $(_GH_RECORDS)),)
 $(error GitHub declaration normalization failed)
@@ -103,7 +103,7 @@ endef
 $(foreach group,$(_GITHUB_GROUPS),				       \
   $(eval $(call github-group-artifacts,$(group))))
 
-ifeq ($(strip $(USE_SCM)),)
+ifeq ($(_SOURCE_MODE),dist)
 _GH_EXTRA_GROUPS		:= $(filter-out DEFAULT,$(_GITHUB_GROUPS))
 ifeq ($(filter nodefault,$(USE_GITHUB)),)
 _GH_SITE		= $(GH_SITE_DEFAULT)
@@ -151,7 +151,20 @@ github-place-sources:
 endif
 else
 ifneq ($(filter-out DEFAULT,$(_GITHUB_GROUPS)),)
-$(error Grouped GitHub archives cannot use legacy USE_SCM; no Git mapping)
+$(error Grouped GitHub declarations have no Git source mapping)
+endif
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+_GH_REPO_PATH		= $(GH_ACCOUNT_DEFAULT)/$(GH_PROJECT_DEFAULT).git
+SCM_REPO_URL		?= https://github.com/$(_GH_REPO_PATH)
+ifneq ($(strip $(SCM_BRANCH)),)
+ifneq ($(strip $(SCM_DETACH)),)
+$(error SOURCE_MODE=git accepts only one of SCM_BRANCH and SCM_DETACH)
+endif
+else
+SCM_DETACH		?= $(GH_TAGNAME_DEFAULT)
+endif
+_GH_GIT_ROOT_REF	= $(call github-extract-tag,$(_SOURCE_REF))
+_SOURCE_ROOT_SUFFIX	= -git-$(_GH_GIT_ROOT_REF)
 endif
 endif
 endif

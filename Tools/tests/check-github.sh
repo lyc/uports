@@ -13,7 +13,10 @@ contains() {
     }
 }
 snapshot=$(probe)
+isolated=$(probe USE_GLOBALBASE=yes)
+contains "$isolated" 'globalbase=no'
 contains "$snapshot" 'account=demo'
+contains "$snapshot" 'mode=dist'
 contains "$snapshot" 'project=demo'
 contains "$snapshot" 'tag=1.2'
 contains "$snapshot" 'name=demo-demo-1.2_GH0'
@@ -37,6 +40,36 @@ contains "$overridden" 'source=tree'
 contains "$overridden" 'urls=https://mirror.invalid/'
 extra=$(probe --eval='DISTFILES = license.txt:extra')
 contains "$extra" 'files=license.txt:extra demo-demo-1.2_GH0.tar.gz'
+git_selected=$(probe SOURCE_MODE=git)
+contains "$git_selected" 'mode=git'
+contains "$git_selected" 'source=demo-1.2-git-1.2'
+contains "$git_selected" 'repo=https://github.com/demo/demo.git'
+contains "$git_selected" 'branch='
+contains "$git_selected" 'detach=1.2'
+contains "$git_selected" 'urls='
+git_order=$(make --no-print-directory -s -C "$testdir/cases/github" \
+    PORTSDIR="$portdir" \
+    SOURCE_MODE=git source-order-snapshot)
+contains "$git_order" 'patch_depends=bootstrap:devel/bootstrap'
+case "$git_order" in
+    *patch-depends*pre-patch*) ;;
+    *)
+        echo 'Git bootstrap dependencies do not precede pre-init hook' >&2
+        exit 1
+        ;;
+esac
+git_fork=$(probe SOURCE_MODE=git \
+    SCM_REPO_URL=https://fork.invalid/demo.git SCM_DETACH=pinned)
+contains "$git_fork" 'repo=https://fork.invalid/demo.git'
+contains "$git_fork" 'detach=pinned'
+git_branch=$(probe SOURCE_MODE=git SCM_BRANCH=feature)
+contains "$git_branch" 'branch=feature'
+contains "$git_branch" 'detach='
+if probe SOURCE_MODE=git SCM_BRANCH=feature SCM_DETACH=pinned \
+    >/dev/null 2>&1; then
+    echo 'explicit Git source accepted branch and detach together' >&2
+    exit 1
+fi
 for setting in GH_TAGNAME=master GH_TAGNAME=main GH_TAGNAME=HEAD \
     GH_TAGNAME=refs/heads/feature GH_ACCOUNT=owner:default \
     GH_TAGNAME=version:all USE_GITHUB=invalid GH_TUPLE=owner:project \

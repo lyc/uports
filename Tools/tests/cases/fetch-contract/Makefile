@@ -23,6 +23,7 @@ snapshot:
 	  'extra=$(call generate-master-sites-by-group,extra)' \
 	  'default=$(call generate-master-sites-by-group,DEFAULT)' \
 	  'patch=$(call generate-patch-sites-by-group,fix)' \
+	  'mode=$(SOURCE_MODE_EFFECTIVE)' \
 	  'repo=$(SCM_REPO_URL)' \
 	  'cache=$(SCM_CACHE_NAME)' \
 	  'timeout=$(SCM_TIMEOUT)'

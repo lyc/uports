@@ -14,8 +14,9 @@ adds family/path shorthand (including SF/GH aliases), group-specific expansion,
 and missing-group diagnostics. A shared portable archive executor now replaces
 the inline download loops. Single and grouped `USE_GITHUB` archives are
 implemented, including `GH_TUPLE`, `nodefault`, and safe subdirectory placement.
-GitLab and the new source selector remain migration work. Preserve existing
-ports until each replacement is validated.
+The source selector and the single-repository GitHub Git adapter are now
+implemented. GitLab remains migration work. Preserve existing ports until each
+replacement is validated.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
 Relevant sources are `Mk/bsd.sites.mk`, the fetch sections of `Mk/bsd.port.mk`,
@@ -64,14 +65,22 @@ Normalized source records
        bootstrap -> patch -> configure -> build
 ```
 
-Internal source records are separate from package-dependency records. Document
-their schema before implementation; preserve deterministic grouping and order.
-The slice 1 logical schema and legacy baseline are recorded in
-[01-FETCH-CONTRACT.md](01-FETCH-CONTRACT.md); serialization is not implemented.
+Internal source state is separate from package-dependency records, but explicit
+source selections are included in the package provenance envelope. The state
+records the selected mode, provider, repository/ref, source root, archive and
+layout identity, plus the resolved Git commit. The slice 1 logical schema and
+legacy baseline are recorded in [01-FETCH-CONTRACT.md](01-FETCH-CONTRACT.md).
 
 ## 3. Source Selection And Compatibility
 
-Proposed public selector:
+With `USE_GLOBALBASE=yes`, `DISTDIR_SITE`, `PACKAGES_SITE`, and `SCMDIR_SITE`
+provide the default effective archive, package, and Git-cache directories.
+Explicit `DISTDIR`, `PACKAGES`, and `SCMDIR` settings take precedence. Existing
+framework cache symlinks are preserved, but do not override the selected site.
+Without global mode or a corresponding site setting, the framework-local
+directory remains the default.
+
+Public selector:
 
 ```make
 SOURCE_MODE = dist  # archive distfiles, including hosted-repository archives
@@ -95,6 +104,17 @@ download must not silently switch to Git, or vice versa.
 Keep existing `USE_SCM`, `SCM_REPO_URL`, `SCM_DETACH`, `SCM_BRANCH`, cache,
 and submodule behavior during migration. New declarations should not rewrite
 `MASTER_SITES` conditionally to represent a Git host.
+
+Explicit selections receive source-identity lifecycle cookies. Explicit Git
+uses a `-git-<ref>` source-root suffix; archive mode retains the archive root.
+Changing the selected ref therefore cannot reuse archive/Git stage or package
+cookies. Explicit-source packages use PVER2 provenance even when dependency
+provenance is disabled, so an existing package with another source identity is
+rejected. Legacy/default selections keep their existing cookie and package
+format for compatibility. Returning to a previously extracted explicit
+selection restores its saved source record and preserves its checkout and
+patch history, while refreshing configure/build/stage/package completion for
+the shared output paths.
 
 The earlier `USE_GIT=yes` proposal is deferred: a repository declaration plus
 `SOURCE_MODE=git` is sufficient. Do not introduce another public switch unless
@@ -294,10 +314,9 @@ extraction roots, real Git patching, compiled runtime behavior, and repeat
 staging. The parent Mini-XML port is the first separately reviewable migration;
 its report records actual codeload/build/stage/shared-library verification.
 
-Source identity/state integration remains slice 6 work. Use a fresh/separate
-work directory when changing GH_TAGNAME or repository coordinates; existing
-same-version cookies and binary packages are not automatically invalidated
-by this new helper. No dirty developer worktree is reset by this feature.
+With explicit source selection, source/ref/layout changes use distinct
+lifecycle identities and package provenance. No dirty developer worktree is
+reset by this feature; checkout update and dirty-tree policy remain slice 7.
 
 ### Grouped GitHub Sources
 
@@ -383,8 +402,9 @@ this phase's preservation guarantee and is addressed in the worktree slice.
 Placed groups enter the main archive-derived Git baseline before maintained
 patch application. They are ordinary files, not upstream Git checkouts or
 submodules. Unplaced group roots stay separate; this slice does not initialize
-an independent Git repository for each one. Source/ref/layout changes still
-require a fresh work tree until source-state integration is implemented.
+an independent Git repository for each one. Explicit source selection provides
+source identity/state tracking; legacy/default selections still require a
+fresh work tree when changing source coordinates or layout.
 
 The grouped loopback fixture covers defaults, comma groups, tuple overrides,
 nested placement in reverse declaration order, nodefault, alternative roots,
@@ -392,8 +412,8 @@ self-aliases, real Git patch/stage/runtime behavior, repeat edit preservation,
 and conflict/symlink failures before mutation. GitLab remains a separate
 follow-up; Darwin execution is still pending closeout validation.
 
-Proposed Git development extension (not implemented in this slice): the same
-default GitHub declaration will also supply Git defaults:
+The same default GitHub declaration supplies Git defaults in explicit Git
+mode:
 
 ```text
 SCM_REPO_URL = https://github.com/<GH_ACCOUNT>/<GH_PROJECT>.git
@@ -404,7 +424,6 @@ Explicit SCM declarations take precedence over these derived defaults.
 This permits the common development selection without repeating the URL:
 
 ```sh
-# Proposed commands, available after source-selector implementation:
 make SOURCE_MODE=dist cpython.build
 make SOURCE_MODE=git cpython.build
 make SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/cpython.git \
@@ -412,15 +431,13 @@ make SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/cpython.git \
 ```
 
 An explicit `SCM_BRANCH` selects branch checkout semantics instead of an
-implicitly derived detached archive tag. Define precedence for conflicting
-explicit branch/detach settings and reject ambiguous combinations.
+implicitly derived detached archive tag. Supplying both branch and detach in
+explicit Git mode is rejected.
 A tracking branch is a deliberate development choice; record its resolved
 commit and require an immutable revision for reproducible package policy.
 
-Initially derive only the default/main repository. Multi-repository GitHub
-archive declarations must not silently become Git submodules. Define a later
-grouped-checkout mapping, or fail clearly when Git mode cannot materialize
-the declared layout.
+Only the default/main repository is derived. Multi-repository GitHub archive
+declarations fail clearly in Git mode rather than silently becoming submodules.
 
 ## 7. GitLab And Other Repositories
 

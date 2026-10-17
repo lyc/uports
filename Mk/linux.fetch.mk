@@ -58,8 +58,9 @@ endef
 
 .PHONY: fetch-list fetch-url-list
 fetch-list fetch-url-list:
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 	@$(call archive-fetch,$@)
 else
-	@echo "  SKIP    $@ is for archive sources, not USE_SCM=$(USE_SCM)"
+	@printf '  SKIP    %s requires archive sources (SOURCE_MODE=%s)\n' \
+	  '$@' '$(_SOURCE_MODE)'
 endif
