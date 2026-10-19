@@ -155,7 +155,8 @@ endef
 dependency-scoped-targets = dependency-execution-plan dependency-execution-state \
 	dependency-provider-provenance dependency-lifecycle-execute \
 	dependency-state-check dependency-state-save dependency-state-invalidate \
-	dependency-provider-environment-export dependency-provider-environment-run
+	dependency-provider-environment-export dependency-provider-environment-run \
+	dependency-target-context-prepare
 dependency-scope-enabled = $(and $(dependency-requests),$(filter $@,$(dependency-scoped-targets)))
 dependency-preflight-required = $(if $(dependency-requests),$(strip $(foreach r,$(dependency-request-targets),$(call dependency-state-class,$(call extract-suffix,$(call rm-group,$r))))),yes)
 dependency-scope-active = $(and $(dependency-scope-enabled),$(filter yes,$(dependency_scope_ready)))
@@ -173,6 +174,20 @@ endef
 dependency-system-only-record-failures = $(strip                      \
   $(foreach d,$(dependency-active-record-ids),                         \
     $(call dependency-system-only-record-failure,$d)))
+
+# $(call dependency-uports-group-record-failure, dependency-record)
+define dependency-uports-group-record-failure
+$(if $(filter-out undefined,$(origin DEPENDENCY_PROVIDER_UPORTS_GROUPS.$(call instance-field,$($1_consumer),group))), \
+  $(if $(filter uports,$($1_provider_kind)),                        \
+    $(if $(filter $(call instance-field,$($1_provider_instance),group), \
+      $(DEPENDENCY_PROVIDER_UPORTS_GROUPS.$(call                    \
+        instance-field,$($1_consumer),group))),,                    \
+      $($1_consumer):$($1_origin))))
+endef
+
+dependency-uports-group-record-failures = $(strip                     \
+  $(foreach d,$(dependency-active-record-ids),                        \
+    $(call dependency-uports-group-record-failure,$d)))
 
 dependency-policy-matches-record = $(and \
 	$(filter $(call dependency-policy-field,2,$1),$(call dependency-record-context,$2)),\
@@ -328,14 +343,26 @@ dependency-all-provider-candidates = $(sort				\
 
 # $(call select-dependency-provider, consumer-group, origin)
 # Prefer an exact provider in the consumer's group, then one capability provider
-# there.  Otherwise accept only one exact/capability provider globally.
-select-dependency-provider = $(strip					\
-	$(if $(filter $1$(AT)$2,$(ports_all_group)),$1$(AT)$2,		\
-	  $(if $(filter 1,$(words $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)))),\
-	    $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)),	\
-	    $(if $(filter 0,$(words $(filter $1$(AT)%,$(call dependency-capability-candidates,$2)))),\
-	      $(if $(filter 1,$(words $(call dependency-all-provider-candidates,$2))),\
-	        $(call dependency-all-provider-candidates,$2))))))
+# there. Otherwise accept one provider among the project-allowed groups.
+define select-dependency-provider
+$(call select-dependency-provider-candidates,$1,$2,$(call dependency-allowed-provider-candidates,$1,$2))
+endef
+
+# $(call dependency-allowed-provider-candidates, consumer-group, origin)
+dependency-allowed-provider-candidates = $(if $(filter undefined,     \
+  $(origin DEPENDENCY_PROVIDER_UPORTS_GROUPS.$1)),                    \
+  $(call dependency-all-provider-candidates,$2),                     \
+  $(filter $(foreach g,$(DEPENDENCY_PROVIDER_UPORTS_GROUPS.$1),        \
+    $g$(AT)%),$(call dependency-all-provider-candidates,$2)))
+
+# $(call select-dependency-provider-candidates, group, origin, candidates)
+define select-dependency-provider-candidates
+$(strip $(if $(filter $1$(AT)$2,$3),$1$(AT)$2,                        \
+  $(if $(filter 1,$(words $(filter $1$(AT)%,$3))),                     \
+    $(filter $1$(AT)%,$3),                                          \
+    $(if $(filter 0,$(words $(filter $1$(AT)%,$3))),                   \
+      $(if $(filter 1,$(words $3)),$3)))))
+endef
 
 # $(call generate-dependency-record, consumer-key|type|requirement:origin[:target])
 define generate-dependency-record
@@ -356,7 +383,7 @@ define generate-dependency-record
   $(eval $(dependency_record_id)_target := $(wordlist 3,$(words $(dependency_parts)),$(dependency_parts)))
   $(eval $(dependency_record_id)_provider_kind := $(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),uports,unresolved))
   $(eval $(dependency_record_id)_provider_instance := $(if $(dependency_provider),$(call instance-key,$(call get-group,$(dependency_provider)),$(call get-port,$(dependency_provider))),))
-  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),$(if $(call dependency-all-provider-candidates,$(dependency_origin)),ambiguous,unselected),unknown-origin)))
+  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),$(if $(call dependency-allowed-provider-candidates,$(call instance-field,$(dependency_consumer),group),$(dependency_origin)),ambiguous,unselected),unknown-origin)))
 endef
 
 # Load records only when a dependency diagnostic recipe is expanded.  GNU make
@@ -413,7 +440,10 @@ load-dependency-records = 						\
 	  $(error system-only provider mode has dependencies without external providers)) \
 	$(if $(and $(dependency-preflight-required),                       \
 	  $(dependency-system-only-record-failures)),                     \
-	  $(error system provider discovery/validation failed (no uports fallback): $(dependency-system-only-record-failures)))
+	  $(error system provider discovery/validation failed (no uports fallback): $(dependency-system-only-record-failures))) \
+	$(if $(and $(dependency-preflight-required),                       \
+	  $(dependency-uports-group-record-failures)),                    \
+	  $(error no allowed uports provider group: $(dependency-uports-group-record-failures)))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(and $(filter selected,$($(d)_resolution)),$(filter uports,$($(d)_provider_kind))),$d))
@@ -617,6 +647,9 @@ dependency-provider-mode-list:
 	  'dependency_execution = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),yes,no)' \
 	  'dependency_state = $(dependency-state-enabled)' \
 	  'dependency_provenance = $(dependency-provenance-enabled)'
+	@$(foreach g,$(groups_all),$(if $(filter-out undefined,              \
+	  $(origin DEPENDENCY_PROVIDER_UPORTS_GROUPS.$g)),                  \
+	  printf '%s\n' 'dependency_provider_uports_groups.$g = $(or $(DEPENDENCY_PROVIDER_UPORTS_GROUPS.$g),none)';)) :
 
 dependency-provider-mode-check: dependency-provider-mode-list
 	@$(if $(dependency-provider-mode-context-errors),\
