@@ -18,6 +18,24 @@
         "Repeat preservation of cookies, state, staged library and packages",
         "Staged shared-library loading and XML serialization"
       ]
+    },
+    {
+      "id": "slice7",
+      "feature": "Developer Git worktree preservation and cache/update safety",
+      "implementation_commits": [
+        "7d76ea0ce0590ce6660f8e1c24c6e4f7c9ba6e17"
+      ],
+      "script": "slice7/check-scm-worktree-live.py",
+      "platform": "Linux",
+      "requires": "Real parent Mini-XML and ad-libitum ports; GitHub network access and Git/toolchain tools",
+      "coverage": [
+        "Real Mini-XML package, upstream runtime tests and dirty provenance",
+        "Developer branch, tracked edits, untracked files and alternative-source preservation",
+        "Explicit fast-forward update with real upstream commits; local-commit and git-am preservation",
+        "Optional offline caches, required refresh failures and missing refs",
+        "Real clone timeout/retry, interruption recovery and concurrent publication",
+        "Actual ad-libitum submodules, maintained patches and repeat preservation"
+      ]
     }
   ]
 }
