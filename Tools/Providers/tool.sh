@@ -49,6 +49,7 @@ command_variable()
 		aclocal) printf ACLOCAL ;; libtoolize) printf LIBTOOLIZE ;;
 		libtool) printf LIBTOOL ;; cmake) printf CMAKE_BIN ;;
 		ctest) printf CTEST ;;
+		python3) printf PYTHON ;; ninja) printf NINJA ;;
 	esac
 }
 
@@ -85,17 +86,20 @@ validate_candidate()
 		fi
 	done
 	valid_count=$((valid_count + 1))
-	printf 'discovery|%s-tool|%s|available|validated:%s|none|none|none|%s|build|%s|%s|%s\n' \
+	printf 'discovery|%s-tool|%s|available|validated:%s|none|none|none|%s|%s|%s|%s|%s\n' \
 		"$key" "$origin" "$primary_version" "$bindir" \
-		"${commands:-none}" "$versions" "$valid_count"
+		"$context" "${commands:-none}" "$versions" "$valid_count"
 }
 
-while IFS='|' read -r record key origin minimum candidates explicit required primary extra; do
+while IFS='|' read -r record key origin minimum candidates explicit required primary context extra; do
 	[ "$record" = tool ] || continue
+	context=${context:-build}
 	valid_count=0
 	reason=command-missing
 	if [ -n "${extra:-}" ]; then
 		reason=invalid-registry
+	elif [ "$context" != build ] && [ "$context" != both ]; then
+		reason=invalid-context
 	elif [ -n "$explicit" ]; then
 		# Explicit choice is authoritative: never silently try another path.
 		validate_candidate "$explicit" || :

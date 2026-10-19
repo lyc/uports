@@ -63,7 +63,7 @@ DEPENDENCY_PROVIDER_PREFIXES ?= $(dependency-provider-profile-prefixes)
 # library registry.  Each entry describes the command interface that may
 # satisfy one build-context origin.  Commands are searched only below the
 # active profile prefixes unless an explicit path is supplied for the entry.
-DEPENDENCY_PROVIDER_TOOL_REGISTRY ?= m4 autoconf automake libtool cmake
+DEPENDENCY_PROVIDER_TOOL_REGISTRY ?= m4 autoconf automake libtool cmake python ninja
 
 DEPENDENCY_PROVIDER_TOOL_ORIGIN.m4 ?= devel/m4
 DEPENDENCY_PROVIDER_TOOL_CANDIDATES.m4 ?= m4
@@ -95,8 +95,22 @@ DEPENDENCY_PROVIDER_TOOL_COMMAND.cmake ?= cmake
 DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.cmake ?= 3.20
 DEPENDENCY_PROVIDER_TOOL_REQUIRED.cmake ?= cmake ctest
 
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.python ?= lang/cpython
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.python ?= python3
+DEPENDENCY_PROVIDER_TOOL_COMMAND.python ?= python3
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.python ?= 3.0
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.python ?= python3
+DEPENDENCY_PROVIDER_TOOL_CONTEXT.python ?= both
+
+DEPENDENCY_PROVIDER_TOOL_ORIGIN.ninja ?= devel/ninja
+DEPENDENCY_PROVIDER_TOOL_CANDIDATES.ninja ?= ninja
+DEPENDENCY_PROVIDER_TOOL_COMMAND.ninja ?= ninja
+DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.ninja ?= 1.8
+DEPENDENCY_PROVIDER_TOOL_REQUIRED.ninja ?= ninja
+DEPENDENCY_PROVIDER_TOOL_CONTEXT.ninja ?= both
+
 define dependency-provider-tool-registry-input
-  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)|$(DEPENDENCY_PROVIDER_TOOL_REQUIRED.$r)|$(or $(DEPENDENCY_PROVIDER_TOOL_COMMAND.$r),$(firstword $(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)))';)
+  $(foreach r,$(DEPENDENCY_PROVIDER_TOOL_REGISTRY),printf '%s\n' 'tool|$r|$(DEPENDENCY_PROVIDER_TOOL_ORIGIN.$r)|$(DEPENDENCY_PROVIDER_TOOL_MIN_VERSION.$r)|$(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)|$(DEPENDENCY_PROVIDER_TOOL.$r)|$(DEPENDENCY_PROVIDER_TOOL_REQUIRED.$r)|$(or $(DEPENDENCY_PROVIDER_TOOL_COMMAND.$r),$(firstword $(DEPENDENCY_PROVIDER_TOOL_CANDIDATES.$r)))|$(or $(DEPENDENCY_PROVIDER_TOOL_CONTEXT.$r),build)';)
 endef
 
 dependency-provider-discovery-command = \

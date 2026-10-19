@@ -35,6 +35,7 @@ endif
 VERTICAL_BAR := |
 DEPENDENCY_METADATA_JOBS ?= 4
 DEPENDENCY_PROVIDER_POLICIES ?=
+DEPENDENCY_PROVIDER_SYSTEM_ONLY_GROUPS ?=
 DEPENDENCY_EXTERNAL_PROVIDERS ?= no
 ifneq ($(filter $(DEPENDENCY_EXTERNAL_PROVIDERS),yes no),$(DEPENDENCY_EXTERNAL_PROVIDERS))
 $(error DEPENDENCY_EXTERNAL_PROVIDERS must be yes or no)
@@ -160,6 +161,19 @@ dependency-preflight-required = $(if $(dependency-requests),$(strip $(foreach r,
 dependency-scope-active = $(and $(dependency-scope-enabled),$(filter yes,$(dependency_scope_ready)))
 dependency-active-record-ids = $(if $(dependency-scope-active),$(dependency_scope_record_ids),$(dependency_record_ids))
 dependency-active-groups = $(if $(dependency-scope-active),$(sort $(foreach n,$(dependency_scope_nodes),$(call instance-field,$n,group))),$(groups_all))
+# $(call dependency-system-only-record-failure, dependency-record)
+define dependency-system-only-record-failure
+$(if $(filter $(call instance-field,$($1_consumer),group),              \
+  $(DEPENDENCY_PROVIDER_SYSTEM_ONLY_GROUPS)),                         \
+  $(if $(and $(filter system,$($1_provider_kind)),                    \
+    $(filter selected,$($1_resolution))),,                           \
+    $($1_consumer):$($1_origin)))
+endef
+
+dependency-system-only-record-failures = $(strip                      \
+  $(foreach d,$(dependency-active-record-ids),                         \
+    $(call dependency-system-only-record-failure,$d)))
+
 dependency-policy-matches-record = $(and \
 	$(filter $(call dependency-policy-field,2,$1),$(call dependency-record-context,$2)),\
 	$(filter $(call dependency-policy-field,3,$1),$(call instance-field,$($2_consumer),group)),\
@@ -171,6 +185,7 @@ dependency-active-policies = $(if $(dependency-scope-active),\
 	$(DEPENDENCY_PROVIDER_POLICIES))
 
 define dependency-provider-selection-input
+  $(if $(dependency-preflight-required),$(foreach g,$(DEPENDENCY_PROVIDER_SYSTEM_ONLY_GROUPS),printf '%s\n' 'system-only-group|$g';)) \
   $(foreach g,$(groups_all),printf '%s\n' 'context|build|$g|$(DEPENDENCY_BUILD_OPSYS)|$(DEPENDENCY_BUILD_ARCH)|no';) \
   $(foreach g,$(groups_all),printf '%s\n' 'context|target|$g|$(call dependency-target-opsys,$g)|$(call dependency-target-arch,$g)|$(if $(call dependency-group-cross-compile,$g),yes,no)';) \
   $(foreach p,$(DEPENDENCY_PROVIDER_POLICIES),printf '%s\n' 'policy|$p';) \
@@ -395,7 +410,10 @@ load-dependency-records = 						\
 	      $(call apply-dependency-provider-projection,$p))))		\
 	$(if $(and $(filter none,$(dependency-provider-fallback)),\
 	  $(filter uports,$(foreach d,$(dependency-active-record-ids),$($(d)_provider_kind)))),\
-	  $(error system-only provider mode has dependencies without external providers))
+	  $(error system-only provider mode has dependencies without external providers)) \
+	$(if $(and $(dependency-preflight-required),                       \
+	  $(dependency-system-only-record-failures)),                     \
+	  $(error system provider discovery/validation failed (no uports fallback): $(dependency-system-only-record-failures)))
 
 dependency-graph-record-ids = $(foreach d,$(dependency_record_ids),\
 	$(if $(and $(filter selected,$($(d)_resolution)),$(filter uports,$($(d)_provider_kind))),$d))
@@ -589,6 +607,7 @@ dependency-provider-mode-list:
 	@printf '%s\n' \
 	  'dependency_policy_file = $(or $(dependency-policy-file),none)' \
 	  'dependency_provider_mode = $(DEPENDENCY_PROVIDER_MODE)' \
+	  'dependency_provider_system_only_groups = $(or $(DEPENDENCY_PROVIDER_SYSTEM_ONLY_GROUPS),none)' \
 	  'dependency_external_providers = $(dependency-external-providers-enabled)' \
 	  'dependency_provider_discovery = $(dependency-provider-discovery-enabled)' \
 	  'dependency_provider_cross_target = $(dependency-provider-cross-target)' \

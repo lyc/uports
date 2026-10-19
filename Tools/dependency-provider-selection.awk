@@ -2,6 +2,10 @@ BEGIN {
 	FS = "|"
 }
 
+$1 == "system-only-group" {
+	system_only_group[$2] = 1
+}
+
 $1 == "context" {
 	context_opsys[$2, $3] = $4
 	context_arch[$2, $3] = $5
@@ -133,6 +137,11 @@ END {
 				state = "validator-missing"
 			}
 		}
+		if (!planning && system_only_group[group[i]] &&
+		    (kind != "system" || resolution != "selected" || state != "validated")) {
+			resolution = "invalid-provider"
+			state = "system-provider-required:" consumer[i] ":" origin[i]
+		}
 		if (readiness_report && key in policy_kind) {
 			header = readiness_value(identity, origin[i], "HEADER")
 			library = readiness_value(identity, origin[i], "LIBRARY")
@@ -242,7 +251,7 @@ function append_commands(node, identity, origin, key, j, value, variable, path) 
 		value = contribution[key, j]
 		variable = value; sub(/=.*/, "", variable)
 		path = value; sub(/^[^=]*=/, "", path)
-		if (variable !~ /^(M4|AUTOCONF|AUTORECONF|AUTOHEADER|AUTOM4TE|AUTOMAKE|ACLOCAL|LIBTOOLIZE|LIBTOOL|CMAKE_BIN|CTEST|PKG_CONFIG)$/ || !valid_path(path)) {
+		if (variable !~ /^(M4|AUTOCONF|AUTORECONF|AUTOHEADER|AUTOM4TE|AUTOMAKE|ACLOCAL|LIBTOOLIZE|LIBTOOL|CMAKE_BIN|CTEST|PKG_CONFIG|PYTHON|NINJA)$/ || !valid_path(path)) {
 			invalid_count++; environment_error[node] = "invalid-command"
 		} else if (environment_command[node, variable] != "" && environment_command[node, variable] != path) {
 			invalid_count++; environment_error[node] = "conflicting-commands"

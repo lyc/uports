@@ -16,9 +16,12 @@ $1 == "tool" {
 	explicit[record] = $6
 	required[record] = $7
 	command[record] = $8
+	context[record] = (NF == 8 ? "build" : $9)
 
-	if (NF != 8)
+	if (NF != 8 && NF != 9)
 		invalid(record, "invalid-field-count")
+	else if (context[record] != "build" && context[record] != "both")
+		invalid(record, "invalid-context")
 	else if (key[record] !~ /^[A-Za-z0-9_.+-]+$/)
 		invalid(record, "invalid-key")
 	else if (origin[record] !~ /^[A-Za-z0-9_.+-]+\/[A-Za-z0-9_.+-]+$/)
@@ -49,9 +52,9 @@ END {
 	printf "dependency_provider_tool_registry_invalid = %d\n", invalid_count
 	for (i = 1; i <= registry_count; i++) {
 		explicit_display = explicit[i] == "" ? "none" : explicit[i]
-		printf "tool.%d = key=%s origin=%s minimum=%s candidates=%s explicit=%s state=%s required=%s command=%s\n", \
+		printf "tool.%d = key=%s origin=%s minimum=%s candidates=%s explicit=%s state=%s required=%s command=%s context=%s\n", \
 		       i, key[i], origin[i], minimum[i], candidates[i], \
-		       explicit_display, state[i], required[i], command[i]
+		       explicit_display, state[i], required[i], command[i], context[i]
 	}
 	if (fail && invalid_count)
 		exit 1
