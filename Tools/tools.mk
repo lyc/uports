@@ -84,7 +84,7 @@ categories_all_lists	:=						\
 	www x11 x11-clocks x11-drivers x11-fm x11-fonts x11-servers	\
 	x11-themes x11-toolkits x11-wm xfce zope base
 
-suffix_special_all	:= package-source makesum
+suffix_special_all	:= package-source makesum checksum
 suffix_all_lists	:=						\
 	fetch extract patch configure build stage package install	\
 	clean distclean deinstall uninstall rebuild restage reinstall	\
@@ -679,7 +679,8 @@ define generate-port-special-pattern
 	suffix=$$(call extract-suffix,				\
 	  $$(call rm-group,$$(resolved-port-target)));			\
 	envs="$$(call get-envs,$$(resolved-port-target))";		\
-	make -C $$$$dir/$$$$category/$$$$port _INNERMKINCLUDE=no	\
+	make -C $$$$dir/$$$$category/$$$$port			\
+	  _INNERMKINCLUDE=$(if $(filter package-source,$1),no,yes)	\
 	  --no-print-directory $$$$envs $$$$suffix
 endef
 
