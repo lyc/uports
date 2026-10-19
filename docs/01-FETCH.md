@@ -18,6 +18,13 @@ The source selector and the single-repository GitHub Git adapter are now
 implemented. GitLab remains migration work. Preserve existing ports until each
 replacement is validated.
 
+Developer worktree preservation, explicit fast-forward updates, cache locks,
+atomic publication and finite SCM deadlines are implemented. Mini-XML and Elk
+provide representative Linux archive/Git builds with recorded package/runtime
+evidence. Elk's declarations now coexist without overwriting archive sites.
+Darwin validation of the new migrations remains open. Active verification uses
+the real-world catalog under `Tools/tests`; legacy fixture suites are archived.
+
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
 Relevant sources are `Mk/bsd.sites.mk`, the fetch sections of `Mk/bsd.port.mk`,
 and `Mk/Scripts/do-fetch.sh` with its required `functions.sh` helpers.
@@ -425,11 +432,18 @@ Explicit SCM declarations take precedence over these derived defaults.
 This permits the common development selection without repeating the URL:
 
 ```sh
-make SOURCE_MODE=dist cpython.build
-make SOURCE_MODE=git cpython.build
-make SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/cpython.git \
-  SCM_BRANCH=my-feature cpython.build
+make PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=dist compiler@mxml.build
+make PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=git compiler@mxml.build
+make 'PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/mxml.git SCM_BRANCH=my-feature' \
+  compiler@mxml.build
 ```
+
+During incremental port migration, scope the mode to the selected instance.
+A global command-line `SOURCE_MODE` also reaches dependency metadata probes
+for other selected ports. Legacy declarations that overwrite archive sites
+inside `USE_SCM` conditionals may fail even before the requested port runs.
+Migrated ports retain their archive sites and repository declarations together.
+Direct port commands can use `SOURCE_MODE=dist` or `git` normally.
 
 An explicit `SCM_BRANCH` selects branch checkout semantics instead of an
 implicitly derived detached archive tag. Supplying both branch and detach in
@@ -633,7 +647,7 @@ Each framework slice must preserve legacy archive and SCM ports; port
 conversions are separate reviewable changes. Remove no legacy selector until
 its replacement covers actual users and migration is explicitly approved.
 
-Required verification includes local HTTP and Git fixtures, Linux/Darwin
+Required verification uses recorded real-world scripts, Linux/Darwin
 portability, archive and SCM alternatives of representative ports, real
 bootstrap/build/runtime tests, cache repeat behavior, and failure recovery.
 FreeBSD-like variable names alone do not establish compatibility.

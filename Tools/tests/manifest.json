@@ -36,6 +36,22 @@
         "Real clone timeout/retry, interruption recovery and concurrent publication",
         "Actual ad-libitum submodules, maintained patches and repeat preservation"
       ]
+    },
+    {
+      "id": "slice8",
+      "feature": "Elk coexisting release/Git declarations and port migration closeout",
+      "implementation_commits": [],
+      "implementation_status": "Parent port migration remains uncommitted until fetch enhancement is finished",
+      "script": "slice8/check-elk-source-live.py",
+      "platform": "Linux; Darwin validation pending",
+      "requires": "Actual parent Elk port, Autotools and native toolchain; release network access; cached Elk Git history or repository access",
+      "coverage": [
+        "Parent wrapper SOURCE_MODE=dist and SOURCE_MODE=git fetch with SITE cache settings",
+        "Maintained release distinfo and pinned Git revision",
+        "Autotools generation, maintained patches and packages for both modes",
+        "Staged Scheme arithmetic, regexp and UNIX extension loading",
+        "Source provenance and repeat preservation"
+      ]
     }
   ]
 }

@@ -12,6 +12,7 @@ Run from the framework root:
 make -C Tools/tests list
 make -C Tools/tests slice6
 make -C Tools/tests slice7
+make -C Tools/tests slice8
 ```
 
 Or run the script directly:
@@ -56,5 +57,17 @@ commit separately from commits that register or update its validation script.
 All previous regression scripts, fixtures, Makefiles and generated work were
 moved to [Tools/tests-backup](../tests-backup/README.md). They are inactive;
 no active target invokes them. Running `make -C Tools/tests` prints help only.
+
+Slice 8 validates the actual Elk release and pinned Git revision on Linux.
+Parent fetches use instance-scoped source selection, preserving the ordinary
+dependency planner. Isolated direct-port builds use dependency mode `none`
+and the native host Autotools/toolchain. Both modes package, load the staged
+runtime and native regexp/UNIX extensions, and check repeat preservation.
+Release checks use maintained distinfo. A cached real Elk mirror is copied
+when available; no existing checkout is rebuilt or reset. Evidence is retained
+under `/tmp/uports-elk-slice8.*/`. `UPORTS_LIVE_ELK_REPO` and
+`UPORTS_LIVE_ELK_DISTDIR` can reuse previous real source downloads during
+repairs. Darwin remains unverified. Parent migration commits intentionally
+remain unset until fetch enhancement is finished and the user authorizes them.
 There is deliberately no generic `check` alias that silently changes the
 meaning of the former regression command.
