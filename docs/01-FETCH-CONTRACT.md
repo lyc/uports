@@ -96,9 +96,12 @@ metadata so SCM bootstrap providers are installed before bootstrap hooks.
 
 ## Verification
 
-Run `make -C Tools/tests check-fetch-contract`. The read-only fixture checks
+The former `Tools/tests/check-fetch-contract` fixture is archived under
+`Tools/tests-backup` and is not an active validation command. It checked
 group/default mapping, URL ports, independent patch mirrors, ordering, omitted
 subdirs, Git URL/cache defaults and overrides, timeout defaults, reserved groups,
 and the branch/detach recipe through make dry-run. It does not download, clone,
 extract, patch, or mutate worktrees. Real local HTTP/Git lifecycle coverage is
 required by the later implementation slices; this fixture does not replace it.
+For current real-world validation and implementation-commit mapping, see
+[Tools/tests](../Tools/tests/README.md).

@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 
-FRAMEWORK = Path(__file__).resolve().parents[2]
+FRAMEWORK = Path(__file__).resolve().parents[3]
 PROJECT = FRAMEWORK.parents[1]
 
 
@@ -45,7 +45,9 @@ def main():
                         child.wait()
                     raise RuntimeError("command exceeded 600 seconds")
                 if child.returncode:
+                    report(f"EXIT {child.returncode}")
                     raise RuntimeError(f"command exited {child.returncode}")
+                report("EXIT 0")
                 return output.strip()
 
         common = [
@@ -118,6 +120,31 @@ int main(void) {
             report(f"PASS {label}: repeat preserves cookies/state/library/packages")
 
         try:
+            # Exercise the actual parent command without explicit directory
+            # overrides that could hide incorrect *_SITE handling.
+            wrapper = [
+                "make", "--no-print-directory", "-C", PROJECT, "V=1",
+                "USE_GLOBALBASE=yes", f"DISTDIR_SITE={trial}/distfiles",
+                f"PACKAGES_SITE={trial}/packages", f"SCMDIR_SITE={trial}/scm",
+                "FETCH_TIMEOUT=30", "FETCH_REGET=1", "mxml.fetch",
+            ]
+            archive = (trial / "distfiles/mxml" /
+                       "michaelrsweet-mxml-v4.0.5_GH0.tar.gz")
+            evidence = (PROJECT / "feeds/textproc/mxml/distinfo").read_text()
+            expected_sha = next(line.rsplit(" = ", 1)[1] for line in
+                                evidence.splitlines() if line.startswith(
+                                    f"SHA256 (mxml/{archive.name})"))
+            run(wrapper)
+            assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected_sha
+            before = (archive.stat().st_mtime_ns, archive.read_bytes())
+            run(wrapper)
+            assert (archive.stat().st_mtime_ns, archive.read_bytes()) == before
+            # Delete only this run's archive; retain all existing user caches.
+            archive.unlink()
+            run(wrapper)
+            assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected_sha
+            report("PASS parent wrapper: fresh/repeat/deleted archive; maintained SHA256")
+
             dist = ["SOURCE_MODE=dist"]
             run(common + dist + ["package"])
             assert state()["mode"] == "dist"

@@ -249,11 +249,12 @@ directories or downloads files. Printed commands retain normal cache/force
 semantics when executed later. Wrapper aliases for these new inspection
 targets are not yet added. Both listing targets skip raw SCM sources.
 
-Run `make -C Tools/tests check-fetch` for loopback HTTP regressions with both
-available downloaders plus make-level distfile/patchfile and makesum/checksum
-checks. The fixture requires Python 3 and permission to bind a loopback socket;
-Python is not an archive-fetch runtime dependency. Linux is validated; Darwin
-execution remains a closeout requirement, not a completed verification claim.
+Run `make -C Tools/tests slice6` for real Mini-XML wrapper fetching, cache
+reuse, deleted-archive refetch, source transitions, packaging and runtime
+checks. See [the test catalog](../Tools/tests/README.md) for requirements and
+the implementation-commit mapping. Previous loopback regressions are archived
+under `Tools/tests-backup` and are not part of active validation. Python is
+test-only, not an archive-fetch runtime dependency. Darwin remains deferred.
 
 ## 6. GitHub Archives And Easy Git Development
 
@@ -308,11 +309,11 @@ does not derive a repository URL; existing SCM declarations remain required.
 Grouped GitHub sources reject legacy USE_SCM rather than silently interpreting
 archives as submodules or materializing an incomplete layout.
 
-Run `make -C Tools/tests check-github` for metadata and loopback archive tests.
-They cover defaults, tags/commits, explicit overrides, errors, checksums,
-extraction roots, real Git patching, compiled runtime behavior, and repeat
-staging. The parent Mini-XML port is the first separately reviewable migration;
-its report records actual codeload/build/stage/shared-library verification.
+The active slice 6 real-world case validates archive/Git selection through the
+parent Mini-XML port, with source state, package provenance, repeat reuse and
+staged shared-library runtime checks. Former grouped/synthetic GitHub fixtures
+are preserved under `Tools/tests-backup`; their earlier results are historical
+evidence, not current active coverage.
 
 With explicit source selection, source/ref/layout changes use distinct
 lifecycle identities and package provenance. No dirty developer worktree is

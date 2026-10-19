@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "slice6",
+      "feature": "Explicit source selection, source provenance, and global cache selection",
+      "implementation_commits": [
+        "374902f7f005e2023afa58bd35fc26da71a09b27"
+      ],
+      "script": "slice6/check-mxml-source-live.py",
+      "platform": "Linux",
+      "requires": "Parent uports.example checkout with the real Mini-XML 4.0.5 port and maintained distinfo",
+      "coverage": [
+        "Parent wrapper fetch with SITE-only cache settings: fresh, repeat, deleted-archive refetch",
+        "Archive, Git tag, explicit commit, return to archive, return to Git tag",
+        "Maintained archive checksum and resolved upstream commit",
+        "PVER 2 source provenance and package identity transitions",
+        "Repeat preservation of cookies, state, staged library and packages",
+        "Staged shared-library loading and XML serialization"
+      ]
+    }
+  ]
+}
