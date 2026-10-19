@@ -31,7 +31,8 @@ trap 'rm -f "$current" "$saved" "$current.tmp"' EXIT HUP INT TERM
 } > "$current"
 
 if [ -f "$SOURCE_STATE_FILE" ]; then
-	sed '/^resolved-commit|/d' "$SOURCE_STATE_FILE" > "$saved"
+	sed -e '/^resolved-commit|/d' -e '/^worktree-dirty|/d' \
+		"$SOURCE_STATE_FILE" > "$saved"
 fi
 
 if [ ! -f "$SOURCE_STATE_FILE" ]; then
@@ -66,13 +67,18 @@ fi
 [ -d "${SOURCE_STATE_PATH:-}" ] ||
 	fail "source root does not exist: ${SOURCE_STATE_PATH:-}"
 resolved=-
+dirty=no
 if [ "$SOURCE_STATE_MODE" = git ]; then
-	[ -d "$SOURCE_STATE_PATH/.git" ] ||
+	[ -e "$SOURCE_STATE_PATH/.git" ] ||
 		fail "Git source has no repository: $SOURCE_STATE_PATH"
 	resolved=$(git -C "$SOURCE_STATE_PATH" rev-parse HEAD) ||
 		fail 'cannot resolve Git commit'
+	status=$(git -C "$SOURCE_STATE_PATH" status --porcelain \
+		--untracked-files=all) || fail 'cannot inspect Git status'
+	[ -z "$status" ] || dirty=yes
 fi
 printf 'resolved-commit|%s\n' "$resolved" >> "$current"
+printf 'worktree-dirty|%s\n' "$dirty" >> "$current"
 directory=${SOURCE_STATE_FILE%/*}
 [ "$directory" != "$SOURCE_STATE_FILE" ] || directory=.
 mkdir -p "$directory"

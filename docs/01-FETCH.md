@@ -489,10 +489,30 @@ Separate mirror refresh from active checkout mutation:
 - Verify the requested ref resolves to a commit before materialization.
 - Bound network clone/update/submodule operations on Linux and Darwin.
 
-`SCM_TIMEOUT` currently inherits `SCM_RETRIEVE_TIMEOUT`, whose default is 0;
-do not describe a nonzero bounded default as already implemented. The new
-design needs a documented finite default and an explicit opt-out, including
-clear behavior when a timeout utility is unavailable.
+`SCM_TIMEOUT` inherits `SCM_RETRIEVE_TIMEOUT`, defaulting to 15 minutes.
+This is a total deadline for each network command, including active transfers;
+it is not an inactivity timeout. The former 120-second default interrupted
+healthy initial mirrors of real ports. Large initial mirrors may also exceed
+15 minutes: CPython's full mirror took about 21 minutes in live validation.
+Select a longer project budget, for example `SCM_TIMEOUT=30m`, for those
+fetches. Git clone/fetch and submodule commands
+force transfer progress even when output is redirected, so completion of the
+remote compression phase is followed by visible receiving/indexing progress.
+Durations such as `60s` remain supported. Network commands use `timeout` or
+`gtimeout` (or an explicit `SCM_TIMEOUT_BIN`) with a five-second kill grace.
+If the required utility is unavailable, the operation fails rather than
+silently running without a bound. Set `SCM_TIMEOUT=0` or `no` to opt out.
+Framework-managed submodule initialization uses the same bound; port-owned
+custom hooks invoking Git themselves remain the port's responsibility.
+
+Mirror mutation and checkout creation/update use directory locks, with
+`SCM_LOCK_TIMEOUT=30` seconds of waiting by default. New mirrors/checkouts
+are built in unique adjacent temporary directories and published only after
+Git/ref validation succeeds. Failure or a handled signal removes only that
+operation's temporary directory and lock. SIGKILL or a host crash can leave
+a lock or temporary directory: inspect its owner and active processes before
+manual recovery. The framework never steals a lock based only on PID checks.
+Cache origins must match the selected repository; branch matching is exact.
 
 Developer checkout contract:
 
@@ -502,16 +522,52 @@ Developer checkout contract:
   identities; never reuse archive build cookies for a Git tree.
 - Checkout creation and updates must not recursively replace an existing
   developer worktree through alternative-source directory handling.
-- Define a dedicated explicit update operation. It fails on local changes
-  unless the operator resolves them; it does not force-reset or auto-stash.
+- `scm-update` is a direct-port operation. It requires a clean checkout,
+  initialized/aligned submodules, and no unfinished Git operations. It keeps
+  the selected branch (or detached HEAD) and permits fast-forward movement
+  only; it does not force-reset, auto-stash, or discard local commits.
 - Submodule revisions and patch-series state are validated before mutation.
+  Initialized submodules at the recorded gitlink are reused without checkout,
+  preserving local edits and branches. A different existing HEAD is rejected
+  and preserved; the framework does not silently rewind it to the gitlink.
 - Source changes require explicit rebuild/restage until reliable dirty-tree
   change tracking is implemented; do not promise automatic edit detection.
 
-A Git checkout used for packaging records the resolved commit. Dirty-tree
-packaging needs an explicit policy and cannot claim the clean commit alone
-fully identifies its source. Provenance extension and state schema changes
-must be reviewed together with dependency/archive identity handling.
+For example, retaining the same settings used to create the checkout:
+
+```sh
+make -C feeds/textproc/mxml PORTSDIR="$PWD/make/uports" \
+  SOURCE_MODE=git SCM_BRANCH=my-branch scm-update
+```
+
+The parent planner does not add an `mxml.scm-update` alias. Update rejects
+changes to `.gitmodules` or gitlinks before moving HEAD; manage those updates
+manually. Cache refresh and FETCH_HEAD may change on a rejected update, but
+checkout files and HEAD remain intact. A successful update refreshes source
+state and invalidates its lifecycle cookies/work package for the next build.
+
+An existing checkout carries its repository/branch/ref request in Git metadata.
+An incompatible request fails instead of reusing a colliding source-root name.
+Legacy checkouts without that marker are checked before adoption. Existing
+alternative-source links must point to the selected location; occupied paths
+are not replaced. Archive directory preparation also refuses to delete a Git
+tree, protecting a developer checkout when legacy declarations share a root.
+
+Explicit Git packages record actual HEAD as `resolved-commit` and the optional
+source-state v1 field `worktree-dirty|yes` or `no`. The default
+`SCM_DIRTY_PACKAGE=record` permits ordinary generated build files and records
+dirty status; this does not make a dirty package reproducible or identify all
+its changed bytes. `SCM_DIRTY_PACKAGE=reject` requires a clean tree/submodules.
+Unfinished Git operations are always rejected. Legacy package formats remain
+unchanged. Dirty status is inspected when creating a package, not as automatic
+edit tracking: use explicit rebuild/restage when editing sources. Reusing an
+existing package does not imply that current unbuilt edits were packaged.
+
+Run `make -C Tools/tests slice7` for real Mini-XML and ad-libitum validation.
+It covers developer edits/branches, alternative roots, explicit updates using
+real upstream history, offline/failed refreshes, missing refs, interrupted and
+concurrent clones, finite timeouts, and actual submodules/maintained patches.
+See [the test catalog](../Tools/tests/README.md) for scope and evidence paths.
 
 ## 9. Bootstrap, Patch, And Artifact Identity
 

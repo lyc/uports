@@ -23,6 +23,17 @@ fail()
 	exit 1
 }
 
+check_operation()
+{
+	gitdir=$("$GIT" -C "$1" rev-parse --absolute-git-dir) ||
+		fail "$2" 'cannot resolve Git directory'
+	for name in rebase-apply rebase-merge MERGE_HEAD CHERRY_PICK_HEAD \
+	    REVERT_HEAD sequencer; do
+		[ ! -e "$gitdir/$name" ] ||
+			fail "$2" 'Git operation in progress; resolve it manually'
+	done
+}
+
 valid_path()
 {
 	case "$1" in
@@ -88,6 +99,7 @@ set -- $SCM_SUBMODULES
 	fail parent 'WRKSRC is not a Git work tree'
 root_physical=$(CDPATH= cd -- "$WRKSRC" 2>/dev/null && pwd -P) ||
 	fail parent 'cannot resolve WRKSRC'
+check_operation "$WRKSRC" parent
 
 # Validate every selected series and patch path before changing a submodule.
 seen=
@@ -105,6 +117,7 @@ do
 		"$root_physical"/*) ;;
 		*) fail "$path" 'checkout resolves outside WRKSRC' ;;
 	esac
+	check_operation "$WRKSRC/$path" "$path"
 	actual=$("$GIT" -C "$WRKSRC/$path" rev-parse HEAD 2>/dev/null || :)
 	[ "$actual" = "$expected" ] ||
 		fail "$path" "checkout is not at parent gitlink $expected"

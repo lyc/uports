@@ -18,7 +18,7 @@ cd "$PATCH_WRKSRC"
 
 if "$GIT" rev-parse --verify REBASE_HEAD >/dev/null 2>&1 ||
     test -d "$($GIT rev-parse --git-path rebase-apply)"; then
-	"$GIT" am --abort >/dev/null 2>&1 || fail 'cannot abort incomplete git am'
+	fail 'incomplete git am/rebase; resolve it manually before patching'
 fi
 
 [ -z "$("$GIT" status --porcelain --untracked-files=normal)" ] ||

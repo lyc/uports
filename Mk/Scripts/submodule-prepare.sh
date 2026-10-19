@@ -81,12 +81,10 @@ do
 	fi
 
 	if [ -e "$dir/.git" ]; then
-		"$GIT" -C "$dir" rev-parse HEAD >/dev/null 2>&1 ||
+		actual=$("$GIT" -C "$dir" rev-parse HEAD) ||
 			fail "$path" 'initialized checkout is not a Git work tree'
-		if [ -n "$("$GIT" -C "$dir" status --porcelain \
-		    --untracked-files=normal 2>/dev/null || :)" ]; then
-			fail "$path" 'checkout is dirty'
-		fi
+		[ "$actual" = "$expected" ] ||
+			fail "$path" 'existing HEAD differs from gitlink; preserved unchanged'
 	elif [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null || :)" ]; then
 		fail "$path" 'uninitialized checkout path is not empty'
 	elif [ -e "$dir" ] && [ ! -d "$dir" ]; then
@@ -104,11 +102,25 @@ done
 for path in "$@"
 do
 	expected=$(gitlink "$path") || fail "$path" 'gitlink changed during preparation'
+	if [ -e "$WRKSRC/$path/.git" ]; then
+		printf '  SUBMOD  %s (preserve initialized checkout)\n' "$path"
+		continue
+	fi
+	case "${SCM_TIMEOUT:-15m}" in
+		0|no) SCM_TIMEOUT_CMD= ;;
+		*)
+			timer=${SCM_TIMEOUT_BIN:-}
+			[ -n "$timer" ] || timer=$(command -v timeout || command -v gtimeout || :)
+			[ -n "$timer" ] && command -v "$timer" >/dev/null 2>&1 ||
+				fail "$path" 'finite timeout requires timeout/gtimeout'
+			SCM_TIMEOUT_CMD="$timer --kill-after=5 ${SCM_TIMEOUT:-15m}"
+			;;
+	esac
 	printf '  SUBMOD  %s (%s)\n' "$path" "$expected"
 	# Intentional word splitting: these variables are command argument lists.
 	# shellcheck disable=SC2086
 	env $SCM_FETCH_ENV $SCM_TIMEOUT_CMD "$GIT" -C "$WRKSRC" \
-		submodule update $SUBMODULE_UPDATE_ARGS -- "$path" ||
+		submodule update --progress $SUBMODULE_UPDATE_ARGS -- "$path" ||
 		fail "$path" 'update failed'
 
 	actual=$("$GIT" -C "$WRKSRC/$path" rev-parse HEAD 2>/dev/null || :)

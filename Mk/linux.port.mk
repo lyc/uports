@@ -794,10 +794,13 @@ SCM_CACHE_UPDATE	?= yes
 SCM_CACHE_UPDATE_REQUIRED ?= no
 SCM_CACHE_NAME		?= $(shell printf '%s\n' '$(SCM_REPO_URL)' | $(SED) -e 's|^[A-Za-z][A-Za-z0-9+.-]*://||' -e 's|\.git$$||' -e 's|[:/@]|_|g' -e 's|[^A-Za-z0-9._-]|_|g')
 SCM_CACHE_REPO		?= $(SCMDIR)/git/$(SCM_CACHE_NAME).git
-SCM_RETRIEVE_TIMEOUT	?= 0
+SCM_RETRIEVE_TIMEOUT	?= 15m
 SCM_TIMEOUT		?= $(SCM_RETRIEVE_TIMEOUT)
-SCM_TIMEOUT_BIN		?= $(shell command -v timeout 2>/dev/null)
+SCM_TIMEOUT_BIN		?= $(shell command -v timeout 2>/dev/null \
+			    || command -v gtimeout 2>/dev/null)
 SCM_TIMEOUT_CMD		= $(if $(filter 0 no,$(SCM_TIMEOUT)),,$(if $(SCM_TIMEOUT_BIN),$(SCM_TIMEOUT_BIN) $(SCM_TIMEOUT),))
+SCM_LOCK_TIMEOUT		?= 30
+SCM_DIRTY_PACKAGE	?= record
 SCM_FETCH_ENV		?= GIT_TERMINAL_PROMPT=0
 
 # $(warning SCM_REPO_URL=$(SCM_REPO_URL))
@@ -1287,8 +1290,14 @@ ifeq ($(USE_ALTERNATIVE),yes)
 	$(call cmd,wrkdir-alt)
 ifeq ($(USE_STICKY),yes)
 else
+ifneq ($(_SOURCE_MODE),git)
+	@if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then \
+	  printf '%s\n' 'Refusing to replace an existing Git source tree' >&2; \
+	  exit 1; \
+	fi
 	@rm -fr $(ALTERNATIVE_WRKSRC)
 	$(call cmd,chk-unzip-alt)
+endif
 endif
 else
 	$(call cmd,chk-unzip)
@@ -1332,98 +1341,44 @@ else
 endif
 
 ifeq ($(_SOURCE_MODE),git)
+# $(call scm-environment)
+define scm-environment
+GIT_CMD=$(call source-quote,$(GIT_CMD))                                \
+SCM_CMD=$(call source-quote,$(SCM_CMD))                                \
+SCM_CMD_OPTS=$(call source-quote,$(SCM_CMD_OPTS))                      \
+SCM_REPO_URL=$(call source-quote,$(SCM_REPO_URL))                      \
+SCM_CACHE=$(call source-quote,$(SCM_CACHE))                            \
+SCM_CACHE_REPO=$(call source-quote,$(SCM_CACHE_REPO))                  \
+SCM_CACHE_UPDATE=$(call source-quote,$(SCM_CACHE_UPDATE))              \
+SCM_CACHE_UPDATE_REQUIRED=$(call source-quote,$(SCM_CACHE_UPDATE_REQUIRED)) \
+SCM_BRANCH=$(call source-quote,$(SCM_BRANCH))                          \
+SCM_DETACH=$(call source-quote,$(SCM_DETACH))                          \
+SCM_TIMEOUT=$(call source-quote,$(SCM_TIMEOUT))                        \
+SCM_TIMEOUT_BIN=$(call source-quote,$(SCM_TIMEOUT_BIN))                \
+SCM_LOCK_TIMEOUT=$(call source-quote,$(SCM_LOCK_TIMEOUT))              \
+SCM_FETCH_ENV=$(call source-quote,$(SCM_FETCH_ENV))                    \
+SCM_DIRTY_PACKAGE=$(call source-quote,$(SCM_DIRTY_PACKAGE))            \
+SCM_WORKTREE=$(call source-quote,$(abspath $(if                        \
+  $(filter yes,$(USE_ALTERNATIVE)),$(ALTERNATIVE_WRKSRC),$(WRKSRC))))  \
+SCM_WORKLINK=$(call source-quote,$(abspath $(WRKSRC)))
+endef
+
 quiet_cmd_git-cache-fetch	?= GIT     $(DISTNAME)(mirror)
-      cmd_git-cache-fetch	?= set -e;				\
-	$(MKDIR) `dirname $(SCM_CACHE_REPO)`;				\
-	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
-	    $(kecho) "  GIT     $(DISTNAME)(mirror clone)";		\
-	    _scm_tmp="$(SCM_CACHE_REPO).tmp.$$PPID";			\
-	    rm -rf "$$_scm_tmp";					\
-	    if $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	        $(SCM_CMD) --mirror $(SCM_REPO_URL) "$$_scm_tmp"; then	\
-	        mv "$$_scm_tmp" $(SCM_CACHE_REPO);			\
-	    else							\
-	        _scm_status=$$?;					\
-	        rm -rf "$$_scm_tmp";					\
-	        $(kecho) "  ERR     $(DISTNAME) mirror clone failed or timed out"; \
-	        exit $$_scm_status;					\
-	    fi;								\
-	else								\
-	    if [ "$(SCM_CACHE_UPDATE)" = "yes" ]; then			\
-	        $(kecho) "  GIT     $(DISTNAME)(mirror update)";	\
-	        if ! $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
-	            $(GIT_CMD) -C $(SCM_CACHE_REPO) remote update --prune; then \
-	            if [ "$(SCM_CACHE_UPDATE_REQUIRED)" = "yes" ]; then \
-	                false;						\
-	            else						\
-	                $(kecho) "  WRN     $(DISTNAME) mirror update failed; using cached repository"; \
-	            fi;							\
-	        fi;							\
-	    fi;								\
-	fi
+      cmd_git-cache-fetch	?= $(scm-environment)                  \
+	$(SH) $(SCRIPTSDIR)/do-scm.sh fetch
 
 quiet_cmd_git-check-cache-ref	?=
-      cmd_git-check-cache-ref	?= set -e;				\
-	if [ "$(SCM_CACHE)" = "no" ]; then				\
-	    exit 0;							\
-	fi;								\
-	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
-	    $(kecho) "  ERR     missing git cache: $(SCM_CACHE_REPO)";	\
-	    false;							\
-	fi;								\
-	if [ ! -z "$(SCM_DETACH)" ]; then				\
-	    if ! $(GIT_CMD) -C $(SCM_CACHE_REPO) cat-file -e "$(SCM_DETACH)^{commit}" 2>/dev/null; then \
-	        $(kecho) "  ERR     cached repository does not contain $(SCM_DETACH)"; \
-	        false;							\
-	    fi;								\
-	fi
+      cmd_git-check-cache-ref	?= :
 
 quiet_cmd_git-clone	?=
-      cmd_git-clone	?= set -e;					\
-	if [ ! -z "$(SCM_BRANCH)" ]; then				\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        branches=`$(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
-	            $(SCM_LS_CMD) $(SCM_REPO_URL) 2>/dev/null		\
-	            | grep "refs/heads" || true`;			\
-	    else							\
-	        branches=`$(GIT_CMD) -C $(SCM_CACHE_REPO) for-each-ref	\
-	            --format='%(refname)' refs/heads 2>/dev/null	\
-	            | $(SED) -e 's|^|0000000000000000000000000000000000000000	|' || true`; \
-	    fi;								\
-	    if [ -z "$$branches" ]; then				\
-	        $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
-	        false;							\
-	    fi;								\
-	    branch=`printf '%s\n' "$$branches"				\
-	        | awk -v want="$(SCM_BRANCH)"				\
-	            '{ name=$$2; sub("^refs/heads/", "", name);		\
-	               if (name == want || index(name, want)) { print name; exit } }'`; \
-	    if [ -z "$$branch" ]; then					\
-	        $(kecho) "  ERR     Can't find specific branch($$branch)"; \
-	        false;							\
-	    fi;								\
-	    cd $(WRKDIR);						\
-	    $(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	            $(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME);	\
-	    else							\
-	        $(SCM_CMD) -b $$branch $(SCM_CACHE_REPO) $(DISTNAME);	\
-	    fi;								\
-	else								\
-	    cd $(WRKDIR);						\
-	    $(kecho) "  GIT     $(DISTNAME)";				\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	            $(SCM_CMD) $(SCM_CMD_OPTS) $(SCM_REPO_URL) $(SCM_DEST); \
-	    else							\
-	        $(SCM_CMD) $(SCM_CACHE_REPO) $(SCM_DEST);		\
-	    fi;								\
-	    if [ ! -z "$(SCM_DETACH)" ]; then				\
-	        cd $(WRKSRC);						\
-	        $(GIT_CMD) checkout --detach $(SCM_DETACH);		\
-	    fi;                                                         \
-	fi
+      cmd_git-clone	?= $(scm-environment)                          \
+	$(SH) $(SCRIPTSDIR)/do-scm.sh checkout
+
+.PHONY: scm-update
+scm-update:
+	@$(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh update
+	@$(source-state-environment) $(SH) $(SCRIPTSDIR)/source-state.sh save
+	@rm -f $(source-state-cookies) $(source-state-artifacts)
 endif
 
 ifeq ($(filter $(override_targets),do-extract),)
@@ -1437,10 +1392,18 @@ endif
 endif
 
 ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(_SOURCE_MODE),git)
+post-extract-alternative:
+	@:
+else
 quiet_cmd_post-extract-alt	?=
       cmd_post-extract-alt	?= set -e;				\
 	if [ -d $(ALTERNATIVE_WRKDIR) ]; then				\
 	    if [ -d $(WRKSRC) ]; then					\
+	        if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then          \
+	            printf '%s\n' 'Existing Git destination is preserved' >&2; \
+	            exit 1;                                               \
+	        fi;                                                       \
 	        rm -fr $(ALTERNATIVE_WRKSRC);				\
 	        mkdir -p $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX);	\
 	        mv $(WRKSRC) $(ALTERNATIVE_WRKSRC);			\
@@ -1450,6 +1413,7 @@ quiet_cmd_post-extract-alt	?=
 
 post-extract-alternative:
 	$(call cmd,post-extract-alt)
+endif
 
 post-extract: post-extract-alternative
 endif
@@ -1492,6 +1456,8 @@ ifneq ($(strip $(SCM_SUBMODULES)),)
 	@WRKSRC="$(WRKSRC)" \
 	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
 	SCM_FETCH_ENV="$(SCM_FETCH_ENV)" \
+	SCM_TIMEOUT="$(SCM_TIMEOUT)" \
+	SCM_TIMEOUT_BIN="$(SCM_TIMEOUT_BIN)" \
 	SCM_TIMEOUT_CMD="$(SCM_TIMEOUT_CMD)" \
 	SUBMODULE_UPDATE_ARGS="$(SUBMODULE_UPDATE_ARGS)" \
 	GIT="$(GIT)" \
@@ -1817,7 +1783,11 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
+	$(if $(filter git,$(_SOURCE_MODE)),                              \
+	  $(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh package-check;) \
 	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),\
+	  $(source-state-environment)                                    \
+	    $(SH) $(SCRIPTSDIR)/source-state.sh save;                     \
 	  $(SH) $(SCRIPTSDIR)/package-provenance-merge.sh \
 	    $(source-package-provenance) \
 	    '$(package-dependency-provenance)' \

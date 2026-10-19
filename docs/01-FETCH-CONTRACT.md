@@ -55,22 +55,22 @@ This is an internal logical schema, not an implemented wire format or a
 dependency-record extension. Choose escaping/serialization before code emits it.
 Lists preserve declaration order unless a documented normalization says otherwise.
 
-| Field | Meaning |
-| --- | --- |
-| instance | Existing group/port/variant identity |
-| source_id | DEFAULT or declared source group; unique within instance/flavor |
-| flavor | distfile, patchfile, or repository |
-| mode | Selected dist or git backend |
-| provider | plain, github, or later gitlab archive helper; not a mode |
-| filename | Archive name without group suffix; absent for repository |
-| mirrors | Ordered expanded archive bases, including override/backup |
-| repository | Effective explicit or derived Git URL |
-| ref_kind / ref | commit, tag, branch, or default-ref request |
-| resolved_commit | Verified commit after retrieval; absent before resolution |
-| cache_key | Local archive namespace/name or repository-cache identity |
-| source_root | Mode-specific materialization root |
-| placement | Confined relative placement for grouped sources |
-| bootstrap | Selected-mode port-declared bootstrap requirements/hooks |
+| Field           | Meaning                                                         |
+|-----------------|-----------------------------------------------------------------|
+| instance        | Existing group/port/variant identity                            |
+| source_id       | DEFAULT or declared source group; unique within instance/flavor |
+| flavor          | distfile, patchfile, or repository                              |
+| mode            | Selected dist or git backend                                    |
+| provider        | plain, github, or later gitlab archive helper; not a mode       |
+| filename        | Archive name without group suffix; absent for repository        |
+| mirrors         | Ordered expanded archive bases, including override/backup       |
+| repository      | Effective explicit or derived Git URL                           |
+| ref_kind / ref  | commit, tag, branch, or default-ref request                     |
+| resolved_commit | Verified commit after retrieval; absent before resolution       |
+| cache_key       | Local archive namespace/name or repository-cache identity       |
+| source_root     | Mode-specific materialization root                              |
+| placement       | Confined relative placement for grouped sources                 |
+| bootstrap       | Selected-mode port-declared bootstrap requirements/hooks        |
 
 Group memberships are lists, not concatenated identity strings. Local paths,
 credentials, timestamps, and mirror ordering do not belong in portable artifact
