@@ -11,15 +11,12 @@ include $(PORTSDIR)/Mk/linux.debug.mk
 
 LOCALBASE		?= /usr/local
 
-# $(call global-cache-site, directory-variable)
-global-cache-site	= $(if $(filter yes,$(USE_GLOBALBASE)),$($1_SITE))
-
-# $(call global-cache-directory, directory-variable, fallback-subdirectory)
-global-cache-directory	= $(or $(call global-cache-site,$1),$(PORTSDIR)/$2)
-
-DISTDIR			?= $(call global-cache-directory,DISTDIR,distfiles)
+# Many uports operations depend on the local distfiles, packages and scm
+# directories, so all three paths must exist. With USE_GLOBALBASE enabled,
+# they may be symbolic links to the configured global directories.
+DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
-SCMDIR			?= $(call global-cache-directory,SCMDIR,scm)
+SCMDIR			?= $(PORTSDIR)/scm
 USESDIR			?= ${PORTSDIR}/Mk/Uses
 SCRIPTSDIR		?= ${PORTSDIR}/Mk/Scripts
 STAGEDIR		?= $(WRKDIR)/stage
@@ -235,7 +232,7 @@ DISTNAME		?= $(PORTNAME)-$(DISTVERSIONFULL)
 
 INDEXFILE		?= INDEX
 
-PACKAGES		?= $(call global-cache-directory,PACKAGES,packages)
+PACKAGES		?= $(PORTSDIR)/packages
 TEMPLATES		?= $(PORTSDIR)/Templates
 
 PATCHDIR		?= $(MASTERDIR)/files
@@ -248,8 +245,10 @@ PREFIX			?= $(LOCALBASE)
 # $(call set-global-link, dir_site, dir)
 define set-global-link
   $(shell if [ -n "$1" ]; then						\
-	    if [ ! -d "$1" ] && [ ! -h "$1" ]; then mkdir -p "$1"; fi; \
-	    if [ ! -d "$2" ] && [ ! -h "$2" ]; then			\
+	    if [ ! -e "$2" ] && [ ! -h "$2" ]; then			\
+	      if [ ! -d "$1" ] && [ ! -h "$1" ]; then		\
+	        mkdir -p "$1" || exit 1;					\
+	      fi;							\
 	      if ! ln -sn "$1" "$2" 2>/dev/null &&			\
 	          [ ! -d "$2" ] && [ ! -h "$2" ]; then		\
 	        printf '%s\n' "Unable to create global link $2 -> $1" >&2;	\
@@ -258,7 +257,7 @@ define set-global-link
 	  fi)
 endef
 
-# generate all glboal links ...
+# Seed only absent effective cache paths; preserve local paths and overrides.
 ifeq ($(USE_GLOBALBASE),yes)
 distfiles_NAME		:= DISTDIR
 packages_NAME		:= PACKAGES
