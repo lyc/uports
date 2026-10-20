@@ -75,10 +75,11 @@ case "${DISTINFO_FILE}" in
 esac
 
 tmp=`mktemp`
-trap 'rm -f "${tmp}"' EXIT HUP INT TERM
+previous=
+trap 'rm -f "${tmp}" ${previous:+"${previous}"}' EXIT HUP INT TERM
+previous=`mktemp`
 
 echo "  MKSUM   ${DISTINFO_FILE}"
-echo "TIMESTAMP = `date +%s`" > "${tmp}"
 
 cd "${_DISTDIR}"
 
@@ -96,5 +97,18 @@ for f in ${ALLFILES}; do
     echo "SIZE (${key}) = ${actual_size}" >> "${tmp}"
 done
 
-mv "${tmp}" "${distinfo_file}"
-trap - EXIT HUP INT TERM
+# Compare archive records before generating a new timestamp. An unchanged
+# distinfo must retain both its contents and modification time.
+if [ -f "${distinfo_file}" ]; then
+    sed '/^TIMESTAMP = /d' "${distinfo_file}" > "${previous}"
+    if cmp -s "${tmp}" "${previous}"; then
+        echo "  REUSE   ${DISTINFO_FILE} (unchanged)"
+        exit 0
+    fi
+fi
+
+{
+    echo "TIMESTAMP = `date +%s`"
+    cat "${tmp}"
+} > "${previous}"
+mv "${previous}" "${distinfo_file}"
