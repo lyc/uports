@@ -220,6 +220,17 @@ define dependency-provider-environment-input
   $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,SYSROOT,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|sysroot|$v';))
 endef
 
+# $(call dependency-metadata-source-options, instance-key)
+# Command-line source selection belongs to the requested package, not every
+# unrelated package inspected while collecting the dependency graph.
+define dependency-metadata-source-options
+$(if $(dependency-request-targets),                                  \
+  $(if $(filter $1,$(foreach r,$(dependency-request-targets),          \
+    $(call target-instance-key,$r))),,                               \
+    --eval='override undefine SOURCE_MODE'                           \
+    --eval='override undefine USE_SCM'))
+endef
+
 define generate-dependency-metadata-probe
 dependency_metadata_probe_targets += dependency-metadata-probe-$(call dependency-instance-key,$1)
 .PHONY: dependency-metadata-probe-$(call dependency-instance-key,$1)
@@ -227,8 +238,9 @@ dependency-metadata-probe-$(call dependency-instance-key,$1):
 	@$$(MAKE) -s -C "$(call dependency-instance-directory,$1)" 	\
 	  --no-print-directory PORTSDIR="$(portdir)" 			\
 	  $(call instance-field,$(call dependency-instance-key,$1),env) \
+	  $$(call dependency-metadata-source-options,$(call dependency-instance-key,$1)) \
 	  uports-dependency-metadata					\
-	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw" 2>/dev/null
+	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw"
 	@sed -e 's#^#$(call dependency-instance-key,$1)$(VERTICAL_BAR)#' \
 	  < "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw" \
 	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1)"
@@ -284,7 +296,8 @@ define dependency-scoped-invocation-command
 	context_root="$$invocation_dir/context"; \
 	context_dir="$$context_root/$(call target-instance-key,$(call resolve-port-target,$1)).$(call extract-suffix,$(call rm-group,$(call resolve-port-target,$1)))"; \
 	mkdir -p "$$context_dir"; \
-	$(MAKE) -s --no-print-directory dependency-metadata-snapshot > "$$metadata_source"; \
+	$(MAKE) -s --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$1' \
+	  dependency-metadata-snapshot > "$$metadata_source"; \
 	$(MAKE) -s --no-print-directory UPORTS_DEPENDENCY_INVOCATION=yes \
 	  DEPENDENCY_METADATA_SOURCE="$$metadata_source" \
 	  DEPENDENCY_CONTEXT_DIR="$$context_dir" \
@@ -322,6 +335,34 @@ define collect-dependency-cookie
   $(eval dependency_cookie_words := $(subst $(VERTICAL_BAR), ,$1))
   $(eval dependency_cookie_$(word 1,$(dependency_cookie_words))_$(word 3,$(dependency_cookie_words)) := $(word 4,$(dependency_cookie_words)))
 endef
+
+# $(call collect-dependency-install-root, provider-key|install-root|path)
+define collect-dependency-install-root
+  $(eval dependency_install_words := $(subst $(VERTICAL_BAR), ,$1))
+  $(eval dependency_install_root_$(word 1,$(dependency_install_words)) := $(word 3,$(dependency_install_words)))
+endef
+
+# $(call dependency-library-name, requirement, provider-group)
+define dependency-library-name
+$(strip $(if $(filter darwin,$(call dependency-target-opsys,$2)),       \
+  $(if $(findstring .so.,$1),$(subst .so.,.,$1).dylib,                 \
+    $(patsubst %.so,%.dylib,$1)),$1))
+endef
+
+# $(call dependency-missing-installed-libraries, provider-key)
+define dependency-missing-installed-libraries
+$(strip $(foreach d,$(dependency-active-record-ids),                   \
+  $(if $(and $(filter lib,$($d_type)),                               \
+    $(filter $1,$($d_provider_instance))),                           \
+    $(if $(realpath $(wildcard $(foreach libdir,lib lib64,            \
+      $(dependency_install_root_$1)/$(libdir)/$(call dependency-library-name,$($d_requirement),$(call instance-field,$1,group))))),, \
+      $($d_requirement)))))
+endef
+
+dependency-missing-library-nodes = $(strip                           \
+  $(foreach p,$(ports_all_group),                                   \
+    $(if $(call dependency-missing-installed-libraries,$(call dependency-instance-key,$p)), \
+      $(call dependency-instance-key,$p))))
 
 define collect-dependency-state-file
   $(eval dependency_state_file_words := $(subst $(VERTICAL_BAR), ,$1))
@@ -407,6 +448,9 @@ load-dependency-records = 						\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-cookie,$d)))			\
+	$(foreach d,$(dependency_metadata_raw),                             \
+	  $(if $(filter install-root,$(word 2,$(subst $(VERTICAL_BAR), ,$d))), \
+	    $(call collect-dependency-install-root,$d)))                    \
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter state-file,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-state-file,$d)))			\
@@ -570,9 +614,11 @@ dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	$(if $(dependency-context-enabled),\
 	  $(if $(filter 1,$(PORTS_VERBOSE)),cat "$(dependency-context-reuses)";) \
 	  targets=$$(cat "$(dependency-context-targets)"); \
-	  if test -n "$$targets"; then $(DEPENDENCY_EXECUTE_COMMAND) $$targets; fi &&,\
+	  if test -n "$$targets"; then                             \
+	    $(DEPENDENCY_EXECUTE_COMMAND) $$targets || exit $$?;    \
+	  fi;,\
 	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
-	    dependency-lifecycle-execute &&))
+	    dependency-lifecycle-execute || exit $$?;))
 dependency-consumer-environment-command = $(if $(and \
 	$(filter yes,$(dependency-external-providers-enabled)),\
 	$(dependency-dispatch-state-class),\
@@ -813,8 +859,21 @@ dependency-target-context-prepare:
 	  trap 'rm -f "$$provider_state"' EXIT HUP INT TERM; \
 	  while IFS='|' read -r record node phase target cookie state_file; do \
 	    ready=no; \
+	    reason=dependency-state-changed; \
+	    case " $(dependency-missing-library-nodes) " in \
+	      *" $$node "*) missing_library=yes;; \
+	      *) missing_library=no;; \
+	    esac; \
+	    if test -z "$$cookie" || test ! -f "$$cookie"; then \
+	      reason=install-marker-missing; \
+	    elif test -z "$$state_file" || test ! -f "$$state_file"; then \
+	      reason=saved-dependency-state-missing; \
+	    elif test "$$missing_library" = yes; then \
+	      reason=installed-library-missing; \
+	    fi; \
 	    if test -n "$$cookie" && test -f "$$cookie" && \
-	       test -n "$$state_file" && test -f "$$state_file"; then \
+	       test -n "$$state_file" && test -f "$$state_file" && \
+	       test "$$missing_library" = no; then \
 	      $(SH) "$(portdir)/Tools/dependency-state-generate.sh" "$(portdir)/Tools/dependency-execution.awk" -v request_override="$$node" \
 	        -v request_override_phase="$$phase" \
 	        -v unchecked=$(if $(filter no,$(UPORTS_DEPENDENCIES)),1,0) \
@@ -832,6 +891,10 @@ dependency-target-context-prepare:
 	      printf '  REUSE   %s %s\n' "$$group_origin" "$$phase" \
 	        >> "$(dependency-context-reuses)"; \
 	    else \
+	      if test "$(PORTS_VERBOSE)" = 1; then \
+	        printf '  REBUILD %s %s (%s)\n' "$$node" "$$phase" "$$reason" \
+	          >> "$(dependency-context-reuses)"; \
+	      fi; \
 	      printf '%s ' "$$target" >> "$(dependency-context-targets)"; \
 	    fi; \
 	  done < "$(dependency-context-candidates)"; \

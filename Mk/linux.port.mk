@@ -2387,6 +2387,13 @@ endif
 # Machine-readable dependency metadata for the top-level uports planner.
 # Keep this target free of dependency execution: the planner's first
 # dependency phase is inspection-only.
+# An installed package can satisfy dependencies regardless of the source mode
+# requested for its next build. Never guess between multiple install markers.
+dependency-install-cookies = $(wildcard $(WRKDIR)/install._done.$(PKGNAME) \
+	$(WRKDIR)/install._done.$(PKGNAME).*)
+dependency-installed-cookie = $(strip $(or $(wildcard $(INSTALL_COOKIE)), \
+	$(if $(filter 1,$(words $(dependency-install-cookies))),         \
+	  $(dependency-install-cookies)),$(INSTALL_COOKIE)))
 .PHONY: uports-dependency-metadata
 uports-dependency-metadata:
 	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
@@ -2400,7 +2407,8 @@ uports-dependency-metadata:
 	  'cookie|build|$(BUILD_COOKIE)' \
 	  'cookie|stage|$(STAGE_COOKIE)' \
 	  'cookie|package|$(PACKAGE_COOKIE)' \
-	  'cookie|install|$(INSTALL_COOKIE)'
+	  'cookie|install|$(dependency-installed-cookie)'
+	@printf '%s\n' 'install-root|$(abspath $(DESTDIR)$(PREFIX))'
 	@printf '%s\n' \
 	  'state-file|configure|$(call dependency-state-file-for,configure)' \
 	  'state-file|stage|$(call dependency-state-file-for,stage)'
