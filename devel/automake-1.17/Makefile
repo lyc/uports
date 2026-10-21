@@ -5,8 +5,7 @@
 PORTNAME		= automake
 DISTVERSION		= 1.17
 CATEGORIES		= devel
-MASTER_SITES		= $(MASTER_SITE_GNU)
-MASTER_SITE_SUBDIR	= $(PORTNAME)
+MASTER_SITES		= GNU/automake
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= GNU Standard-compliant Makefile generator
