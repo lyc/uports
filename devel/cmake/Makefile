@@ -5,7 +5,8 @@
 PORTNAME		= cmake
 DISTVERSION		= 3.30.0
 CATEGORIES		= devel
-MASTER_SITES		= https://github.com/Kitware/Cmake/releases/download/v$(PORTVERSION)/
+# Keep the release asset rather than a GitHub-generated source snapshot.
+MASTER_SITES		= https://github.com/Kitware/CMake/releases/download/v$(DISTVERSION)/
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= CMake is an open-source, cross-platform family of tools designed to build, test and package software.
