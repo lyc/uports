@@ -4,8 +4,8 @@
 
 This document defines the fetch architecture and its migration contract.
 Implementation tasks and verification gates are tracked separately in
-[01-FETCH-TASKS.md](01-FETCH-TASKS.md). Proposed interfaces below are not
-claims that the current framework already implements them.
+[01-FETCH-TASKS.md](01-FETCH-TASKS.md). Deferred interfaces are explicitly
+identified; the supported behavior below reflects the completed framework.
 
 Current uports supports archive fetching, grouped distfiles and patchfiles,
 distinfo generation/verification, and raw Git through `USE_SCM=git`, including
@@ -15,15 +15,21 @@ and missing-group diagnostics. A shared portable archive executor now replaces
 the inline download loops. Single and grouped `USE_GITHUB` archives are
 implemented, including `GH_TUPLE`, `nodefault`, and safe subdirectory placement.
 The source selector and the single-repository GitHub Git adapter are now
-implemented. GitLab remains migration work. Preserve existing ports until each
+implemented. A GitLab archive helper remains deferred; explicit GitLab repository
+URLs work through the ordinary Git backend. Preserve existing ports until each
 replacement is validated.
 
 Developer worktree preservation, explicit fast-forward updates, cache locks,
 atomic publication and finite SCM deadlines are implemented. Mini-XML and Elk
 provide representative Linux archive/Git builds with recorded package/runtime
 evidence. Elk's declarations now coexist without overwriting archive sites.
-Darwin validation of the new migrations remains open. Active verification uses
-the real-world catalog under `Tools/tests`; legacy fixture suites are archived.
+All 51 selected package instances have user-reported Linux migration acceptance.
+This does not assert both source modes were checked for every port. Darwin
+validation and the shadowed bundled OpenSSL audit remain open. Migration
+validation was manual, one port at a time; no new test scripts were required.
+The real-world catalog under `Tools/tests` retains earlier representative
+cases; legacy fixture suites are archived. Port migrations and parent gitlink
+remain uncommitted pending review and explicit authorization.
 
 The FreeBSD reference checkout is `/home/lyc/pj/08-OSS/freebsd-ports`.
 Relevant sources are `Mk/bsd.sites.mk`, the fetch sections of `Mk/bsd.port.mk`,
@@ -48,7 +54,7 @@ should require a second independent copy of the same repository metadata.
 Release archives and repository snapshots can have different generated files
 and bootstrap requirements, so equivalence must be tested per port.
 
-Proposed flow:
+Logical flow (not a serialized record format):
 
 ```text
 Port declarations + project policy
@@ -75,17 +81,19 @@ Normalized source records
 Internal source state is separate from package-dependency records, but explicit
 source selections are included in the package provenance envelope. The state
 records the selected mode, provider, repository/ref, source root, archive and
-layout identity, plus the resolved Git commit. The slice 1 logical schema and
-legacy baseline are recorded in [01-FETCH-CONTRACT.md](01-FETCH-CONTRACT.md).
+layout identity, plus the resolved Git commit. The original slice 1 logical
+schema and compatibility baseline are retained in the local, untracked
+`docs/01-FETCH-CONTRACT.md`; this document describes the supported interfaces.
 
 ## 3. Source Selection And Compatibility
 
-With `USE_GLOBALBASE=yes`, `DISTDIR_SITE`, `PACKAGES_SITE`, and `SCMDIR_SITE`
-provide the default effective archive, package, and Git-cache directories.
-Explicit `DISTDIR`, `PACKAGES`, and `SCMDIR` settings take precedence. Existing
-framework cache symlinks are preserved, but do not override the selected site.
-Without global mode or a corresponding site setting, the framework-local
-directory remains the default.
+Explicit `DISTDIR`, `PACKAGES`, and `SCMDIR` settings take precedence. Defaults
+remain the mandatory framework-local `distfiles`, `packages`, and `scm` paths.
+Existing local directories or symlinks take priority over `USE_GLOBALBASE` and
+the corresponding `*_SITE` settings. Global sites seed absent local paths with
+symlinks when global mode is enabled; they do not bypass existing local paths.
+Many uports operations depend on these three paths existing. See commit
+`c37c37a` for the restoration of this compatibility behavior.
 
 Public selector:
 
@@ -324,7 +332,8 @@ evidence, not current active coverage.
 
 With explicit source selection, source/ref/layout changes use distinct
 lifecycle identities and package provenance. No dirty developer worktree is
-reset by this feature; checkout update and dirty-tree policy remain slice 7.
+reset by this feature; implemented checkout updates and dirty-tree policy are
+described in section 8.
 
 ### Grouped GitHub Sources
 
@@ -414,10 +423,11 @@ an independent Git repository for each one. Explicit source selection provides
 source identity/state tracking; legacy/default selections still require a
 fresh work tree when changing source coordinates or layout.
 
-The grouped loopback fixture covers defaults, comma groups, tuple overrides,
+The archived grouped loopback fixture historically covered defaults, comma groups, tuple overrides,
 nested placement in reverse declaration order, nodefault, alternative roots,
 self-aliases, real Git patch/stage/runtime behavior, repeat edit preservation,
-and conflict/symlink failures before mutation. GitLab remains a separate
+and conflict/symlink failures before mutation. It is not an active migration
+validation command. GitLab remains a separate
 follow-up; Darwin execution is still pending closeout validation.
 
 The same default GitHub declaration supplies Git defaults in explicit Git
@@ -432,18 +442,20 @@ Explicit SCM declarations take precedence over these derived defaults.
 This permits the common development selection without repeating the URL:
 
 ```sh
-make PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=dist compiler@mxml.build
-make PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=git compiler@mxml.build
-make 'PORTS_compiler_mxml_EXTRA_ENVS=SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/mxml.git SCM_BRANCH=my-feature' \
-  compiler@mxml.build
+make PORTS_textproc_mxml_EXTRA_ENVS=SOURCE_MODE=dist textproc@mxml.build
+make PORTS_textproc_mxml_EXTRA_ENVS=SOURCE_MODE=git textproc@mxml.build
+make 'PORTS_textproc_mxml_EXTRA_ENVS=SOURCE_MODE=git SCM_REPO_URL=https://github.com/my-account/mxml.git SCM_BRANCH=my-feature' \
+  textproc@mxml.build
 ```
 
-During incremental port migration, scope the mode to the selected instance.
-A global command-line `SOURCE_MODE` also reaches dependency metadata probes
-for other selected ports. Legacy declarations that overwrite archive sites
-inside `USE_SCM` conditionals may fail even before the requested port runs.
-Migrated ports retain their archive sites and repository declarations together.
-Direct port commands can use `SOURCE_MODE=dist` or `git` normally.
+Instance overlays select a particular package's mode. A command-line
+`SOURCE_MODE` also works through the parent wrapper. During target-scoped
+dependency metadata collection, unrelated instances have command-line
+`SOURCE_MODE`/`USE_SCM` cleared, retaining their own declarations and policy.
+Installed dependency providers can be reused across source modes when their
+installed state and required library paths remain valid; installing a consumer
+does not require its accepted provider's source checkout to remain available.
+See `248d551`. Direct port commands support the same selectors.
 
 An explicit `SCM_BRANCH` selects branch checkout semantics instead of an
 implicitly derived detached archive tag. Supplying both branch and detach in
@@ -594,6 +606,14 @@ must see SCM bootstrap requirements before `pre-init-repo`/bootstrap executes.
 Preserve existing bootstrap hooks during migration; do not infer that every
 repository should run `autogen.sh` unconditionally.
 
+`SCM_SUBMODULES` selects Git submodule preparation and should be Git-only for
+dual-mode ports. `SUBMODULE_PATCH_PATHS` independently selects maintained
+subproject patch series in either mode, defaulting to `SCM_SUBMODULES` for
+compatibility. Archive subprojects assembled with pinned `GH_TUPLE` entries
+are patched in the parent's local V2 patch repository using directory-prefixed
+paths; no Git submodule initialization runs in archive mode. See
+[03-PATCH.md](03-PATCH.md) and framework commit `b8627f5`.
+
 Include source mode and resolved revision in the artifact identity used by
 dependency state and package provenance. Mode/revision changes invalidate
 configure/build and downstream artifacts and reject incompatible archives.
@@ -619,6 +639,11 @@ SHA256 (<distfile-key>) = <sha256>
 SIZE (<distfile-key>) = <bytes>
 ```
 
+If the generated archive records are unchanged, `makesum` preserves the
+existing distinfo contents, timestamp field and filesystem modification time
+(`faa2e2f`). `makesum` generates evidence; use `checksum` to validate maintained
+evidence. Both lifecycle suffixes are available through the parent wrapper.
+
 The key is `DIST_SUBDIR/file` when a local namespace is set, otherwise `file`.
 Hash tools are selected from `sha256 -q`, `sha256sum`, or `shasum -a 256`.
 `NO_CHECKSUM=yes` skips verification. Missing distinfo remains allowed when
@@ -631,10 +656,10 @@ archive. Future signed-tag verification is a separate policy extension.
 Operator workflow, with archive mode selected using currently supported knobs:
 
 ```sh
-make -C feeds/category/port USE_SCM= PORTSDIR=/path/to/uports makesum
-make -C feeds/category/port USE_SCM= PORTSDIR=/path/to/uports checksum
-make USE_SCM= compiler@port.makesum
-make USE_SCM= DISTINFO_REQUIRED=yes compiler@port.fetch
+make -C feeds/category/port SOURCE_MODE=dist PORTSDIR=/path/to/uports makesum
+make -C feeds/category/port SOURCE_MODE=dist PORTSDIR=/path/to/uports checksum
+make SOURCE_MODE=dist compiler@port.makesum
+make SOURCE_MODE=dist DISTINFO_REQUIRED=yes compiler@port.fetch
 ```
 
 Do not silently accept changed checksums during migration. Review generated
@@ -647,7 +672,10 @@ Each framework slice must preserve legacy archive and SCM ports; port
 conversions are separate reviewable changes. Remove no legacy selector until
 its replacement covers actual users and migration is explicitly approved.
 
-Required verification uses recorded real-world scripts, Linux/Darwin
-portability, archive and SCM alternatives of representative ports, real
-bootstrap/build/runtime tests, cache repeat behavior, and failure recovery.
+Framework validation uses recorded real-world cases. Per-port migration uses
+user-run manual commands, in bs -> host -> textproc -> compiler order with
+providers before consumers. Do not automatically rerun scripts or archived
+regressions for documentation review. Record platform and mode coverage
+precisely, including bootstrap/build/runtime evidence when affected. Lua and
+gforth-0.7.3 remain release-only by agreement; QuickJS Git remains unpinned.
 FreeBSD-like variable names alone do not establish compatibility.
