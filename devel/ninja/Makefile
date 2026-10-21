@@ -3,11 +3,11 @@
 # Whom:			Max Lee <yowching.lee@gmail.com>
 
 PORTNAME		= ninja
+DISTVERSIONPREFIX	= v
 DISTVERSION		= 1.13.1
 CATEGORIES		= devel
-MASTER_SITES		= https://github.com/ninja-build/ninja/archive/refs/tags/
-DISTFILES		= v$(DISTVERSION)$(EXTRACT_SUFX)
-WRKSRC			= $(WRKDIR)/$(PORTNAME)-$(DISTVERSION)
+USE_GITHUB		= yes
+GH_ACCOUNT		= ninja-build
 DIST_SUBDIR		= $(PORTNAME)
 
 MAINTAINER		= yowching.lee@gmail.com
@@ -17,6 +17,7 @@ LICENSE			= APACHE20
 LICENSE_FILE		= $(WRKSRC)/COPYING
 
 BUILD_DEPENDS		+= python3>=0:lang/cpython
+PYTHON			?= python3
 
 #
 #
@@ -29,7 +30,7 @@ include $(PORTSDIR)/Mk/linux.port.pre.mk
 override_targets	+= do-build do-install
 
 do-build:
-	@cd $(WRKSRC) && python3 configure.py --bootstrap
+	@cd $(WRKSRC) && $(PYTHON) configure.py --bootstrap
 
 do-install:
 	@mkdir -p $(STAGEDIR)$(PREFIX)/bin
