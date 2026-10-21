@@ -870,6 +870,7 @@ PATCH_METHOD		= $(USE_PATCH)
 # Explicit submodule metadata.  Declared submodules are prepared by the patch
 # lifecycle; submodule patch application is implemented separately.
 SCM_SUBMODULES		?=
+SUBMODULE_PATCH_PATHS	?= $(SCM_SUBMODULES)
 SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
 SUBMODULE_UPDATE_ARGS	?= --init --checkout
@@ -1451,6 +1452,7 @@ endif
 
 .PHONY: prepare-submodules
 prepare-submodules:
+ifeq ($(_SOURCE_MODE),git)
 ifneq ($(strip $(SCM_SUBMODULES)),)
 	@WRKSRC="$(WRKSRC)" \
 	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
@@ -1462,12 +1464,14 @@ ifneq ($(strip $(SCM_SUBMODULES)),)
 	GIT="$(GIT)" \
 	$(SH) $(SCRIPTSDIR)/submodule-prepare.sh
 endif
+endif
 
 .PHONY: apply-submodule-patches
 apply-submodule-patches:
-ifneq ($(strip $(SCM_SUBMODULES)),)
+ifneq ($(strip $(SUBMODULE_PATCH_PATHS)),)
 	@WRKSRC="$(WRKSRC)" \
-	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SOURCE_MODE="$(_SOURCE_MODE)" \
+	SUBMODULE_PATCH_PATHS="$(SUBMODULE_PATCH_PATHS)" \
 	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
 	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
 	SUBMODULE_GIT_AM_OPTS="$(SUBMODULE_GIT_AM_OPTS)" \
