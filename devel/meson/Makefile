@@ -17,6 +17,7 @@ LICENSE_FILE		= $(WRKSRC)/COPYING
 BUILD_DEPENDS		+= python3>=0:lang/cpython
 RUN_DEPENDS		+= python3>=0:lang/cpython			\
 			   ninja>=1.8:devel/ninja
+PYTHON			?= python3
 
 NO_ARCH			= yes
 
@@ -44,7 +45,7 @@ do-install:
 	@cp -R $(WRKSRC)/mesonbuild $(STAGEDIR)$(PREFIX)/share/$(PORTNAME)
 	@printf '%s\n' \
 	    '#!/bin/sh' \
-	    'exec python3 "$$(dirname "$$0")/../share/$(PORTNAME)/meson.py" "$$@"' \
+	    'exec "$(PYTHON)" "$$(dirname "$$0")/../share/$(PORTNAME)/meson.py" "$$@"' \
 	    > $(STAGEDIR)$(PREFIX)/bin/meson
 	@chmod 755 $(STAGEDIR)$(PREFIX)/bin/meson
 
