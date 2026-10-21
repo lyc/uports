@@ -9,6 +9,8 @@ CATEGORIES		= devel
 MASTER_SITES		=
 PKGNAMESUFFIX		= -switch
 DISTFILES		=
+# Local wrapper files are installed directly; there is no extracted tree.
+WRKSRC			= $(WRKDIR)
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= Wrapper script to switch bwtween autoconf versions
