@@ -5,9 +5,8 @@
 PORTNAME 		= zlib
 DISTVERSION 		= 1.3.2
 CATEGORIES 		= archivers
-MASTER_SITES		= http://www.gzip.org/%SUBDIR%/			\
-			  http://www.zlib.net/
-MASTER_SITE_SUBDIR	= zlib
+MASTER_SITES		= https://www.zlib.net/				\
+			  https://www.zlib.net/fossils/
 
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT 		= A Massively Spiffy Yet Delicately Unobrtusive Compression Library.
