@@ -5,8 +5,7 @@
 PORTNAME		= autoconf
 DISTVERSION		= 2.72
 CATEGORIES		= devel
-MASTER_SITES		= $(MASTER_SITE_GNU)
-MASTER_SITE_SUBDIR	= $(PORTNAME)
+MASTER_SITES		= GNU/autoconf
 
 MAINTAINER		= yowching.lee@gmail.com
 COMMENT			= Generate configure scripts and related files
