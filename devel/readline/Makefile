@@ -5,9 +5,8 @@
 PORTNAME		= readline
 DISTVERSION 		= 8.2
 CATEGORIES 		= devel
-MASTER_SITES 		= $(MASTER_SITE_GNU)				\
+MASTER_SITES		= GNU/readline					\
 			  ftp://ftp.cwru.edu/pub/bash/
-MASTER_SITE_SUBDIR	= $(PORTNAME)
 
 MAINTAINER 		= max_lee@pegatroncorp.com
 COMMENT			= Library for editing command lines as they are typed
