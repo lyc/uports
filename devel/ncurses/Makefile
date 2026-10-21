@@ -5,8 +5,7 @@
 PORTNAME		= ncurses
 DISTVERSION 		= 6.5
 CATEGORIES 		= devel
-MASTER_SITES 		= $(MASTER_SITE_GNU)
-MASTER_SITE_SUBDIR	= $(PORTNAME)
+MASTER_SITES		= GNU/ncurses
 
 MAINTAINER 		= yowching.lee@gmail.com
 COMMENT			= Library for terminal-independ, full screen output
