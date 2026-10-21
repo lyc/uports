@@ -6,7 +6,7 @@ PORTNAME		= pkg-config
 DISTVERSION		= 0.29.2
 PORTREVISION		= 0
 CATEGORIES		= devel
-MASTER_SITES		= http://pkgconfig.freedesktop.org/releases/
+MASTER_SITES		= https://pkgconfig.freedesktop.org/releases/
 DIST_SUBDIR		= gnome2
 
 MAINTAINER		= gnome@FreeBSD.org
