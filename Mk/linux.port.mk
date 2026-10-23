@@ -1081,6 +1081,7 @@ PKG_ENV			+=						\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
 	PROVENANCE=$(package-provenance-file)				\
+	PACKAGE_BUILD_ID=$(PACKAGE_BUILD_ID)				\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #
@@ -1166,12 +1167,13 @@ else
 package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
 endif
 package-provenance-required := $(strip $(package-dependency-provenance) \
-	$(package-source-state))
+	$(package-source-state) $(PACKAGE_BUILD_ID))
 dependency-package-mismatch := $(if $(package-provenance-required),\
 	$(shell for archive in $(sort $(wildcard $(PKGFILE) $(WRKDIR_PKGFILE))); do \
 	  if ! $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
 	      "$(package-dependency-provenance)" "$(PREFIX)" \
-	      "$(package-source-state)" "$(package-source-key)"; then \
+	      "$(package-source-state)" "$(package-source-key)" \
+	      "$(PACKAGE_BUILD_ID)"; then \
 	    echo yes; break; \
 	  fi; \
 	done))
@@ -1180,6 +1182,22 @@ dependency-package-rebuild := $(or $(dependency-package-mismatch),\
 	$(if $(filter-out none,$(UPORTS_DEPENDENCIES)),\
 	  $(if $(wildcard $(WRKDIR)/dependency.configure.changed \
 	    $(WRKDIR)/dependency.stage.changed),yes)))
+
+# Local state markers describe a build tree, not a compatible cached package.
+# Validate each candidate independently; prefer a compatible shared archive.
+package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
+	for archive in "$(PKGFILE)" "$(WRKDIR_PKGFILE)"; do \
+	  test -f "$$archive" || continue; \
+	  if $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
+	      "$(package-dependency-provenance)" "$(PREFIX)" \
+	      "$(package-source-state)" "$(package-source-key)" \
+	      "$(PACKAGE_BUILD_ID)"; then \
+	    printf '%s' "$$archive"; break; \
+	  elif test "$(PORTS_VERBOSE)" = 1; then \
+	    printf '  PKG REJECT %s (prefix/provider/source/build identity mismatch)\n' \
+	      "$$archive" >&2; \
+	  fi; \
+	done))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
@@ -1885,13 +1903,11 @@ quiet_cmd_check-already-installed?=
 
 quiet_cmd_my-install?=
       cmd_my-install?= set -e;						\
-	if [ -f $(PKGFILE) ]; then					\
-	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $(PKGFILE);	\
+	if [ -n "$(package-reuse-file)" ]; then			\
+	    $(kecho) "  PKG REUSE $(package-reuse-file) (compatible)"; \
+	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) "$(package-reuse-file)"; \
 	else								\
-	    if [ ! -f $(WRKDIR_PKGFILE) ]; then				\
-		(cd $(MASTERDIR) && make package);			\
-	    fi;								\
-	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) $(WRKDIR_PKGFILE); \
+	    $(SCRIPTSDIR)/pkg.sh add $(_INSTALL_PKG_ARGS) "$(WRKDIR_PKGFILE)"; \
 	fi
 
 quiet_cmd_missing-destdir?=
@@ -1996,12 +2012,8 @@ stage-qa: stage
 endif
 
 # $(warning PKGFILE=$(wildcard $(PKGFILE)))
-ifneq (,$(wildcard $(PKGFILE)))
-ifeq ($(filter yes,$(FORCE_REBUILD) $(dependency-package-rebuild)),)
+ifneq ($(package-reuse-file),)
 _INSTALL_DEP		= patch
-else
-_INSTALL_DEP		= package
-endif
 else
 _INSTALL_DEP		= package
 endif
