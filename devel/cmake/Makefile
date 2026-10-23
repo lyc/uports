@@ -21,24 +21,12 @@ MASTERDIR 		= $(CURDIR)
 PORTSDIR 		?= $(MASTERDIR)/../..
 include $(PORTSDIR)/Mk/linux.port.pre.mk
 
-override_targets	+= pre-build pre-install post-install
+override_targets	+= pre-build
 
 pre-build:
 	@cd $(WRKSRC) &&						\
-	./bootstrap --prefix=$(DESTDIR)$(PREFIX) --			\
+	./bootstrap --prefix=$(PREFIX) --			\
 		-DCMAKE_USE_OPENSSL=OFF				\
 		-DBUILD_CursesDialog=OFF
-
-pre-install:
-	@cd $(WRKSRC) &&						\
-	mv cmake_install.cmake cmake_install.cmake.bak &&		\
-	sed -e '/set(CMAKE_INSTALL_PREFIX/s|$(DESTDIR)||'		\
-		< cmake_install.cmake.bak > cmake_install.cmake
-
-post-install:
-	@cd $(WRKSRC) && 						\
-	if [ -f cmake_install.cmake.bak ]; then				\
-	    mv cmake_install.cmake.bak cmake_install.cmake; 		\
-	fi
 
 include $(PORTSDIR)/Mk/linux.port.post.mk
