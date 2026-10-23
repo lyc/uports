@@ -8,7 +8,7 @@
 set -e
 
 validate_env() {
-    local envfault
+    local envfault=""
     for i ; do
 	set -f
 	if ! (eval ": \${${i}?}" ) >/dev/null; then
@@ -49,167 +49,174 @@ do_create() {
     local rc pver
 
     rc=0
-	if [ -n "${PROVENANCE:-}" ]; then
-		if [ ! -r "$PROVENANCE" ]; then
-			echo "Provider provenance file is not readable: $PROVENANCE" >&2
-			exit 1
-		fi
-		pver=2
-	else
-		pver=1
+    if [ -n "${PROVENANCE:-}${PACKAGE_BUILD_ID:-}" ]; then
+	if [ -n "${PROVENANCE:-}" ] && [ ! -r "$PROVENANCE" ]; then
+	    echo "Provider provenance file is not readable: $PROVENANCE" >&2
+	    exit 1
 	fi
+	pver=2
+    else
+	pver=1
+    fi
 
-    echo "PVER: $pver"          > $WRKDIR_PKGFILE
-    echo "NAME: $PKGNAME"      >> $WRKDIR_PKGFILE
-    echo "VER: $VERSION"       >> $WRKDIR_PKGFILE
-    echo "PATH: $ORIGIN"       >> $WRKDIR_PKGFILE
-    echo "PREFIX: $PREFIX"     >> $WRKDIR_PKGFILE
-    echo "INDEX: $INDEX"       >> $WRKDIR_PKGFILE
-    echo "COMPRESS: $COMPRESS" >> $WRKDIR_PKGFILE
-    echo "EXT: $EXT"           >> $WRKDIR_PKGFILE
-	if [ "$pver" -eq 2 ]; then
-		echo "PROVENANCE: %%%%%-PROVENANCE" >> $WRKDIR_PKGFILE
-		cat "$PROVENANCE"                     >> $WRKDIR_PKGFILE
-		echo "%%%%%-PROVENANCE"                >> $WRKDIR_PKGFILE
-	fi
-    echo "PLIST: %%%%%"        >> $WRKDIR_PKGFILE
-    cat $PLIST                 >> $WRKDIR_PKGFILE
-    echo "%%%%%"               >> $WRKDIR_PKGFILE
+    echo "PVER: $pver"          > "$WRKDIR_PKGFILE"
+    echo "NAME: $PKGNAME"      >> "$WRKDIR_PKGFILE"
+    echo "VER: $VERSION"       >> "$WRKDIR_PKGFILE"
+    echo "PATH: $ORIGIN"       >> "$WRKDIR_PKGFILE"
+    echo "PREFIX: $PREFIX"     >> "$WRKDIR_PKGFILE"
+    echo "INDEX: $INDEX"       >> "$WRKDIR_PKGFILE"
+    echo "COMPRESS: $COMPRESS" >> "$WRKDIR_PKGFILE"
+    echo "EXT: $EXT"           >> "$WRKDIR_PKGFILE"
+    if [ "$pver" -eq 2 ]; then
+	echo "PROVENANCE: %%%%%-PROVENANCE" >> "$WRKDIR_PKGFILE"
+	[ -z "${PROVENANCE:-}" ] ||
+	    cat "$PROVENANCE" >> "$WRKDIR_PKGFILE"
+	[ -z "${PACKAGE_BUILD_ID:-}" ] ||
+	    printf 'package-build-id|%s\n' "$PACKAGE_BUILD_ID" \
+		   >> "$WRKDIR_PKGFILE"
+	echo "%%%%%-PROVENANCE" >> "$WRKDIR_PKGFILE"
+    fi
+    echo "PLIST: %%%%%"        >> "$WRKDIR_PKGFILE"
+    cat "$PLIST"               >> "$WRKDIR_PKGFILE"
+    echo "%%%%%"               >> "$WRKDIR_PKGFILE"
     case "$COMPRESS" in
         XZ)
-            cd $STAGEDIR/$PREFIX && tar Jc * >> $WRKDIR_PKGFILE ;;
+            cd "$STAGEDIR$PREFIX" && tar Jcf - . >> "$WRKDIR_PKGFILE" ;;
     esac
 
     return ${rc}
 }
 
 do_add() {
-    local rc destdir db
-    local quiet strip pkgname
-    local pver name ver path prefix index compress ext sep p_start plist txz
-    local provenance_sep provenance_end plist_line
-
-    rc=0
-    destdir=$DESTDIR
-    db=${destdir}/var/db
-
-#    echo "==>$*"
-#    echo destdir=$destdir
-#    echo db=$db
+    local quiet strip pkgname db name ver path prefix index compress ext
+    local pver sep p_start provenance_end plist_line payload_line
+    local tmpdir root
 
     quiet=
     strip=
-    pkgname=
-
+    OPTIND=1
     while getopts pq OPT
     do
         case "$OPT" in
-            q) eval quiet=1 ;;
-            p) eval strip=1 ;;
-            *) echo >&2 "Usage: pkg add [ -pq ] pkgname"; exit 1 ;;
+            q)
+                quiet=1
+                ;;
+            p)
+                strip=1
+                ;;
+            *)
+                exit 1
+                ;;
         esac
     done
-
-#    echo quiet=$quiet
-#    echo strip=$strip
-
-#    echo OPTIND=$OPTIND
-    if [ $OPTIND -gt 1 ]; then
-        shiftcount=`expr $OPTIND - 1`
-        shift $shiftcount
-    fi
-
-#    echo 0=$0
+    shift "$((OPTIND - 1))"
+    [ "$#" -eq 1 ] || {
+        echo "Usage: pkg add [-pq] package" >&2
+        exit 1
+    }
     pkgname=$1
-    if [ -z "$pkgname" ]; then
-	echo "Usage: $0 add [ -pq ] {pkgname} " ; exit 1
-    fi
-#    echo pkgname=$pkgname
-
-    pver=`sed -n -e '1p' $pkgname | awk '{ print $2 }'`
-    if [ "$pver" -eq 1 ] || [ "$pver" -eq 2 ]; then
-        name=`sed -n -e '2p' $pkgname | awk '{ print $2 }'`
-        ver=`sed -n -e '3p' $pkgname | awk '{ print $2 }'`
-        path=`sed -n -e '4p' $pkgname | awk '{ print $2 }'`
-        prefix=`sed -n -e '5p' $pkgname | awk '{ print $2 }'`
-        index=`sed -n -e '6p' $pkgname | awk '{ print $2 }'`
-        compress=`sed -n -e '7p' $pkgname | awk '{ print $2 }'`
-        ext=`sed -n -e '8p' $pkgname | awk '{ print $2 }'`
-		if [ "$pver" -eq 1 ]; then
-			sep=`sed -n -e '9p' $pkgname | awk '{ print $2 }'`
-			p_start=10
-		else
-			provenance_sep=`sed -n -e '9p' $pkgname | awk '{ print $2 }'`
-			provenance_end=`awk -v sep="$provenance_sep" 'NR > 9 && $0 == sep { print NR; exit }' $pkgname`
-			if [ -z "$provenance_end" ]; then
-				echo >&2 "Invalid provider provenance block"
-				exit 1
-			fi
-			plist_line=`expr "$provenance_end" + 1`
-			sep=`sed -n -e "${plist_line}p" $pkgname | awk '{ print $2 }'`
-			p_start=`expr "$plist_line" + 1`
-		fi
+    [ -r "$pkgname" ] || {
+        echo "Cannot read package: $pkgname" >&2
+        exit 1
+    }
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/uports-pkg.XXXXXX")
+    trap 'rm -rf -- "$tmpdir"' EXIT
+    # Read only the text header, never interpret the binary payload as text.
+    awk 'NR <= 8 {print} NR == 8 {exit}' "$pkgname" > "$tmpdir/header"
+    pver=$(sed -n '1s/^PVER: //p' "$tmpdir/header")
+    name=$(sed -n '2s/^NAME: //p' "$tmpdir/header")
+    ver=$(sed -n '3s/^VER: //p' "$tmpdir/header")
+    path=$(sed -n '4s/^PATH: //p' "$tmpdir/header")
+    prefix=$(sed -n '5s/^PREFIX: //p' "$tmpdir/header")
+    index=$(sed -n '6s/^INDEX: //p' "$tmpdir/header")
+    compress=$(sed -n '7s/^COMPRESS: //p' "$tmpdir/header")
+    ext=$(sed -n '8s/^EXT: //p' "$tmpdir/header")
+    case "$name:$ext" in
+        *[!A-Za-z0-9_.+:-]*|:*|*:)
+            echo 'Invalid package identity' >&2
+            exit 1
+            ;;
+    esac
+    case "$prefix" in
+        /) ;;
+        *)
+            case "$prefix/" in
+                /*/../*|*/./*|//*)
+                    echo 'Invalid package prefix' >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+    esac
+    case "$prefix" in
+        /*) ;;
+        *)
+            echo 'Package prefix must be absolute' >&2
+            exit 1
+            ;;
+    esac
+    case "$pver" in
+        1)
+            plist_line=9
+            ;;
+        2)
+            provenance_end=$(awk '
+                NR == 9 && $0 != "PROVENANCE: %%%%%-PROVENANCE" {exit}
+                NR > 9 && $0 == "%%%%%-PROVENANCE" {print NR; exit}
+                ' "$pkgname")
+            [ -n "$provenance_end" ] || {
+                echo 'Invalid provenance block' >&2
+                exit 1
+            }
+            plist_line=$((provenance_end + 1))
+            ;;
+        *)
+            echo 'Unsupported package format' >&2
+            exit 1
+            ;;
+    esac
+    sep=$(sed -n "${plist_line}s/^PLIST: //p;${plist_line}q" "$pkgname")
+    [ "$sep" = '%%%%%' ] || {
+        echo 'Invalid package plist header' >&2
+        exit 1
+    }
+    p_start=$((plist_line + 1))
+    payload_line=$(awk -v start="$p_start" -v sep="$sep" \
+        'NR >= start && $0 == sep {print NR + 1; exit}' "$pkgname")
+    [ -n "$payload_line" ] || {
+        echo 'Unterminated plist' >&2
+        exit 1
+    }
+    awk -v start="$p_start" -v end="$payload_line" '
+        NR >= start && NR < end - 1 {print}
+        NR >= end - 1 {exit}
+        ' "$pkgname" > "$tmpdir/plist"
+    tail -n +"$payload_line" "$pkgname" > "$tmpdir/payload"
+    [ "$compress" = XZ ] || {
+        echo 'Unsupported package compression' >&2
+        exit 1
+    }
+    # Preserve runtime PREFIX; DESTDIR is only the installation root.
+    [ -z "$strip" ] || prefix=/
+    db="$DESTDIR/var/db"
+    root="$DESTDIR${prefix%/}"
+    [ -n "$root" ] || root=/
+    mkdir -p "$root"
+    if [ -n "$quiet" ]; then
+        tar -xJf "$tmpdir/payload" -C "$root"
     else
-	echo >&2 "Unsupported pkg format" ; exit 1
+        tar -xJvf "$tmpdir/payload" -C "$root"
     fi
-
-    if [ ! -z "$strip" ]; then
-        prefix=/
-    fi
-
-#    echo pver=$pver
-#    echo name=$name
-#    echo ver=$ver
-#    echo path=$path
-#    echo prefix=$prefix
-#    echo index=$index
-#    echo compress=$compress
-#    echo ext=$ext
-#    echo sep=$sep
-#    echo p_start=$p_start
-
-    plist=${db}/${name}-pkg-plist.${ext}
-    case `uname -s` in
-        Darwin) txz=$(mktemp /tmp/tmp-XXXXXX)$name.txz;;
-        Linux) txz=$(mktemp --suffix=$name.txz);;
-    esac
-
-#    echo plist=$plist
-#    echo txz=$txz
-
-    if [ ! -d ${destdir}${prefix} ]; then
-        mkdir -p ${destdir}${prefix}
-    fi
-
-    local topts=
-    if [ -z ${quiet} ]; then
-        topts="v"
-    fi
-    sed -e "1,/^${sep}$/d" $pkgname > $txz
-    case "$compress" in
-        XZ)
-            (cd ${destdir}${prefix} && tar Jx${topts}f $txz) ;;
-    esac
-    rm $txz
-
-    if [ ! -d ${db} ]; then
-        mkdir -p ${db}
-    fi
-
-    # update db
-    touch ${db}/pkg
-#   sed --in-place operation will be failed inside aarch64 docker environment
-#    sed -i -e "/${name}/d" ${db}/pkg > ${tmp}
-    tmp=`mktemp`
-    sed -e "/${name}/d" ${db}/pkg > ${tmp}
-    cp ${tmp} ${db}/pkg
-    rm ${tmp}
-    echo "$name: $ver $path $prefix \"${index}\" ${name}-pkg-plist.${ext}" >> ${db}/pkg
-
-    # copy pkg-plist.$EXT to $db
-    sed -n -e "${p_start},/^${sep}$/p" $pkgname | grep -vx "$sep" > $plist
-
-    return ${rc}
+    mkdir -p "$db"
+    touch "$db/pkg"
+    awk -v name="$name:" '$1 != name' "$db/pkg" > "$tmpdir/db"
+    printf '%s: %s %s %s "%s" %s-pkg-plist.%s\n' \
+        "$name" "$ver" "$path" "$prefix" "$index" "$name" "$ext" \
+        >> "$tmpdir/db"
+    cp "$tmpdir/plist" "$db/$name-pkg-plist.$ext"
+    cp "$tmpdir/db" "$db/pkg"
+    rm -rf -- "$tmpdir"
+    trap - EXIT
 }
 
 do_info()
@@ -259,8 +266,9 @@ do_info()
     fi
 #    echo pkgname=$pkgname
 
-    if [ -f ${db}/pkg ]; then
-        info=`cat ${db}/pkg | grep $pkgname`
+    if [ -f "${db}/pkg" ]; then
+        info=$(awk -v p="$pkgname" '{name=$1; sub(/:$/, "", name)}
+            name == p || index(name, p "-") == 1 || $3 == p {print}' "${db}/pkg")
     fi
 #    echo info=$info
 
@@ -338,154 +346,155 @@ do_version()
 
 do_delete()
 {
-    local rc destdir db
-    local quiet force all dryrun pkgname
+    local quiet dryrun all p info plist prefix root f fname dir
+    local tmpdir names
 
-#    echo "do_delete ..."
-
-    rc=0
-    destdir=$DESTDIR
-    db=${destdir}/var/db
-
-#    echo "2==>$*"
-#    echo destdir=$destdir
-#    echo db=$db
-
-    all=0
-    dryrun=0
     quiet=0
-    force=0
+    dryrun=0
+    all=0
+    OPTIND=1
     while getopts afnq OPT
     do
         case "$OPT" in
-            a) eval all=1 ;;
-            f) eval force=1 ;;
-            n) eval dryrun=1 ;;
-            q) eval quiet=1 ;;
-            *) echo >&2 "Usage: pkg delete [ -afnq ] pkgname"; exit 1 ;;
+            a)
+                all=1
+                ;;
+            f)
+                :
+                ;;
+            n)
+                dryrun=1
+                ;;
+            q)
+                quiet=1
+                ;;
+            *)
+                exit 1
+                ;;
         esac
     done
-
-#    echo all=$all
-#    echo quiet=$quiet
-#    echo force=$force
-
-    if [ $OPTIND -gt 1 ]; then
-        shiftcount=`expr $OPTIND - 1`
-        shift $shiftcount
+    shift "$((OPTIND - 1))"
+    [ "$all" -eq 1 ] || [ "$#" -eq 1 ] || {
+        echo 'Usage: pkg delete [-afnq] name' >&2
+        exit 1
+    }
+    [ -f "$DESTDIR/var/db/pkg" ] || return 0
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/uports-pkg-delete.XXXXXX")
+    trap 'rm -rf -- "$tmpdir"' EXIT
+    if [ "$all" -eq 1 ]; then
+        names=$(awk '{sub(/:$/, "", $1); print $1}' "$DESTDIR/var/db/pkg")
+    else
+        names=$1
     fi
-
-#    echo "3==>$*"
-#    echo 0=$0
-#    echo 1=$1
-
-    if [ $all -ne 1 ]; then
-        pkgname=$1
-        if [ -z $pkgname ]; then
-            echo >&2 "Usage: pkg delete [ -afnq ] pkgname"; exit 1
-        fi
-    fi
-
-    if [ -f ${db}/pkg ]; then
-        local info plist prefix fname size dirs dir root
-
-        # prepare pkgname for delete...
-        if [ $all -eq 1 ]; then
-            pkgname=`cat ${db}/pkg | awk '{ print $1 }' | sed -e 's/://g'`
-        fi
-
-        # do delete pkgname ...
-        for p in $pkgname; do
-#            echo pkgname=$p
-            info=`cat ${db}/pkg | grep $p`
-            if [ ! -z "$info" ]; then
-                plist=${db}/`echo $info | awk '{ print $6 }'`
-                prefix=`echo $info | awk '{ print $4 }'`
-                if [ -f $plist ]; then
-#                    echo plist=$plist
-#                    echo prefix=$prefix
-                    root=$destdir$prefix
-                    dirs=
-                    if [ $quiet -ne 1 ]; then
-                        echo "delete $p ..."
-                    fi
-                    for f in `cat $plist`; do
-                        case $f in
-                            .*)
-                                fname=$destdir$prefix/${f#./}
-                                if [ -d $fname ] && [ ! -h $fname ]; then
-                                    dirs="$fname $dirs"
-                                else
-                                    dir=`dirname $fname`
-                                    while [ "$dir" != "$root" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
-                                        dirs="$dir
-$dirs"
-                                        dir=`dirname $dir`
-                                    done
-                                fi
-                                ;;
-                            @rmdir*)
-                                fname=`echo $f | sed -e 's/^@rmdir[[:space:]]*//'`
-                                case $fname in
-                                    /*) ;;
-                                    ./*) fname=$destdir$prefix/${fname#./} ;;
-                                    *) fname=$destdir$prefix/$fname ;;
-                                esac
-                                dirs="$fname $dirs"
-                                fname=
-                                ;;
-                            *)
-                                fname=
-                                ;;
-                        esac
-                        if [ -n "$fname" ] && { [ -f $fname ] || [ -h $fname ] || [ -c $fname ]; }; then
-                            if [ $dryrun -eq 1 ]; then
-                                echo rm -fr $fname
-                            else
-                                rm -fr $fname
-                            fi
-                        fi
-                    done
-                    for dir in `printf '%s\n' "$dirs" | awk 'length($0) > 0 { print length($0) " " $0 }' | sort -rn | cut -d' ' -f2- | awk '!seen[$0]++'`; do
-                        case $dir in
-                            "$root"|"$root"/|/)
-                                continue
-                                ;;
-                        esac
-                        if [ -d $dir ] && [ ! -h $dir ]; then
-                            if [ $dryrun -eq 1 ]; then
-                                echo rmdir $dir
-                            else
-                                rmdir $dir 2>/dev/null || :
-                            fi
-                        fi
-                    done
-                    if [ $dryrun -eq 1 ]; then
-                        echo rm -fr $plist
+    for p in $names
+    do
+        info=$(awk -v p="$p" '{name=$1; sub(/:$/, "", name)}
+            name == p || index(name, p "-") == 1 {print}' "$DESTDIR/var/db/pkg")
+        [ -n "$info" ] || continue
+        # Resolve each matching installed package independently.
+        printf '%s\n' "$info" > "$tmpdir/matches"
+        while IFS= read -r entry
+        do
+            prefix=$(printf '%s\n' "$entry" | awk '{print $4}')
+            plist="$DESTDIR/var/db/$(printf '%s\n' "$entry" | awk '{print $NF}')"
+            case "$prefix" in
+                /) ;;
+                *)
+                    case "$prefix/" in
+                        /*/../*|*/./*|//*)
+                            echo 'Invalid installed prefix' >&2
+                            exit 1
+                            ;;
+                    esac
+                    ;;
+            esac
+            case "$prefix" in
+                /*) ;;
+                *)
+                    exit 1
+                    ;;
+            esac
+            root="$DESTDIR${prefix%/}"
+            [ -n "$root" ] || root=/
+            : > "$tmpdir/dirs"
+            if [ -f "$plist" ]; then
+                while IFS= read -r f
+                do
+                    case "$f" in
+                        @rmdir\ *)
+                            f=${f#@rmdir }
+                            case "$f" in
+                                /*)
+                                    fname="$DESTDIR$f"
+                                    ;;
+                                *)
+                                    fname="$root/${f#./}"
+                                    ;;
+                            esac
+                            ;;
+                        ./*)
+                            fname="$root/${f#./}"
+                            ;;
+                        *)
+                            continue
+                            ;;
+                    esac
+                    case "$fname/" in
+                        */../*|*/./*)
+                            echo 'Invalid installed path' >&2
+                            exit 1
+                            ;;
+                    esac
+                    case "$fname" in
+                        "${root%/}/"*) ;;
+                        *)
+                            echo 'Plist path outside install prefix' >&2
+                            exit 1
+                            ;;
+                    esac
+                    if [ -d "$fname" ] && [ ! -L "$fname" ]; then
+                        printf '%s\n' "$fname" >> "$tmpdir/dirs"
                     else
-                        rm -fr $plist
+                        [ "$quiet" -eq 1 ] || printf 'delete %s\n' "$fname"
+                        if [ "$dryrun" -eq 1 ]; then
+                            printf 'rm -f %s\n' "$fname"
+                        else
+                            rm -f -- "$fname"
+                        fi
+                        dir=${fname%/*}
+                        while [ "$dir" != "$root" ] && \
+                            [ "$dir" != / ] && [ -n "$dir" ]
+                        do
+                            printf '%s\n' "$dir" >> "$tmpdir/dirs"
+                            dir=${dir%/*}
+                        done
                     fi
-                fi
-                if [ $dryrun -eq 1 ]; then
-#                    echo sed -i -e "/^$p/d" ${db}/pkg
-                    echo sed -e "/^$p/d" ${db}/pkg
-                else
-#                    sed -i -e "/^$p/d" ${db}/pkg
-                    tmp=`mktemp`
-                    sed -e "/^$p/d" ${db}/pkg > ${tmp}
-                    cp ${tmp} ${db}/pkg
-                    rm ${tmp}
-                fi
+                done < "$plist"
+                awk '{print length($0) "|" $0}' "$tmpdir/dirs" | sort -rn |
+                    cut -d'|' -f2- | awk '!seen[$0]++' > "$tmpdir/ordered"
+                while IFS= read -r dir
+                do
+                    if [ "$dryrun" -eq 1 ]; then
+                        printf 'rmdir %s\n' "$dir"
+                    else
+                        rmdir -- "$dir" 2>/dev/null || :
+                    fi
+                done < "$tmpdir/ordered"
+                [ "$dryrun" -eq 1 ] || rm -f -- "$plist"
             fi
-        done
-
-        # delete ${db}/pkg if empty...
-        size=`ls -al ${db}/pkg | awk '{ print $5 }'`
-        if [ $size -eq 0 ]; then
-            rm -fr ${db}/pkg
-        fi
+            if [ "$dryrun" -ne 1 ]; then
+                installed=$(printf '%s\n' "$entry" | awk '{print $1}')
+                awk -v name="$installed" '$1 != name' \
+                    "$DESTDIR/var/db/pkg" > "$tmpdir/db"
+                cp "$tmpdir/db" "$DESTDIR/var/db/pkg"
+            fi
+        done < "$tmpdir/matches"
+    done
+    if [ "$dryrun" -ne 1 ] && [ ! -s "$DESTDIR/var/db/pkg" ]; then
+        rm -f -- "$DESTDIR/var/db/pkg"
     fi
-    return ${rc}
+    rm -rf -- "$tmpdir"
+    trap - EXIT
 }
 
 # obtain operating mode from command line
@@ -505,7 +514,7 @@ case "$1" in
 esac
 
 shift 1
-args=$*
+
 
 # echo "1==>$*"
 
@@ -516,18 +525,26 @@ if [ ${create} -eq 1 ]; then
     do_create
 else
     validate_env DESTDIR
+    case "$DESTDIR" in
+        ""|/*) ;;
+        *)
+            echo "DESTDIR must be absolute" >&2
+            exit 1
+            ;;
+    esac
+    DESTDIR=${DESTDIR%/}
 
     if [ ${add} -eq 1 ]; then
-        do_add $args
+        do_add "$@"
     fi
     if [ ${delete} -eq 1 ]; then
-        do_delete $args
+        do_delete "$@"
     fi
     if [ ${info} -eq 1 ]; then
-        do_info $args || ret=1
+        do_info "$@" || ret=1
     fi
     if [ ${version} -eq 1 ]; then
-        do_version $args
+        do_version "$@"
     fi
 fi
 
