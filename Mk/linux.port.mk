@@ -1124,6 +1124,7 @@ check-categories:
 endif
 
 PKG_SUFX		?= .pkg
+FORCE_DEVELOPMENT_INSTALL	?= yes
 PKG_COMPRESSION_FORMAT	?= $(patsubst .%,%,PKG_SUFX)
 ifneq ($(OPSYS_SUFX),)
 REPO_SUFX		?= -$(OPSYS)-$(OPSYS_SUFX)-$(ARCH)
@@ -2012,8 +2013,16 @@ stage-qa: stage
 endif
 
 # $(warning PKGFILE=$(wildcard $(PKGFILE)))
+.PHONY: install-package-directory
+install-package-directory:
+	@mkdir -p "$(WRKDIR)"
+
 ifneq ($(package-reuse-file),)
+ifeq ($(FORCE_DEVELOPMENT_INSTALL),yes)
 _INSTALL_DEP		= patch
+else
+_INSTALL_DEP		= check-sanity install-package-directory
+endif
 else
 _INSTALL_DEP		= package
 endif

@@ -30,7 +30,7 @@ normalize_state()
 		count = split($6, values, " ")
 		environment = ""
 		for (i = 1; i <= count; i++) {
-			if (values[i] ~ /^(USE_GLOBALBASE|DISTDIR_SITE|PACKAGES_SITE|SCMDIR_SITE)=/)
+			if (values[i] ~ /^(USE_GLOBALBASE|DISTDIR_SITE|PACKAGES_SITE|SCMDIR_SITE|FORCE_DEVELOPMENT_INSTALL)=/)
 				continue
 			environment = environment (environment == "" ? "" : " ") values[i]
 		}

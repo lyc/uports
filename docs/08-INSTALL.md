@@ -1,5 +1,59 @@
 # Install And Plist Notes
 
+## Cached Package Installation And DESTDIR
+
+`install` first considers compatible shared-cache and work-directory packages,
+unless `FORCE_REBUILD=yes`. `FORCE_DEVELOPMENT_INSTALL` defaults to `yes`: a
+compatible candidate retains fetch/extract/patch for development review, then
+installs without configure/build/stage/package. Set it to `no` to install a
+compatible cached package without source preparation. If no compatible package
+exists, either setting follows the normal source build/install lifecycle.
+Missing local state or changed markers
+alone do not override that candidate. Required package provenance still must
+match the current request. Existing install cookies retain normal reuse rules.
+Changing this flag alone does not invalidate package compatibility or dependency
+build state; it controls installation workflow rather than package contents.
+
+```sh
+make V=1 cmake.install FORCE_DEVELOPMENT_INSTALL=yes
+make V=1 cmake.install FORCE_DEVELOPMENT_INSTALL=no
+```
+
+Package provenance comparisons normalize instance-local `PORTSDIR` and
+`DESTDIR`, and omit cache-site settings. Prefix, provider identities, build
+options and available source identity remain compared. Other dependency paths
+are not broadly rewritten: a genuine provider difference may still require
+rebuilding. This is compatibility checking, not proof every port's binaries
+are relocatable. Ports remain responsible for excluding staging paths from
+their runtime configuration and for maintaining package revisions.
+
+`PACKAGE_BUILD_ID` optionally adds a port-defined compatibility record to
+PVER 2 packages. Changing it rejects packages without the matching record;
+it is not an automatically computed recipe hash. CMake now uses runtime
+`PREFIX` for bootstrap and normal `DESTDIR` staging, replacing its former
+checkout-prefix substitution for future builds. The existing CMake package
+passed installation/module-discovery checks in a different destination, so
+this correction does not force a package revision or rebuild by itself.
+
+Under verbose execution, rejected cached candidates print `PKG REJECT` with
+the compatibility categories checked; a selected archive prints `PKG REUSE`.
+An incompatible candidate does not hide a compatible second candidate.
+
+For `pkg.sh`, creation reads `STAGEDIR` + runtime `PREFIX` and stores a
+prefix-relative payload, including hidden entries. Installation extracts that
+payload under `DESTDIR` + the recorded runtime prefix, while its database and
+plist reside under `DESTDIR/var/db`. Neither the stored runtime prefix nor
+package identity is changed to include `DESTDIR`.
+
+Package archive/destination arguments retain quoting, including destination
+roots containing spaces. Temporary payloads use a portable private directory.
+Deletion resolves installed paths, including absolute `@rmdir` entries,
+through the selected `DESTDIR`; it does not interpret them as host paths.
+Deletion previews do not modify files or the database. Keep runtime prefixes
+and package metadata within the existing whitespace-delimited database format.
+
+The notes below describe a separate, still-proposed plist/Flavor extension.
+
 This note records the current proposal for install manifests when one package
 can produce multiple valid configure/install variants.
 
