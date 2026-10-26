@@ -6,4 +6,4 @@ BEFOREPORTMK		= yes
 
 include $(PORTSDIR)/Mk/linux.port.mk
 
-undefine BEFOREPORTMK
+BEFOREPORTMK		=

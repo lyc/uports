@@ -18,4 +18,4 @@ INOPTIONSMK		= yes
 
 include $(PORTSDIR)/Mk/linux.port.mk
 
-undefine INOPTIONSMK
+INOPTIONSMK		=
