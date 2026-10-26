@@ -67,7 +67,7 @@ END {
         if (d!="") {
             # Inline validation here: die() from END must print its diagnostic.
             if (d !~ /^[A-Za-z0-9_.+\/-]+$/ || d ~ /^[-\/]/ ||
-                d ~ /(^|\/)(\.|\.\.|)(\/|$)/)
+                d ~ /(^|\/)(\.\.?)?(\/|$)/)
                 {print "ERROR|unsafe GH_SUBDIR in group " g; exit 1}
         }
         if (g!="DEFAULT" || ENVIRON["gh_nodefault"]=="") {
