@@ -70,13 +70,28 @@ The public variables are:
 
 ```make
 SCM_SUBMODULES          ?=
+SUBMODULE_PATCH_PATHS   ?= $(SCM_SUBMODULES)
 SUBMODULE_PATCHDIR      ?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD  ?= $(PATCH_METHOD)
 SUBMODULE_UPDATE_ARGS   ?= --init --checkout
 SUBMODULE_GIT_AM_OPTS   ?= $(GIT_AM_OPTS)
 ```
 
-`SCM_SUBMODULES` contains paths relative to `$(WRKSRC)`. Absolute paths,
+`SCM_SUBMODULES` selects actual Git submodule preparation. Ports supporting
+archive mode should make that list Git-only. `SUBMODULE_PATCH_PATHS` separately
+selects subproject directories whose patch series must be applied. It defaults
+to `SCM_SUBMODULES` for compatibility, but may be set in both source modes.
+
+For `SOURCE_MODE=dist`, patch paths identify directories assembled
+from pinned `GH_TUPLE` archives. No Git submodule initialization runs in this
+mode. After the parent archive is initialized for V2 patching, selected
+subproject series are applied in that parent repository using `git am
+--directory=<path>`. Archive directories must remain within `WRKSRC` and may
+not contain nested Git checkouts. The same patch files and platform selection
+are used in both modes; archive pins/checksums replace parent gitlinks as the
+source identity. `info.debug.submodules` remains a Git checkout diagnostic.
+
+Both path lists contain paths relative to `$(WRKSRC)`. Absolute paths,
 parent traversal, empty components, backslashes, and paths that resolve outside
 `$(WRKSRC)` are invalid. Duplicate declarations are also invalid. Each
 submodule directory uses the same platform series selection order as the main

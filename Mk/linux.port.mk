@@ -10,6 +10,10 @@ PORTSDIR		:= $(abspath $(call subdirectory,linux.port.mk)/..)
 include $(PORTSDIR)/Mk/linux.debug.mk
 
 LOCALBASE		?= /usr/local
+
+# Many uports operations depend on the local distfiles, packages and scm
+# directories, so all three paths must exist. With USE_GLOBALBASE enabled,
+# they may be symbolic links to the configured global directories.
 DISTDIR			?= $(PORTSDIR)/distfiles
 _DISTDIR		?= $(patsubst %/,%,$(DISTDIR)/$(DIST_SUBDIR))
 SCMDIR			?= $(PORTSDIR)/scm
@@ -187,6 +191,8 @@ check-if-pre-makefile	:= $(strip					\
         $(error ERR, you cannot include linux.port[.pre].mk twice),)
 _PREMKINCLUDED		= yes
 
+include $(PORTSDIR)/Mk/linux.source.mk
+
 portversion-tr1		= $(shell echo $1 | sed -e 's/[-_,]//g')
 portversion-tr2		= $(shell echo $1 | sed -e 's/[-_,]/./g')
 portversion-tr3		= $(shell echo $1 | sed -e 's/:/::/g')
@@ -239,8 +245,10 @@ PREFIX			?= $(LOCALBASE)
 # $(call set-global-link, dir_site, dir)
 define set-global-link
   $(shell if [ -n "$1" ]; then						\
-	    if [ ! -d "$1" ] && [ ! -h "$1" ]; then mkdir -p "$1"; fi; \
-	    if [ ! -d "$2" ] && [ ! -h "$2" ]; then			\
+	    if [ ! -e "$2" ] && [ ! -h "$2" ]; then			\
+	      if [ ! -d "$1" ] && [ ! -h "$1" ]; then		\
+	        mkdir -p "$1" || exit 1;					\
+	      fi;							\
 	      if ! ln -sn "$1" "$2" 2>/dev/null &&			\
 	          [ ! -d "$2" ] && [ ! -h "$2" ]; then		\
 	        printf '%s\n' "Unable to create global link $2 -> $1" >&2;	\
@@ -249,7 +257,7 @@ define set-global-link
 	  fi)
 endef
 
-# generate all glboal links ...
+# Seed only absent effective cache paths; preserve local paths and overrides.
 ifeq ($(USE_GLOBALBASE),yes)
 distfiles_NAME		:= DISTDIR
 packages_NAME		:= PACKAGES
@@ -267,8 +275,7 @@ endif
 $(foreach d, $(global_link_all),					\
   $(eval								\
     $(if $($($d_NAME)_SITE),						\
-      $(if $(wildcard $(portdir)/$d),,					\
-        $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME)))),	\
+      $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME))),	\
       $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
 endif #'
 
@@ -359,6 +366,9 @@ _POSTMKINCLUDED		= yes
 
 WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
 
+include $(PORTSDIR)/Mk/linux.source.mk
+include $(PORTSDIR)/Mk/linux.github.mk
+
 ifneq ($(NO_WRKSUBDIR),yes)
 WRKSRC			?= $(WRKDIR)/$(DISTNAME)
 else
@@ -397,13 +407,47 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
-EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(PKGNAME)
-PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(PKGNAME)
-CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(PKGNAME)
-BUILD_COOKIE		?= $(WRKDIR)/build._done.$(PKGNAME)
-STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(PKGNAME)
-INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(PKGNAME)
-PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(PKGNAME)
+source-cookie-suffix	:= $(strip \
+	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),.$(source-identity-key)))
+source-cookie-name	= $(PKGNAME)$(source-cookie-suffix)
+EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(source-cookie-name)
+PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(source-cookie-name)
+CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(source-cookie-name)
+BUILD_COOKIE		?= $(WRKDIR)/build._done.$(source-cookie-name)
+STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(source-cookie-name)
+INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(source-cookie-name)
+PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(source-cookie-name)
+
+source-state-cookies	= $(EXTRACT_COOKIE) $(PATCH_COOKIE) \
+	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) \
+	$(PACKAGE_COOKIE) $(INSTALL_COOKIE)
+source-state-artifacts	= $(WRKDIR_PKGFILE)
+source-state-shared-cookies = $(CONFIGURE_COOKIE) $(BUILD_COOKIE) \
+	$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE)
+source-state-environment = \
+	SOURCE_STATE_FILE='$(SOURCE_STATE_FILE)' \
+	SOURCE_STATE_REQUEST_KEY='$(source-identity-key)' \
+	SOURCE_STATE_MODE='$(_SOURCE_MODE)' \
+	SOURCE_STATE_PROVIDER='$(_SOURCE_PROVIDER)' \
+	SOURCE_STATE_REPOSITORY='$(or $(SCM_REPO_URL),-)' \
+	SOURCE_STATE_REF_KIND='$(_SOURCE_REF_KIND)' \
+	SOURCE_STATE_REF='$(_SOURCE_REF)' \
+	SOURCE_STATE_ROOT='$(_SOURCE_ROOT_IDENTITY)' \
+	SOURCE_STATE_PATH='$(WRKSRC)' \
+	SOURCE_STATE_ARCHIVES='$(strip $(DISTFILES) $(PATCHFILES))' \
+	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'
+
+.PHONY: uports-source-state-check uports-source-state-save
+uports-source-state-check:
+	@$(source-state-environment) \
+	  SOURCE_STATE_COOKIES='$(source-state-cookies)' \
+	  SOURCE_STATE_SHARED_COOKIES='$(source-state-shared-cookies)' \
+	  SOURCE_STATE_ARTIFACTS='$(source-state-artifacts)' \
+	  $(SH) $(SCRIPTSDIR)/source-state.sh check
+
+uports-source-state-save:
+	@$(source-state-environment) \
+	  $(SH) $(SCRIPTSDIR)/source-state.sh save
 
 DEPENDENCY_STATE_CLASS	?=
 DEPENDENCY_STATE_SOURCE	?=
@@ -621,28 +665,6 @@ filter-sites-by-group	= $(strip $(call filter-x-by-group,$1,$2,$(SLASH)))
 # $(call filter-subdirs-by-group, lists, group)
 filter-subdirs-by-group	= $(strip $(call filter-x-by-group,$1,$2))
 
-# $(call transform-subdirs, pattern, group, subdir)
-define transform-subdirs
-$(if									\
-  $(filter $1,$(subst $(SUBDIR),,$1)),					\
-      $1,								\
-      $(foreach x,							\
-        $(call filter-subdirs-by-group,$3,$2),				\
-          $(subst $(SUBDIR),$x,$1)))
-endef
-
-# $(call generate-sites-by-group, group, sites, subdir)
-define generate-sites-by-group
-$(strip									\
-$(__master_site_override)						\
-  $(foreach s,								\
-    $(call filter-sites-by-group,$2,$1),				\
-      $(foreach g,							\
-        $(call find-groups-by-site,$2,$s),				\
-          $(call transform-subdirs,$s,$g,$3)))				\
-$(__master_site_backup))
-endef
-
 # $(call generate-master-sites-by-group, group)
 generate-master-sites-by-group =					\
 	$(call generate-sites-by-group,$1,$(master_sites),$(master_site_subdir))
@@ -655,6 +677,8 @@ generate-patch-sites-by-group =						\
 define export-variable
 $(eval export $1_$2 = $(call generate-sites-by-group,$2,$3,$4))
 endef
+
+include $(PORTSDIR)/Mk/linux.fetch-sites.mk
 
 # generate "__group_$f" and __patch_$f shell env for late rule use
 $(if $(master_sites),							\
@@ -669,21 +693,15 @@ $(if $(patch_sites),							\
       $(call export-variable,__patch,$g,$(patch_sites),$(patch_site_subdir))), \
         $(call export-variable,__patch,DEFAULT,$(patch_sites),$(patch_site_subdir)))
 
-FETCH_CMD		?= $(firstword $(wildcard /usr/bin/wget /bin/wget) $(shell $(WHICH) wget 2>/dev/null))
-$(if $(FETCH_CMD),,							\
-  $(error Ports need \"wget\" utility to get distfiles))
+FETCH_CMD		?= $(firstword					\
+			    $(shell command -v wget 2>/dev/null)		\
+			    $(shell command -v curl 2>/dev/null))
 
        fetch_opts	= --verbose --progress=bar:force
  quiet_fetch_opts	= -q --show-progress --progress=bar:force
 silent_fetch_opts	= -q
 
 FETCH_REGET		?= 1
-FETCH_CMD		+=						\
-	-nd -N --connect-timeout=3 --read-timeout=10 --tries=$(FETCH_REGET) $($(quiet)fetch_opts)
-
-ifeq ($(NO_CHECK_CERTIFICATE),yes)
-FETCH_CMD		+= --no-check-certificate
-endif
 
 # stuff for extract ...
 
@@ -745,7 +763,7 @@ EXTRACT_LISTS		+= $(EXTRACT_ONLY)
 SCM_BRANCH		?=
 SCM_REPO_PREINIT_CMD	?= autogen.sh
 
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
 GIT_CMD			?= $(firstword $(wildcard /usr/bin/git /bin/git) $(shell $(WHICH) git 2>/dev/null))
 SCM_LS_CMD		?= $(GIT_CMD) ls-remote
 SCM_CMD			?= $(GIT_CMD) clone
@@ -762,8 +780,10 @@ SCM_REPO_PREFIX		?=
 # DISTNAME
 SCM_REPO_SUFFIX		?= .git
 
+ifeq ($(strip $(SCM_REPO_URL)),)
 ifneq ($(words $(MASTER_SITES)),1)
-$(error Oops, you set multiple MASTER_SITES while using USE_SCM is set)
+$(error Git source mode needs SCM_REPO_URL or exactly one MASTER_SITES entry)
+endif
 endif
 
 SCM_REPO_URL		?= $(SCM_PROTOCOL)$(if $(SCM_USER),$(SCM_USER)@)$(MASTER_SITES)$(if $(SCM_PROTOCOL),,:)$(MASTER_SITE_SUBDIR)/$(SCM_REPO_PREFIX)$(PORTNAME)$(SCM_REPO_SUFFIX)
@@ -773,10 +793,13 @@ SCM_CACHE_UPDATE	?= yes
 SCM_CACHE_UPDATE_REQUIRED ?= no
 SCM_CACHE_NAME		?= $(shell printf '%s\n' '$(SCM_REPO_URL)' | $(SED) -e 's|^[A-Za-z][A-Za-z0-9+.-]*://||' -e 's|\.git$$||' -e 's|[:/@]|_|g' -e 's|[^A-Za-z0-9._-]|_|g')
 SCM_CACHE_REPO		?= $(SCMDIR)/git/$(SCM_CACHE_NAME).git
-SCM_RETRIEVE_TIMEOUT	?= 0
+SCM_RETRIEVE_TIMEOUT	?= 15m
 SCM_TIMEOUT		?= $(SCM_RETRIEVE_TIMEOUT)
-SCM_TIMEOUT_BIN		?= $(shell command -v timeout 2>/dev/null)
+SCM_TIMEOUT_BIN		?= $(shell command -v timeout 2>/dev/null \
+			    || command -v gtimeout 2>/dev/null)
 SCM_TIMEOUT_CMD		= $(if $(filter 0 no,$(SCM_TIMEOUT)),,$(if $(SCM_TIMEOUT_BIN),$(SCM_TIMEOUT_BIN) $(SCM_TIMEOUT),))
+SCM_LOCK_TIMEOUT		?= 30
+SCM_DIRTY_PACKAGE	?= record
 SCM_FETCH_ENV		?= GIT_TERMINAL_PROMPT=0
 
 # $(warning SCM_REPO_URL=$(SCM_REPO_URL))
@@ -847,6 +870,7 @@ PATCH_METHOD		= $(USE_PATCH)
 # Explicit submodule metadata.  Declared submodules are prepared by the patch
 # lifecycle; submodule patch application is implemented separately.
 SCM_SUBMODULES		?=
+SUBMODULE_PATCH_PATHS	?= $(SCM_SUBMODULES)
 SUBMODULE_PATCHDIR	?= $(PATCHDIR)/submodules
 SUBMODULE_PATCH_METHOD	?= $(PATCH_METHOD)
 SUBMODULE_UPDATE_ARGS	?= --init --checkout
@@ -1035,6 +1059,17 @@ ext			= $(call config.ext,$(WRKDIR),$(PLIST))
 # $(call get-port-origin,$(MASTERDIR))
 get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
 
+source-package-provenance = $(WRKDIR)/package.source-provenance
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+package-provenance-file = $(source-package-provenance)
+package-source-state	= $(SOURCE_STATE_FILE)
+package-source-key	= $(source-identity-key)
+else
+package-provenance-file = $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
+package-source-state	=
+package-source-key	=
+endif
+
 PKG_ENV			+=						\
 	STAGEDIR=$(STAGEDIR)						\
 	PKGNAME=$(PKGNAME)						\
@@ -1045,7 +1080,7 @@ PKG_ENV			+=						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
 	PLIST=$(PLIST)							\
-	PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE_FILE)			\
+	PROVENANCE=$(package-provenance-file)				\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
 
 #
@@ -1105,17 +1140,46 @@ PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
 
+# Invalidate an earlier selection before make inspects its existing cookies.
+# Diagnostic and fetch-only requests must not invalidate build artifacts.
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifeq ($(findstring n,$(firstword -$(MAKEFLAGS))),)
+ifneq ($(filter all extract patch configure build stage package install \
+  reinstall rebuild restage,$(MAKECMDGOALS)),)
+source-state-check-result := $(shell $(source-state-environment) \
+	SOURCE_STATE_COOKIES='$(source-state-cookies)' \
+	SOURCE_STATE_SHARED_COOKIES='$(source-state-shared-cookies)' \
+	SOURCE_STATE_ARTIFACTS='$(source-state-artifacts)' \
+	$(SH) $(SCRIPTSDIR)/source-state.sh check && printf success)
+ifneq ($(source-state-check-result),success)
+$(error Source state validation failed)
+endif
+endif
+endif
+endif
+
 # An install may select a shared archive even after local state invalidation.
 # Reject archives whose prefix or provider report differs from this request.
-dependency-package-mismatch := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(strip $(UPORTS_DEPENDENCY_PROVENANCE_FILE)),\
+ifeq ($(UPORTS_DEPENDENCIES),none)
+package-dependency-provenance :=
+else
+package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
+endif
+package-provenance-required := $(strip $(package-dependency-provenance) \
+	$(package-source-state))
+dependency-package-mismatch := $(if $(package-provenance-required),\
 	$(shell for archive in $(sort $(wildcard $(PKGFILE) $(WRKDIR_PKGFILE))); do \
 	  if ! $(SH) "$(SCRIPTSDIR)/package-provenance-check.sh" "$$archive" \
-	      "$(UPORTS_DEPENDENCY_PROVENANCE_FILE)" "$(PREFIX)"; then \
+	      "$(package-dependency-provenance)" "$(PREFIX)" \
+	      "$(package-source-state)" "$(package-source-key)"; then \
 	    echo yes; break; \
 	  fi; \
-	done)))
+	done))
 dependency-package-reconfigure := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),,$(dependency-package-mismatch)))
-dependency-package-rebuild := $(if $(filter none,$(UPORTS_DEPENDENCIES)),,$(or $(dependency-package-mismatch),$(if $(wildcard $(WRKDIR)/dependency.configure.changed $(WRKDIR)/dependency.stage.changed),yes)))
+dependency-package-rebuild := $(or $(dependency-package-mismatch),\
+	$(if $(filter-out none,$(UPORTS_DEPENDENCIES)),\
+	  $(if $(wildcard $(WRKDIR)/dependency.configure.changed \
+	    $(WRKDIR)/dependency.stage.changed),yes)))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
@@ -1166,118 +1230,22 @@ endif
 # Fetch...
 #
 
-quiet_cmd_fetch-sanity-check	?=
-      cmd_fetch-sanity-check	?= set -e;				\
-	if [ ! -d $(_DISTDIR) ] && [ ! -h $(_DISTDIR) ]; then		\
-	    mkdir -p $(_DISTDIR);					\
-	fi
-
-.PHONY: do-fetch-sanity-check
-do-fetch-sanity-check:
-	@$(call cmd,fetch-sanity-check)
-
-fetch_msg1 = "  ERR     $(DISTDIR) is not writable by you; cannot fetch."
-fetch_msg2 = "  ERR     Couldn't fetch it - please try to retrieve this port manually into $(_DISTDIR) and try again"
+include $(PORTSDIR)/Mk/linux.fetch.mk
 
 ifeq ($(filter $(override_targets),do-fetch),)
-ifeq ($(USE_SCM),)
-do-fetch: do-fetch-sanity-check
-	@(cd $(_DISTDIR);						\
-	for f in $(distfiles); do					\
-	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
-	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
-	    force_fetch=false;						\
-	    filebasename=`basename $$file`;				\
-	    for afile in $(FORCE_FETCH); do				\
-	        afile=`basename $$afile`;				\
-	        if [ x$$afile = x$$filebasename ]; then			\
-	            force_fetch=true;					\
-	        fi;							\
-	    done;							\
-	    $(kecho) "  CHK     $$file";				\
-	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
-	        if [ ! -w $(DISTDIR) ]; then				\
-	            $(kecho) $(fetch_msg1);				\
-	            exit 1;						\
-	        fi;							\
-	        __master_sites_tmp= ;					\
-	        for g in $$groups; do					\
-	            eval __TMP=\$${__group_$${g}};			\
-	            __master_sites_tmp="$${__master_sites_tmp} $${__TMP}"; \
-	        done;							\
-	        __TMP= ;						\
-	        for s in $$__master_sites_tmp; do			\
-	            $(kecho) "  WGET    $$file from $$s";		\
-	            case $$file in					\
-	            */*) $(MKDIR) $${file%/*};				\
-	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
-	            *)  args=$$s$$file;;				\
-	            esac;						\
-	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
-	               continue 2;					\
-	            fi;							\
-	        done;							\
-	        $(kecho) $(fetch_msg2);					\
-	        exit 1; \
-	    fi; \
-	done)
-ifneq ($(PATCHFILES),)
-	@(cd $(_DISTDIR);						\
-	for f in $(patchfiles); do					\
-	    file=`echo $$f | sed -e 's/:[^:].*$$//'`;			\
-	    groups=`echo $$f | sed -e 's/^[^:].*://' -e 's/,/ /g'`;	\
-	    force_fetch=false;						\
-	    filebasename=`basename $$file`;				\
-	    for afile in $(FORCE_FETCH); do				\
-	        afile=`basename $$afile`;				\
-	        if [ x$$afile = x$$filebasename ]; then			\
-	            force_fetch=true;					\
-	        fi;							\
-	    done;							\
-	    $(kecho) "  CHK     $$file";				\
-	    if [ ! -f $$file ] && [ ! -f $$filebasename ] || [ $$force_fetch = true ]; then \
-	        if [ ! -w $(DISTDIR) ]; then				\
-	            $(kecho) $(fetch_msg1);				\
-	            exit 1;						\
-	        fi;							\
-	        __patch_sites_tmp= ;					\
-	        for g in $$groups; do					\
-	            eval __TMP=\$${__patch_$${g}};			\
-	            __patch_sites_tmp="$${__patch_sites_tmp} $${__TMP}"; \
-	        done;							\
-	        __TMP= ;						\
-	        for s in $$__patch_sites_tmp; do			\
-	            $(kecho) "  WGET    $$file from $$s";		\
-	            case $$file in					\
-	            */*) $(MKDIR) $${file%/*};				\
-	                args=--directory-prefix=$${file%/*} $$s$$file;;	\
-	            *)  args=$$s$$file;;				\
-	            esac;						\
-	            if $(SETENV) $(FETCH_ENV) $(FETCH_CMD) $(FETCH_BEFORE_ARGS) $$args $(FETCH_AFTER_ARGS); then \
-	               continue 2;					\
-	            fi;							\
-	        done;							\
-	        $(kecho) $(fetch_msg2);					\
-	        exit 1;							\
-	    fi;								\
-	done)
-else
+ifeq ($(_SOURCE_MODE),dist)
 do-fetch:
-endif
+	@$(call archive-fetch,do-fetch)
 endif
 endif
 
 ifeq ($(filter $(override_targets),do-fetch),)
-ifneq ($(USE_SCM),)
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
 ifeq ($(SCM_CACHE),no)
 do-fetch:
 else
 do-fetch:
 	$(call cmd,git-cache-fetch)
-endif
-else
-do-fetch:
 endif
 endif
 endif
@@ -1322,8 +1290,14 @@ ifeq ($(USE_ALTERNATIVE),yes)
 	$(call cmd,wrkdir-alt)
 ifeq ($(USE_STICKY),yes)
 else
+ifneq ($(_SOURCE_MODE),git)
+	@if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then \
+	  printf '%s\n' 'Refusing to replace an existing Git source tree' >&2; \
+	  exit 1; \
+	fi
 	@rm -fr $(ALTERNATIVE_WRKSRC)
 	$(call cmd,chk-unzip-alt)
+endif
 endif
 else
 	$(call cmd,chk-unzip)
@@ -1366,118 +1340,70 @@ else
 	$(call cmd,extract-only)
 endif
 
-ifeq ($(USE_SCM),git)
+ifeq ($(_SOURCE_MODE),git)
+# $(call scm-environment)
+define scm-environment
+GIT_CMD=$(call source-quote,$(GIT_CMD))                                \
+SCM_CMD=$(call source-quote,$(SCM_CMD))                                \
+SCM_CMD_OPTS=$(call source-quote,$(SCM_CMD_OPTS))                      \
+SCM_REPO_URL=$(call source-quote,$(SCM_REPO_URL))                      \
+SCM_CACHE=$(call source-quote,$(SCM_CACHE))                            \
+SCM_CACHE_REPO=$(call source-quote,$(SCM_CACHE_REPO))                  \
+SCM_CACHE_UPDATE=$(call source-quote,$(SCM_CACHE_UPDATE))              \
+SCM_CACHE_UPDATE_REQUIRED=$(call source-quote,$(SCM_CACHE_UPDATE_REQUIRED)) \
+SCM_BRANCH=$(call source-quote,$(SCM_BRANCH))                          \
+SCM_DETACH=$(call source-quote,$(SCM_DETACH))                          \
+SCM_TIMEOUT=$(call source-quote,$(SCM_TIMEOUT))                        \
+SCM_TIMEOUT_BIN=$(call source-quote,$(SCM_TIMEOUT_BIN))                \
+SCM_LOCK_TIMEOUT=$(call source-quote,$(SCM_LOCK_TIMEOUT))              \
+SCM_FETCH_ENV=$(call source-quote,$(SCM_FETCH_ENV))                    \
+SCM_DIRTY_PACKAGE=$(call source-quote,$(SCM_DIRTY_PACKAGE))            \
+SCM_WORKTREE=$(call source-quote,$(abspath $(if                        \
+  $(filter yes,$(USE_ALTERNATIVE)),$(ALTERNATIVE_WRKSRC),$(WRKSRC))))  \
+SCM_WORKLINK=$(call source-quote,$(abspath $(WRKSRC)))
+endef
+
 quiet_cmd_git-cache-fetch	?= GIT     $(DISTNAME)(mirror)
-      cmd_git-cache-fetch	?= set -e;				\
-	$(MKDIR) `dirname $(SCM_CACHE_REPO)`;				\
-	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
-	    $(kecho) "  GIT     $(DISTNAME)(mirror clone)";		\
-	    _scm_tmp="$(SCM_CACHE_REPO).tmp.$$PPID";			\
-	    rm -rf "$$_scm_tmp";					\
-	    if $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	        $(SCM_CMD) --mirror $(SCM_REPO_URL) "$$_scm_tmp"; then	\
-	        mv "$$_scm_tmp" $(SCM_CACHE_REPO);			\
-	    else							\
-	        _scm_status=$$?;					\
-	        rm -rf "$$_scm_tmp";					\
-	        $(kecho) "  ERR     $(DISTNAME) mirror clone failed or timed out"; \
-	        exit $$_scm_status;					\
-	    fi;								\
-	else								\
-	    if [ "$(SCM_CACHE_UPDATE)" = "yes" ]; then			\
-	        $(kecho) "  GIT     $(DISTNAME)(mirror update)";	\
-	        if ! $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
-	            $(GIT_CMD) -C $(SCM_CACHE_REPO) remote update --prune; then \
-	            if [ "$(SCM_CACHE_UPDATE_REQUIRED)" = "yes" ]; then \
-	                false;						\
-	            else						\
-	                $(kecho) "  WRN     $(DISTNAME) mirror update failed; using cached repository"; \
-	            fi;							\
-	        fi;							\
-	    fi;								\
-	fi
+      cmd_git-cache-fetch	?= $(scm-environment)                  \
+	$(SH) $(SCRIPTSDIR)/do-scm.sh fetch
 
 quiet_cmd_git-check-cache-ref	?=
-      cmd_git-check-cache-ref	?= set -e;				\
-	if [ "$(SCM_CACHE)" = "no" ]; then				\
-	    exit 0;							\
-	fi;								\
-	if [ ! -d $(SCM_CACHE_REPO) ]; then				\
-	    $(kecho) "  ERR     missing git cache: $(SCM_CACHE_REPO)";	\
-	    false;							\
-	fi;								\
-	if [ ! -z "$(SCM_DETACH)" ]; then				\
-	    if ! $(GIT_CMD) -C $(SCM_CACHE_REPO) cat-file -e "$(SCM_DETACH)^{commit}" 2>/dev/null; then \
-	        $(kecho) "  ERR     cached repository does not contain $(SCM_DETACH)"; \
-	        false;							\
-	    fi;								\
-	fi
+      cmd_git-check-cache-ref	?= :
 
 quiet_cmd_git-clone	?=
-      cmd_git-clone	?= set -e;					\
-	if [ ! -z "$(SCM_BRANCH)" ]; then				\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        branches=`$(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)	\
-	            $(SCM_LS_CMD) $(SCM_REPO_URL) 2>/dev/null		\
-	            | grep "refs/heads" || true`;			\
-	    else							\
-	        branches=`$(GIT_CMD) -C $(SCM_CACHE_REPO) for-each-ref	\
-	            --format='%(refname)' refs/heads 2>/dev/null	\
-	            | $(SED) -e 's|^|0000000000000000000000000000000000000000	|' || true`; \
-	    fi;								\
-	    if [ -z "$$branches" ]; then				\
-	        $(kecho) "  ERR     Unable connect to $(SCM_REPO_URL)";	\
-	        false;							\
-	    fi;								\
-	    branch=`printf '%s\n' "$$branches"				\
-	        | awk -v want="$(SCM_BRANCH)"				\
-	            '{ name=$$2; sub("^refs/heads/", "", name);		\
-	               if (name == want || index(name, want)) { print name; exit } }'`; \
-	    if [ -z "$$branch" ]; then					\
-	        $(kecho) "  ERR     Can't find specific branch($$branch)"; \
-	        false;							\
-	    fi;								\
-	    cd $(WRKDIR);						\
-	    $(kecho) "  GIT     $(DISTNAME)(clone:$$branch)";		\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	            $(SCM_CMD) -b $$branch $(SCM_REPO_URL) $(DISTNAME);	\
-	    else							\
-	        $(SCM_CMD) -b $$branch $(SCM_CACHE_REPO) $(DISTNAME);	\
-	    fi;								\
-	else								\
-	    cd $(WRKDIR);						\
-	    $(kecho) "  GIT     $(DISTNAME)";				\
-	    if [ "$(SCM_CACHE)" = "no" ]; then				\
-	        $(SETENV) $(SCM_FETCH_ENV) $(SCM_TIMEOUT_CMD)		\
-	            $(SCM_CMD) $(SCM_CMD_OPTS) $(SCM_REPO_URL) $(SCM_DEST); \
-	    else							\
-	        $(SCM_CMD) $(SCM_CACHE_REPO) $(SCM_DEST);		\
-	    fi;								\
-	    if [ ! -z "$(SCM_DETACH)" ]; then				\
-	        cd $(WRKSRC);						\
-	        $(GIT_CMD) checkout --detach $(SCM_DETACH);		\
-	    fi;                                                         \
-	fi
+      cmd_git-clone	?= $(scm-environment)                          \
+	$(SH) $(SCRIPTSDIR)/do-scm.sh checkout
+
+.PHONY: scm-update
+scm-update:
+	@$(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh update
+	@$(source-state-environment) $(SH) $(SCRIPTSDIR)/source-state.sh save
+	@rm -f $(source-state-cookies) $(source-state-artifacts)
 endif
 
 ifeq ($(filter $(override_targets),do-extract),)
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 do-extract: $(EXTRACT_ONLY)
 else
 do-extract:
-ifeq ($(USE_SCM),git)
 	$(call cmd,git-check-cache-ref)
 	$(call cmd,git-clone)
 endif
 endif
-endif
 
 ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(_SOURCE_MODE),git)
+post-extract-alternative:
+	@:
+else
 quiet_cmd_post-extract-alt	?=
       cmd_post-extract-alt	?= set -e;				\
 	if [ -d $(ALTERNATIVE_WRKDIR) ]; then				\
 	    if [ -d $(WRKSRC) ]; then					\
+	        if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then          \
+	            printf '%s\n' 'Existing Git destination is preserved' >&2; \
+	            exit 1;                                               \
+	        fi;                                                       \
 	        rm -fr $(ALTERNATIVE_WRKSRC);				\
 	        mkdir -p $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX);	\
 	        mv $(WRKSRC) $(ALTERNATIVE_WRKSRC);			\
@@ -1487,6 +1413,7 @@ quiet_cmd_post-extract-alt	?=
 
 post-extract-alternative:
 	$(call cmd,post-extract-alt)
+endif
 
 post-extract: post-extract-alternative
 endif
@@ -1510,7 +1437,7 @@ endif
 
 ask-license:
 
-ifneq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),git)
 quiet_cmd_pre-init-repo	?=
       cmd_pre-init-repo	?= set -e;					\
 	cd $(WRKSRC);							\
@@ -1525,21 +1452,26 @@ endif
 
 .PHONY: prepare-submodules
 prepare-submodules:
+ifeq ($(_SOURCE_MODE),git)
 ifneq ($(strip $(SCM_SUBMODULES)),)
 	@WRKSRC="$(WRKSRC)" \
 	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
 	SCM_FETCH_ENV="$(SCM_FETCH_ENV)" \
+	SCM_TIMEOUT="$(SCM_TIMEOUT)" \
+	SCM_TIMEOUT_BIN="$(SCM_TIMEOUT_BIN)" \
 	SCM_TIMEOUT_CMD="$(SCM_TIMEOUT_CMD)" \
 	SUBMODULE_UPDATE_ARGS="$(SUBMODULE_UPDATE_ARGS)" \
 	GIT="$(GIT)" \
 	$(SH) $(SCRIPTSDIR)/submodule-prepare.sh
 endif
+endif
 
 .PHONY: apply-submodule-patches
 apply-submodule-patches:
-ifneq ($(strip $(SCM_SUBMODULES)),)
+ifneq ($(strip $(SUBMODULE_PATCH_PATHS)),)
 	@WRKSRC="$(WRKSRC)" \
-	SCM_SUBMODULES="$(SCM_SUBMODULES)" \
+	SOURCE_MODE="$(_SOURCE_MODE)" \
+	SUBMODULE_PATCH_PATHS="$(SUBMODULE_PATCH_PATHS)" \
 	SUBMODULE_PATCHDIR="$(SUBMODULE_PATCHDIR)" \
 	SUBMODULE_PATCH_METHOD="$(SUBMODULE_PATCH_METHOD)" \
 	SUBMODULE_GIT_AM_OPTS="$(SUBMODULE_GIT_AM_OPTS)" \
@@ -1644,7 +1576,7 @@ ifneq ($(EXTRA_PATCHES),)
 endif
 	$(call cmd,apply-patches)
 else
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 do-patch: git-init
 	$(call cmd,apply-git-patches)
 else
@@ -1854,6 +1786,15 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
+	$(if $(filter git,$(_SOURCE_MODE)),                              \
+	  $(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh package-check;) \
+	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),\
+	  $(source-state-environment)                                    \
+	    $(SH) $(SCRIPTSDIR)/source-state.sh save;                     \
+	  $(SH) $(SCRIPTSDIR)/package-provenance-merge.sh \
+	    $(source-package-provenance) \
+	    '$(package-dependency-provenance)' \
+	    $(SOURCE_STATE_FILE);) \
 	$(SETENV) $(PKG_ENV) $(SH) $(SCRIPTSDIR)/pkg.sh create; \
 	rm -f "$(WRKDIR)/dependency.configure.changed" "$(WRKDIR)/dependency.stage.changed"
 
@@ -1864,6 +1805,12 @@ ifeq ($(dependency-package-rebuild),yes)
 .PHONY: dependency-package-force
 dependency-package-force:
 $(WRKDIR_PKGFILE): dependency-package-force
+endif
+
+ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+.PHONY: source-package-force
+source-package-force:
+$(WRKDIR_PKGFILE): source-package-force
 endif
 
 _EXTRA_PACKAGE_TARGET_DEP	+= $(WRKDIR_PKGFILE)
@@ -2400,7 +2347,7 @@ endif
 #- makesum:
 
 checksum:
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 ifneq ($(NO_CHECKSUM),yes)
 	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
 	DISTINFO_REQUIRED="$(DISTINFO_REQUIRED)"			\
@@ -2413,14 +2360,14 @@ endif
 
 .PHONY: makesum
 makesum: fetch
-ifeq ($(USE_SCM),)
+ifeq ($(_SOURCE_MODE),dist)
 	@DISTINFO_FILE="$(DISTINFO_FILE)"				\
 	_DISTDIR="$(_DISTDIR)"					\
 	ALLFILES="$(ALLFILES)"					\
 	DIST_SUBDIR="$(DIST_SUBDIR)"				\
 	$(SH) $(SCRIPTSDIR)/makesum.sh
 else
-	@echo "  SKIP    makesum is not used with USE_SCM=$(USE_SCM)"
+	@echo "  SKIP    makesum is not used with SOURCE_MODE=$(_SOURCE_MODE)"
 endif
 
 ################################################################

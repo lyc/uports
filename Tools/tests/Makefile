@@ -1,163 +1,27 @@
-#
-# Makefile
-#
-#   regression fixture and demonstration of how to use tools.mk
-#
+.DEFAULT_GOAL := help
 
+PYTHON			?= python3
 testdir			:= $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-topdir			:= $(abspath $(testdir)/../../../..)
-FEEDS			?= $(testdir)/fixtures
-default_ignore_lists	= %
 
-# STEP 1: Create PORTS_LISTS
-#
-# Add port packages name (origin format) which you want to manage (bulk build)
-# into "PORTS_LISTS" variable.
-#
-# Port package naming format will be:
-#
-#    [group1@[group2@]]category/name
-#
-# where
-#
-#    group1,group2,...: virtual "port group" name which will be used to group
-#                       different port packages together for different purpose
-#             category: the folder where port package stored
-#                 name: the name of port package
-#
-# NOTE:
-#
-# 1. Every port package must belong to at least one "port group".
-# 2. Port group are assigned to port package by add as its prefix part of name
-#    with '@' separate mark.
-# 3. Mulitple port groups can be assigned to single port simultaneously.
-# 4. "Default group name" will be assigned to port package
-#    if no prefix part found.
-# 5. Default port group name are assigned on "PORTS_GROUP_DEFAULT" variable.
-# 6. If no PORTS_GROUP_DEFAULT assigned, "host" will be used as
-#    default port group name.
+.PHONY: help list slice6 slice7 slice8
+help:
+	@printf '%s\n' \
+	  'Real-world validation only; no tests run by default.' \
+	  'make -C Tools/tests list    List the active case and implementation commit' \
+	  'make -C Tools/tests slice6  Run real Mini-XML validation (network/builds)'
+	@printf '%s\n' \
+	  'make -C Tools/tests slice7  Run real Git worktree/cache validation'
+	@printf '%s\n' \
+	  'make -C Tools/tests slice8  Run real Elk archive/Git migration validation'
 
-PORTS_GROUP_DEFAULT	= target
-PORTS_LISTS		= textproc/expat2				\
-			  toolchain@math/gmp				\
-			  host@target@security/openssl			\
-			  target@devel/libffi
-PORTS_FALLBACK_LISTS	= host@devel/pkg-config
+list:
+	@cat "$(testdir)/manifest.json"
 
-# STEP 2: Setup Environment Variables
-#
-# Following environment variable will be sent to ports system
-#
-#  1. PORTS_ENVS
-#
-# Following environment variables will be added or removed while
-#
-#     specific port group: "ggg", and
-#     specific port package: "xxx"
-#
-# are assigned:
-#
-#  2. PORTS_ggg_ENVS : add
-#  3. PORTS_ggg_xxx_EXTRA_ENVS : add
-#  4. PORTS_ggg_xxx_EXCLUDE_ENVS : remove
-#
-# Possible candidates of environment variable may include:
-#
-#  USE_ALTERNATIVE: extract package source to other location
-#  ALTERNATIVE_WRKDIR: the place package source will be extracted
-#  PREFIX: the place built package will be installed
-#  DESTDIR: a varialbe prepended to PREFIX
-#  CROSS_COMPILE: if you are doing corss compile
-#
-# Note:
-#
-# Two special ENVs listed as below
-#
-#    TYPE_SUFFIX=% in PORTS_ENVS, and
-#    ggg_SUFFIX=% in PORTS_ggg_ENVS
-#
-# are using to combine together to form final TYPE_SUFFIX ENVs, and then
-# remove from environment variable list.
+slice6:
+	@$(PYTHON) "$(testdir)/slice6/check-mxml-source-live.py"
 
-wrkdir			= $(testdir)/local
-PREFIX			= /usr/local
-DESTDIR			= $(wrkdir)/target
-USE_HOSTTOOLS		= host
+slice7:
+	@$(PYTHON) "$(testdir)/slice7/check-scm-worktree-live.py"
 
-PORTS_ENVS		= USE_GLOBALBASE=yes				\
-			  DISTDIR_SITE=/opt/distfiles/ports		\
-			  PACKAGES_SITE=/opt/distfiles/ports/packages	\
-			  TYPE_SUFFIX=pj				\
-			  USE_ALTERNATIVE=yes
-
-PORTS_host_ENVS		= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
-			  host_SUFFIX=utils				\
-			  PREFIX=/usr/local				\
-			  DESTDIR=$(wrkdir)/host
-
-PORTS_target_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/target	\
-			  PREFIX=$(PREFIX)				\
-			  DESTDIR=$(DESTDIR)				\
-			  $(TEST_TARGET_ENVS)
-
-PORTS_toolchain_ENVS	= ALTERNATIVE_WRKDIR=$(wrkdir)/src/host		\
-			  PREFIX=/usr/local				\
-			  DESTDIR=$(wrkdir)/host
-
-PORTS_target_libffi_EXTRA_ENVS	= WITH_TESTS=yes
-PORTS_target_libffi_EXCLUDE_ENVS= USE_GLOBALBASE=%
-
-# include ports package at here...
-include ../tools.mk
-
-#
-# define your own targets...
-#
-
-.PHONY: regression.snapshot
-regression.snapshot:
-	@printf '%s\n'							\
-	  'ports_all_raw=$(ports_all_raw)'				\
-	  'ports_all=$(ports_all)'					\
-	  'groups_all=$(groups_all)'					\
-	  'ports_all_group=$(ports_all_group)'				\
-	  'ports_root_group=$(ports_root_group)'				\
-	  'ports_fallback_group=$(ports_fallback_group)'			\
-	  'ports_all_group_extra=$(ports_all_group_extra)'		\
-	  'flavor.ports_all_raw=$(flavor ports_all_raw)'			\
-	  'flavor.categories_all=$(flavor categories_all)'			\
-	  'flavor.ports_all_group=$(flavor ports_all_group)'		\
-	  'flavor.groups_all=$(flavor groups_all)'				\
-	  'flavor.ports_all_group_extra=$(flavor ports_all_group_extra)'	\
-	  'record.openssl.origin=$(port_openssl_origin)'			\
-	  'record.openssl.root=$(port_openssl_root)'				\
-	  'record.cpython.root=$(port_cpython_root)'				\
-	  'instance.target_libffi.origin=$(instance_target_libffi_origin)' \
-	  'instance.target_libffi.root=$(instance_target_libffi_root)'	\
-	  'instance.target_libffi.variant=$(instance_target_libffi_variant)' \
-	  'instance.key.default=$(call instance-key,target,libffi)'		\
-	  'instance.key.explicit-default=$(call instance-key,target,libffi,default)' \
-	  'instance.key.nondefault=$(call instance-key,target,libffi,shared)' \
-	  'instance.nondefault.origin=$(call instance-field,$(call instance-key,target,libffi,shared),origin)' \
-	  'instance.target_libffi.env=$(instance_target_libffi_env)'	\
-	  'work.target_libffi=$(call info_ports_work,target@devel/libffi)' \
-	  'flavor.env.target.libffi=$(flavor port_target_libffi_env)'	\
-	  'merge.paths=$(call merge,/prefix/,/pkgconfig,lib lib64)'		\
-	  'flavor.info_ports_opsys=$(flavor info_ports_opsys)'		\
-	  'flavor.info_ports_arch=$(flavor info_ports_arch)'			\
-	  'flavor.info_ports_cols=$(flavor info_ports_cols)'			\
-	  'host_SUFFIX=$(host_SUFFIX)'					\
-	  'target_SUFFIX=$(target_SUFFIX)'				\
-	  'toolchain_SUFFIX=$(toolchain_SUFFIX)'				\
-	  'origin.pkg-config=$(call get-dir,devel/pkg-config)'		\
-	  'origin.openssl=$(call get-dir,security/openssl)'			\
-	  'env.target.libffi=$(port_target_libffi_env)'
-
-.PHONY: check
-check:
-	@./regression.sh
-
-clean:
-	@find . -type f -name \*~ -o -name .DS_Store | xargs rm -fr
-
-distclean: clean
+slice8:
+	@$(PYTHON) "$(testdir)/slice8/check-elk-source-live.py"

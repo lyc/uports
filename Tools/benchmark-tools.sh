@@ -2,20 +2,18 @@
 
 set -eu
 
-scriptdir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-directory=$scriptdir/tests
+directory=
 runs=5
-label=tools-tests
+label=project
 
 usage()
 {
 	cat <<EOF
-usage: $0 [-C directory] [-n runs] [-l label] [make-variable=value ...]
+usage: $0 -C directory [-n runs] [-l label] [make-variable=value ...]
 
 Benchmark tools.mk planning without running package recipes.
 
 Examples:
-  $0
   $0 -C /path/to/project -l full
   $0 -C /path/to/project -l cpython PORTS_LISTS=lang/cpython
 EOF
@@ -73,6 +71,10 @@ case "$runs" in
 		;;
 esac
 
+[ -n "$directory" ] || {
+	printf '%s\n' 'Specify a real project with -C directory.' >&2
+	exit 2
+}
 directory=$(CDPATH= cd -- "$directory" && pwd)
 make_arguments=$*
 tmpdir=${TMPDIR:-/tmp}/uports-tools-benchmark.$$

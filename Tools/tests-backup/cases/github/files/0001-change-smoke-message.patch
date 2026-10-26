@@ -1,0 +1,15 @@
+From: uports tests <tests@example.invalid>
+Date: Fri, 16 Oct 2026 00:00:00 +0000
+Subject: [PATCH] change smoke message
+
+---
+ hello.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hello.c b/hello.c
+--- a/hello.c
++++ b/hello.c
+@@ -1,2 +1,2 @@
+ #include <stdio.h>
+-int main(void) { puts("unpatched archive"); return 0; }
++int main(void) { puts("patched GitHub archive"); return 0; }
