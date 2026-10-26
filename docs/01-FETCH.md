@@ -88,11 +88,18 @@ schema and compatibility baseline are retained in the local, untracked
 ## 3. Source Selection And Compatibility
 
 Explicit `DISTDIR`, `PACKAGES`, and `SCMDIR` settings take precedence. Defaults
-remain the mandatory framework-local `distfiles`, `packages`, and `scm` paths.
+must be the framework-local `distfiles`, `packages`, and `scm` paths.
 Existing local directories or symlinks take priority over `USE_GLOBALBASE` and
 the corresponding `*_SITE` settings. Global sites seed absent local paths with
 symlinks when global mode is enabled; they do not bypass existing local paths.
-Many uports operations depend on these three paths existing. See commit
+All three effective cache paths must be ready before any lifecycle operation,
+including when global mode is disabled or a site is unset. Preparation uses
+completed port settings before cache-dependent rules are selected. Absent
+paths become directories unless global policy supplies a site. Existing
+dangling symlinks retain their destinations and their missing targets are
+created where possible. A file, link to a file, or preparation failure stops
+make with an error. This preparation also runs for port metadata diagnostics.
+See commit
 `c37c37a` for the restoration of this compatibility behavior.
 
 Public selector:

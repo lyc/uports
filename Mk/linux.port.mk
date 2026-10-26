@@ -242,42 +242,31 @@ PKGDIR			?= $(MASTERDIR)
 
 PREFIX			?= $(LOCALBASE)
 
-# $(call set-global-link, dir_site, dir)
-define set-global-link
-  $(shell if [ -n "$1" ]; then						\
-	    if [ ! -e "$2" ] && [ ! -h "$2" ]; then			\
-	      if [ ! -d "$1" ] && [ ! -h "$1" ]; then		\
-	        mkdir -p "$1" || exit 1;					\
-	      fi;							\
+# $(call prepare-cache-directory, dir_site, dir)
+# The optional site seeds absent paths only; existing paths keep precedence.
+define prepare-cache-directory
+  $(if $(shell (if [ -z "$2" ]; then exit 1; fi;			\
+	  if [ ! -e "$2" ] && [ ! -h "$2" ]; then			\
+	    if [ -n "$1" ]; then						\
+	      mkdir -p "$1" "$$(dirname "$2")" || exit 1;		\
 	      if ! ln -sn "$1" "$2" 2>/dev/null &&			\
 	          [ ! -d "$2" ] && [ ! -h "$2" ]; then		\
-	        printf '%s\n' "Unable to create global link $2 -> $1" >&2;	\
+	        exit 1;							\
 	      fi;							\
-	    fi;							\
-	  fi)
+	    else							\
+	      mkdir -p "$2" || exit 1;					\
+	    fi;								\
+	  fi;								\
+	  if [ -h "$2" ] && [ ! -e "$2" ]; then			\
+	    target=$$(readlink "$2") || exit 1;				\
+	    if [ "$${target#/}" = "$$target" ]; then			\
+	      target="$$(dirname "$2")/$$target";			\
+	    fi;								\
+	    mkdir -p "$$target" || exit 1;				\
+	  fi;								\
+	  test -d "$2") >&2 || printf '%s' failed),			\
+    $(error Unable to prepare cache directory $2 (site $1)))
 endef
-
-# Seed only absent effective cache paths; preserve local paths and overrides.
-ifeq ($(USE_GLOBALBASE),yes)
-distfiles_NAME		:= DISTDIR
-packages_NAME		:= PACKAGES
-scm_NAME		:= SCMDIR
-ifneq ($(DISTDIR_SITE),)
-global_link_all		+= distfiles
-endif
-ifneq ($(PACKAGES_SITE),)
-global_link_all		+= packages
-endif
-ifneq ($(SCMDIR_SITE),)
-global_link_all		+= scm
-endif
-
-$(foreach d, $(global_link_all),					\
-  $(eval								\
-    $(if $($($d_NAME)_SITE),						\
-      $(call set-global-link,$($($d_NAME)_SITE),$($($d_NAME))),	\
-      $(error You are trying to use "USE_GLOBALBASE" but didn't set $($d_NAME)_SITE properly))))
-endif #'
 
 # $(call generate-config-all, cfg_name)
 define generate-config-all
@@ -363,6 +352,13 @@ check-if-post-makefile	:= $(strip					\
       $(if $(_POSTMKINCLUDED),						\
         $(error ERR, you cannot include linux.port[.post].mk twice),)
 _POSTMKINCLUDED		= yes
+
+# All three effective caches must be ready before lifecycle rules are read.
+# Use completed port settings; sites only select absent-path placement.
+$(foreach d,DISTDIR PACKAGES SCMDIR,					\
+  $(call prepare-cache-directory,$(strip				\
+    $(if $(filter yes,$(USE_GLOBALBASE)),$(if $($d_SITE),		\
+      $(abspath $($d_SITE))))),$($d)))
 
 WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
 
