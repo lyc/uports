@@ -47,6 +47,8 @@ __tr_template = $(__tr_head)$$(1)$(__tr_tail)
 $(eval toupper = $(call __tr_template,$(chars_lower),$(chars_upper)))
 $(eval tolower = $(call __tr_template,$(chars_upper),$(chars_lower)))
 
+include $(PORTSDIR)/Mk/linux.flavor.mk
+
 merge_dirs		= $(shell echo $1 | sed -e 's/ /:/g')
 
 # $(call setup_uses, use, use:args)
@@ -352,6 +354,22 @@ check-if-post-makefile	:= $(strip					\
       $(if $(_POSTMKINCLUDED),						\
         $(error ERR, you cannot include linux.port[.post].mk twice),)
 _POSTMKINCLUDED		= yes
+
+# Discovery precedes flavor-specific artifact isolation and dispatch support.
+# The default retains its legacy behavior; other flavors are discovery-only.
+ifneq ($(flavor-declared),)
+ifneq ($(flavor-selected),$(flavor-default))
+flavor-metadata-targets	= uports-flavor-metadata
+ifeq ($(MAKECMDGOALS),)
+$(error Flavor lifecycle execution is not available yet;			\
+  use uports-flavor-metadata)
+endif
+ifneq ($(filter-out $(flavor-metadata-targets),$(MAKECMDGOALS)),)
+$(error Flavor lifecycle execution requires artifact isolation		\
+  and dispatch support)
+endif
+endif
+endif
 
 # All three effective caches must be ready before lifecycle rules are read.
 # Use completed port settings; sites only select absent-path placement.
@@ -2412,6 +2430,15 @@ dependency-installed-cookie = $(strip $(or $(wildcard $(INSTALL_COOKIE)), \
 	$(if $(filter 1,$(words $(dependency-install-cookies))),         \
 	  $(dependency-install-cookies)),$(INSTALL_COOKIE)))
 .PHONY: uports-dependency-metadata
+.PHONY: uports-flavor-metadata
+uports-flavor-metadata:
+	@printf '%s\n'							\
+	  'flavor-schema|1'						\
+	  'flavors|$(flavor-declared)'					\
+	  'default|$(or $(flavor-default),default)'			\
+	  'selected|$(flavor-selected)'					\
+	  'execution|$(flavor-execution)'
+
 uports-dependency-metadata:
 	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)

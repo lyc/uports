@@ -566,6 +566,7 @@ aggregate-prerequisites = $(strip					\
 get-envs		= $(call target-instance-field,$1,env)
 
 include $(portdir)/Tools/dependency.mk
+include $(portdir)/Tools/flavor.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
 dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
