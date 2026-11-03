@@ -228,7 +228,7 @@ _SUF2			= ,$(PORTEPOCH)
 endif
 
 PKGVERSION		?= $(call portversion-tr2,$(PORTVERSION))$(_SUF1)$(_SUF2)
-PKGNAME			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION)
+PKGNAME			?= $(flavor-package-base)-$(PKGVERSION)
 DISTVERSIONFULL		?= $(DISTVERSIONPREFIX)$(call distversion-tr2,$(DISTVERSION))$(DISTVERSIONSUFFIX)
 DISTNAME		?= $(PORTNAME)-$(DISTVERSIONFULL)
 
@@ -378,7 +378,7 @@ $(foreach d,DISTDIR PACKAGES SCMDIR,					\
     $(if $(filter yes,$(USE_GLOBALBASE)),$(if $($d_SITE),		\
       $(abspath $($d_SITE))))),$($d)))
 
-WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
+WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/$(flavor-work-name)
 
 include $(PORTSDIR)/Mk/linux.source.mk
 include $(PORTSDIR)/Mk/linux.github.mk
@@ -395,10 +395,11 @@ endif
 
 source			:= $(word $(words $(subst /, ,$(WRKSRC))),$(subst /, ,$(WRKSRC)))
 ifeq ($(WRKDIR)/$(source),$(WRKSRC))
-ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(source)
+ALTERNATIVE_WRKSRC	= $(flavor-alternative-root)/$(source)
 else
 ALTERNATIVE_PREFIX	= $(patsubst $(WRKDIR)/%/$(source),%,$(WRKSRC))
-ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX)/$(source)
+alternative-parent	= $(flavor-alternative-root)/$(ALTERNATIVE_PREFIX)
+ALTERNATIVE_WRKSRC	= $(alternative-parent)/$(source)
 endif
 
 ifeq ($(FORCE_ALTERNATIVE),yes)
@@ -421,8 +422,11 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
+source-identity-required	= $(strip			       \
+			    $(or $(filter yes,$(_SOURCE_MODE_EXPLICIT)), \
+			      $(flavor-nondefault)))
 source-cookie-suffix	:= $(strip \
-	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),.$(source-identity-key)))
+	$(if $(source-identity-required),.$(source-identity-key)))
 source-cookie-name	= $(PKGNAME)$(source-cookie-suffix)
 EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(source-cookie-name)
 PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(source-cookie-name)
@@ -449,7 +453,8 @@ source-state-environment = \
 	SOURCE_STATE_ROOT='$(_SOURCE_ROOT_IDENTITY)' \
 	SOURCE_STATE_PATH='$(WRKSRC)' \
 	SOURCE_STATE_ARCHIVES='$(strip $(DISTFILES) $(PATCHFILES))' \
-	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'
+	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'		       \
+	SOURCE_STATE_FLAVOR='$(flavor-nondefault)'
 
 .PHONY: uports-source-state-check uports-source-state-save
 uports-source-state-check:
@@ -1051,7 +1056,8 @@ endif
 # stuff for install/deinstall/uninstall ...
 
 DESCR			?= $(PKGDIR)/pkg-descr
-PLIST			?= $(call config.lookup,$(PLIST_NAME))
+PLIST			?= $(strip $(call flavor-value,PLIST,	       \
+			    $(call config.lookup,$(PLIST_NAME))))
 PKGINSTALL		?= $(PKGDIR)/pkg-install
 PKGDEINSTALL		?= $(PKGDIR)/pkg-deinstall
 PKGREQ			?= $(PKGDIR)/pkg-req
@@ -1066,15 +1072,20 @@ TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
 # $(call config.ext,$(WRKDIR),$(PLIST))
 config.ext		= $(patsubst					\
 			    $(patsubst					\
-			      %/work$(TYPE_SUFFIX),%,$1)/pkg-plist%,%,$2)
+			      %/$(flavor-work-name),%,$1)/pkg-plist%,%,$2)
 ext			= $(call config.ext,$(WRKDIR),$(PLIST))
+ifneq ($(flavor-declared),)
+ifneq ($(origin $(flavor-selected)_PLIST),undefined)
+ext			= .$(OPSYS)
+endif
+endif
 # $(warning ext=$(ext))
 
 # $(call get-port-origin,$(MASTERDIR))
 get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
 
 source-package-provenance = $(WRKDIR)/package.source-provenance
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 package-provenance-file = $(source-package-provenance)
 package-source-state	= $(SOURCE_STATE_FILE)
 package-source-key	= $(source-identity-key)
@@ -1156,9 +1167,11 @@ PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
 
+include $(PORTSDIR)/Mk/linux.flavor.mk
+
 # Invalidate an earlier selection before make inspects its existing cookies.
 # Diagnostic and fetch-only requests must not invalidate build artifacts.
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 ifeq ($(findstring n,$(firstword -$(MAKEFLAGS))),)
 ifneq ($(filter all extract patch configure build stage package install \
   reinstall rebuild restage,$(MAKECMDGOALS)),)
@@ -1219,7 +1232,7 @@ package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 
 # The "latest version" link -- $(PKGNAME) minus everthing after the last '-'
 PKGLATESTREPOSITORY	?= $(PACKAGES)/Latest$(REPO_SUFX)
-PKGBASE			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)
+PKGBASE			?= $(flavor-package-base)
 PKGLATESTFILE		= $(PKGLATESTREPOSITORY)/$(PKGBASE)$(PKG_SUFX)
 #PKGOLDLATESTFILE	= $(PKGLATESTREPOSITORY)/$(PKGBASE).$(PKG_COMPRESSION_FORMAT)
 # Temporary workaround to be deleted once every supported version of FreeBSD
@@ -1304,7 +1317,8 @@ quiet_cmd_chk-unzip	?=
 ifeq ($(USE_ALTERNATIVE),yes)
 quiet_cmd_wrkdir-alt	?=
       cmd_wrkdir-alt	?= set -e;					\
-	[ -d $(ALTERNATIVE_WRKDIR) ] || mkdir -p $(ALTERNATIVE_WRKDIR)
+	[ -d $(flavor-alternative-root) ] ||			       \
+	    mkdir -p $(flavor-alternative-root)
 
 quiet_cmd_chk-unzip-alt	?=
       cmd_chk-unzip-alt	?= set -e;					\
@@ -1345,7 +1359,11 @@ ifeq ($(USE_ALTERNATIVE),yes)
 #        for example: sbl-elf-2.7.6
 quiet_cmd_extract-only-alt	?=
       cmd_extract-only-alt	?= set -e;				\
-	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi)
+	(cd $(flavor-alternative-root) &&			       \
+	    if [ -f $(_DISTDIR)/$@ ]; then			       \
+	        $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS)		       \
+	            $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS);	       \
+	    fi)
 endif
 
 ifeq ($(USE_STICKY),yes)
@@ -1355,7 +1373,11 @@ quiet_cmd_extract-only-sticky	?=
 	    case $(extract_cmd_name) in 				\
 	        unzip) mkdir -p $(ALTERNATIVE_WRKSRC);; 		\
 	    esac; 							\
-	    (cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi); \
+	    (cd $(flavor-alternative-root) &&			       \
+	        if [ -f $(_DISTDIR)/$@ ]; then			       \
+	            $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS)	       \
+	                $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS);	       \
+	        fi);						       \
 	fi
 endif
 
@@ -1431,14 +1453,15 @@ post-extract-alternative:
 else
 quiet_cmd_post-extract-alt	?=
       cmd_post-extract-alt	?= set -e;				\
-	if [ -d $(ALTERNATIVE_WRKDIR) ]; then				\
+	if [ -d $(flavor-alternative-root) ]; then		       \
 	    if [ -d $(WRKSRC) ]; then					\
 	        if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then          \
 	            printf '%s\n' 'Existing Git destination is preserved' >&2; \
 	            exit 1;                                               \
 	        fi;                                                       \
 	        rm -fr $(ALTERNATIVE_WRKSRC);				\
-	        mkdir -p $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX);	\
+	        mkdir -p					       \
+	            $(flavor-alternative-root)/$(ALTERNATIVE_PREFIX);  \
 	        mv $(WRKSRC) $(ALTERNATIVE_WRKSRC);			\
 	    fi;								\
 	    ln -s $(ALTERNATIVE_WRKSRC) $(WRKSRC);			\
@@ -1821,7 +1844,7 @@ quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
 	$(if $(filter git,$(_SOURCE_MODE)),                              \
 	  $(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh package-check;) \
-	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),\
+	$(if $(source-identity-required),			       \
 	  $(source-state-environment)                                    \
 	    $(SH) $(SCRIPTSDIR)/source-state.sh save;                     \
 	  $(SH) $(SCRIPTSDIR)/package-provenance-merge.sh \
@@ -1840,7 +1863,7 @@ dependency-package-force:
 $(WRKDIR_PKGFILE): dependency-package-force
 endif
 
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 .PHONY: source-package-force
 source-package-force:
 $(WRKDIR_PKGFILE): source-package-force
@@ -2437,7 +2460,30 @@ uports-flavor-metadata:
 	  'flavors|$(flavor-declared)'					\
 	  'default|$(or $(flavor-default),default)'			\
 	  'selected|$(flavor-selected)'					\
-	  'execution|$(flavor-execution)'
+	  'execution|$(flavor-execution)'			       \
+	  'path|work|$(WRKDIR)'					       \
+	  'path|source|$(WRKSRC)'				       \
+	  'path|stage|$(STAGEDIR)'				       \
+	  'path|plist|$(PLIST)'					       \
+	  'path|generated-plist|$(TMPPLIST)'			       \
+	  'path|source-state|$(SOURCE_STATE_FILE)'		       \
+	  'path|configure-state|$(call dependency-state-file-for,configure)' \
+	  'path|stage-state|$(call dependency-state-file-for,stage)'   \
+	  'package|name|$(PKGNAME)'				       \
+	  'package|base|$(PKGBASE)'				       \
+	  'package|cache|$(PKGFILE)'				       \
+	  'package|work|$(WRKDIR_PKGFILE)'			       \
+	  'source|request-key|$(source-identity-key)'		       \
+	  'source|flavor|$(flavor-nondefault)'			       \
+	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
+	  'cookie|patch|$(PATCH_COOKIE)'			       \
+	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \
+	  'cookie|build|$(BUILD_COOKIE)'			       \
+	  'cookie|stage|$(STAGE_COOKIE)'			       \
+	  'cookie|package|$(PACKAGE_COOKIE)'			       \
+	  'cookie|install|$(INSTALL_COOKIE)'
+	@$(if $(filter yes,$(USE_ALTERNATIVE)),printf '%s\n'	       \
+	  'path|alternative-source|$(ALTERNATIVE_WRKSRC)';,:)
 
 uports-dependency-metadata:
 	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)

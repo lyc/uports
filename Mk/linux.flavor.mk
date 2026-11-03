@@ -1,5 +1,5 @@
 #
-# linux.flavor.mk - Flavor declarations and read-only discovery
+# linux.flavor.mk - Flavor declarations, artifact identity and discovery
 #
 
 ifndef _INCLUDE_LINUX_FLAVOR_MK
@@ -43,6 +43,37 @@ endif
 endif
 
 flavor-selected		:= $(or $(strip $(FLAVOR)),default)
+flavor-nondefault	:= $(strip $(if $(flavor-declared),	       \
+			    $(filter-out $(flavor-default),$(flavor-selected))))
+flavor-work-suffix	= $(if $(flavor-nondefault),.flavor-$(flavor-selected))
+flavor-work-name		= work$(TYPE_SUFFIX)$(flavor-work-suffix)
+flavor-source-identity	= $(if $(flavor-nondefault),|flavor=$(flavor-selected))
+
+# $(call flavor-value, helper-name, fallback-value)
+# An explicitly empty helper is intentional, not an absent declaration.
+define flavor-value
+$(if $(flavor-declared),					       \
+  $(if $(filter undefined,					       \
+    $(origin $(flavor-selected)_$(strip $1))),		       \
+    $2,$($(flavor-selected)_$(strip $1))),$2)
+endef
+
+flavor-pkgnameprefix	= $(strip $(call flavor-value,		       \
+			    PKGNAMEPREFIX,$(PKGNAMEPREFIX)))
+flavor-helper-pkgsuffix	= $(strip $(call flavor-value,		       \
+			    PKGNAMESUFFIX,$(PKGNAMESUFFIX)))
+flavor-pkgnamesuffix	= $(flavor-helper-pkgsuffix)$(flavor-auto-pkgsuffix)
+flavor-package-stem	= $(flavor-pkgnameprefix)$(PORTNAME)
+flavor-package-base	= $(flavor-package-stem)$(flavor-pkgnamesuffix)
+flavor-auto-pkgsuffix	= $(strip				       \
+			    $(if $(flavor-nondefault),		       \
+			      $(if $(filter undefined,		       \
+			        $(origin $(flavor-selected)_PKGNAMESUFFIX)), \
+			        -$(flavor-selected))))
+
+# All extraction destinations use this effective root, not the shared base.
+flavor-alternative-root	= $(ALTERNATIVE_WRKDIR)$(flavor-work-suffix)
+
 flavor-execution	:= legacy
 ifneq ($(flavor-declared),)
 flavor-execution	:= pending
@@ -51,4 +82,49 @@ flavor-execution	:= legacy-default
 endif
 endif
 
+endif
+
+ifdef _POSTMKINCLUDED
+ifndef _INCLUDE_LINUX_FLAVOR_POST_MK
+_INCLUDE_LINUX_FLAVOR_POST_MK	:= yes
+
+ifneq ($(flavor-nondefault),)
+ifeq ($(filter %$(flavor-work-suffix),$(WRKDIR)),)
+$(error Nondefault WRKDIR must end in $(flavor-work-suffix))
+endif
+ifneq ($(strip $(PKGBASE)),)
+ifeq ($(PKGBASE),$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX))
+$(error Nondefault PKGBASE collides with the unflavored package base)
+endif
+endif
+ifeq ($(PKGNAME),$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION))
+$(error Nondefault PKGNAME collides with the unflavored package name)
+endif
+ifneq ($(notdir $(PKGFILE)),$(PKGNAME)$(PKG_SUFX))
+$(error Nondefault PKGFILE must use the flavor package filename)
+endif
+
+# $(call flavor-confined-path, variable-name)
+# Reject mutable artifact overrides outside the selected work namespace.
+define flavor-confined-path
+$(if $(filter $(abspath $(WRKDIR))/%,$(abspath $($1))),,	       \
+  $(error $1 must be inside the nondefault flavor WRKDIR))
+endef
+
+$(foreach v,WRKSRC PATCH_WRKSRC CONFIGURE_WRKSRC		       \
+	BUILD_WRKSRC INSTALL_WRKSRC STAGEDIR TMPPLIST SOURCE_STATE_FILE \
+	DEPENDENCY_STATE_FILE EXTRACT_COOKIE PATCH_COOKIE	       \
+	CONFIGURE_COOKIE BUILD_COOKIE STAGE_COOKIE INSTALL_COOKIE      \
+	PACKAGE_COOKIE WRKDIR_PKGFILE,				       \
+  $(call flavor-confined-path,$v))
+
+ifeq ($(USE_ALTERNATIVE),yes)
+ifeq ($(filter $(abspath $(flavor-alternative-root))/%,		       \
+	$(abspath $(ALTERNATIVE_WRKSRC))),)
+$(error ALTERNATIVE_WRKSRC must use the nondefault flavor source root)
+endif
+endif
+endif
+
+endif
 endif
