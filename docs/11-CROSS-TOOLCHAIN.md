@@ -197,9 +197,9 @@ make flavor-list
 This is demand-driven metadata collection: no extra port probes or selected
 nondefault instance records are added to ordinary planner startup. Existing
 info.debug.variants still describes the implemented planner's implicit default
-instances. FLAVOR_REQUEST is an inspection selector, not a new build-target
-grammar. Explicit flavored lifecycle syntax is a separate wrapper decision;
-the colon/double-@ alternatives below remain proposals.
+instances. FLAVOR_REQUEST is an inspection selector. It may include the selected
+Flavor as [group@]port:flavor; existing scoped FLAVOR queries remain supported.
+Conflicting selections are rejected. Lifecycle target syntax is defined below.
 
 ### Toolchain Profile Contract
 
@@ -397,7 +397,7 @@ cache/work files, source key/Flavor and lifecycle cookies. Alternative-source
 paths appear when enabled. Schema 1 permits additive artifact records. Metadata
 inspection alone does not prove runtime isolation or safe coinstallation.
 
-### Wrapper And Dependency Integration (Proposed)
+### Wrapper Selection And Dependency Contract
 
 Use FreeBSD-compatible FLAVORS/FLAVOR concepts with GNU Make syntax. Map
 them onto the existing internal variant dimension, not a second parallel
@@ -426,10 +426,33 @@ roles and readiness are attached to these instances rather than introducing
 a second configuration selector. Target triples/ABIs remain
 first-class configuration: naming a flavor does not itself configure GCC.
 
-The earlier group design proposes a colon-qualified variant target, whereas
-discussion also considered a second @ delimiter. Neither is approved here.
-Choose one grammar after auditing GNU Make target parsing, dependency-origin
-flavor syntax and current group aliases. Preserve existing unqualified targets.
+Public flavored targets use [group@]port:flavor.phase. Examples:
+
+```sh
+make gforth:libffcall.fetch
+make compiler@gforth:libffcall.fetch
+make compiler@gforth:default.fetch
+make gforth:libffcall.flavor-check
+```
+
+Resolve group/port through existing canonical and alias rules before applying
+the Flavor. Rejected or ambiguous aliases require an explicit group. Preserve
+unqualified targets; explicit default selection uses the existing default
+instance and state rather than creating a second configuration. Validate the
+selection against the actual port declaration before dispatch. Names follow
+the declaration character rules, with exactly one nonempty Flavor qualifier.
+Literal colons are escaped only at make rule/prerequisite syntax boundaries;
+normalized target strings remain unescaped data through recursive dispatch.
+
+Projects may select a Flavor through the existing per-instance environment,
+for example PORTS_compiler_gforth_EXTRA_ENVS=FLAVOR=libffcall. A qualified target
+overrides that instance selection. Do not use a global FLAVOR to select wrapper
+lifecycle work; it could otherwise affect unrelated providers. Direct port
+FLAVOR and the existing scoped discovery interface retain their meaning.
+Generate rules only for requested/configured selections, without expanding all
+declared Flavors across the project. Target .flavor-check performs metadata
+inspection without executing the selected lifecycle. Implementation availability
+and remaining dependency-enabled lifecycle work are recorded in the tracker.
 
 Separate work/build/stage directories, cookies, dependency state, package
 identity and install records for incompatible instances. Distinct package

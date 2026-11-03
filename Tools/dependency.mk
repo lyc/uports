@@ -431,6 +431,8 @@ endef
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(if $(findstring :,$(dependency-requests)),		       \
+	  $(error Qualified dependency requests need flavored resolution)) \
 	$(eval dependency_scope_ready := no) \
 	$(eval dependency_planning_only := no) \
 	$(if $(dependency-scope-enabled),,\

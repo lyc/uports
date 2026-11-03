@@ -355,18 +355,17 @@ check-if-post-makefile	:= $(strip					\
         $(error ERR, you cannot include linux.port[.post].mk twice),)
 _POSTMKINCLUDED		= yes
 
-# Discovery precedes flavor-specific artifact isolation and dispatch support.
-# The default retains its legacy behavior; other flavors are discovery-only.
+# Source operations do not require the pending flavored dependency graph.
+# Default lifecycle behavior is unchanged; other phases remain blocked.
 ifneq ($(flavor-declared),)
 ifneq ($(flavor-selected),$(flavor-default))
-flavor-metadata-targets	= uports-flavor-metadata
+flavor-metadata-targets	= uports-flavor-metadata fetch makesum checksum
 ifeq ($(MAKECMDGOALS),)
 $(error Flavor lifecycle execution is not available yet;			\
   use uports-flavor-metadata)
 endif
 ifneq ($(filter-out $(flavor-metadata-targets),$(MAKECMDGOALS)),)
-$(error Flavor lifecycle execution requires artifact isolation		\
-  and dispatch support)
+$(error Nondefault Flavor lifecycle needs flavored dependencies)
 endif
 endif
 endif

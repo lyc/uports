@@ -468,11 +468,23 @@ $(foreach p,$(ports_all_group),					\
 # $(call instance-field, instance-key, field)
 instance-field		= $(instance_$(strip $1)_$(strip $2))
 
-# $(call target-instance-key, group@port.suffix)
+# Explicit default selections re-enter the existing lifecycle with one scoped
+# environment record, so metadata, state and dispatch describe the same inputs.
+ifneq ($(strip $(_UPORTS_FLAVOR_TARGET)),)
+flavor-bridge-key	:= $(call instance-key,				\
+	$(call get-group,$(_UPORTS_FLAVOR_TARGET)),			\
+	$(call extract-port,$(call rm-group,$(_UPORTS_FLAVOR_TARGET))))
+instance_$(flavor-bridge-key)_env := $(strip				\
+	$(filter-out FLAVOR=%,						\
+	  $(call instance-field,$(flavor-bridge-key),env)))
+endif
+
+# $(call target-instance-key, group@port[:flavor].suffix)
+# Base lookup is shared; qualified dependency nodes are not enabled here.
 target-instance-key	= $(call instance-key,				\
 			    $(strip $(firstword $(call rm-at,$1))),	\
-			    $(strip $(call extract-port,		\
-			      $(call rm-group,$1))))
+			    $(firstword $(subst :, ,		       \
+			      $(call extract-port,$(call rm-group,$1)))))
 
 # $(call target-instance-field, group@port.suffix, field)
 target-instance-field	= $(call instance-field,			\
@@ -510,11 +522,13 @@ ports_aggregate_target_all := $(ports_category_target_all)		\
 			      $(ports_global_target_all)
 ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 
-# $(call resolve-port-target, [group@]port.suffix)
-resolve-port-target	= $(strip					\
+# $(call resolve-unflavored-port-target, [group@]port.suffix)
+resolve-unflavored-port-target = $(strip			       \
 			    $(if $(filter $1,$(ports_target_all)),$1,	\
 			      $(if $(filter $1,$(ports_alias_target_all)),	\
 			        $(call target-alias-canonical,$1))))
+# Tools/flavor.mk extends this after dependency declarations have loaded.
+resolve-port-target	= $(call resolve-unflavored-port-target,$1)
 resolved-port-target	= $(call resolve-port-target,$@)
 
 # $(call aggregate-target-name, aggregate.suffix)
@@ -610,7 +624,13 @@ uports-force:
 # Validate pattern-matched lifecycle targets before dispatch. Shared patterns
 # must not turn unknown canonical or short aliases into accepted targets.
 validate-port-target	= $(if $(resolved-port-target),,		\
-			    $(error Unknown uports lifecycle target: $@))
+			    $(error Unknown uports lifecycle target: $@)) \
+			  $(if $(strip $(FLAVOR)),		       \
+			    $(error Use port:flavor.phase,	       \
+			      not global FLAVOR))		       \
+			  $(if $(flavor-mixed-goals),		       \
+			    $(error Do not mix qualified and unqualified \
+			      requests for the same port/phase))
 
 .SECONDEXPANSION:
 
