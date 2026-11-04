@@ -76,7 +76,7 @@ flavor-alternative-root	= $(ALTERNATIVE_WRKDIR)$(flavor-work-suffix)
 
 flavor-execution	:= legacy
 ifneq ($(flavor-declared),)
-flavor-execution	:= source-only
+flavor-execution	:= enabled
 ifeq ($(flavor-selected),$(flavor-default))
 flavor-execution	:= legacy-default
 endif

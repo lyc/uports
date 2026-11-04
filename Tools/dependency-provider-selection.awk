@@ -275,10 +275,15 @@ function emit_environments(consumer_count, i, node, identity, key, sysroot, j, r
 		if (exports && (consumer[i] != export_node ||
 		    !dependency_needed(export_phase, type[i])))
 			continue
-		if (resolved_resolution[i] != "selected" || resolved_state[i] != "validated")
+		if (resolved_resolution[i] != "selected")
 			continue
 		node = consumer[i]
 		identity = resolved_identity[i]
+		if (resolved_state[i] != "validated" &&
+		    !(resolved_kind[i] == "uports" &&
+		      (contribution_count[identity, origin[i], "bindir"] ||
+		       contribution_count[identity, origin[i], "libdir"])))
+			continue
 		if (!(node in environment_consumer_seen)) {
 			environment_consumer_seen[node] = 1
 			environment_consumer[++consumer_count] = node

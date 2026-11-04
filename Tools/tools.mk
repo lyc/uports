@@ -450,6 +450,12 @@ normalize-instance-variant = $(or $(strip $1),$(instance-default-variant))
 # for future explicitly selected variants.
 instance-key		= $(strip $1)_$(strip $2)$(if $(filter-out $(instance-default-variant),$(call normalize-instance-variant,$3)),_$(call normalize-instance-variant,$3))
 
+# $(call generate-instance-flavor-record, instance-key, environment)
+define generate-instance-flavor-record
+  instance_$(strip $1)_project_flavor := $(patsubst FLAVOR=%,%,	       \
+    $(lastword $(filter FLAVOR=%,$2)))
+endef
+
 # $(call generate-instance-record, group@category/port)
 define generate-instance-record
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_group := $(call get-group,$1)
@@ -459,6 +465,9 @@ define generate-instance-record
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_origin := $(port_$(call get-port,$1)_origin)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_root := $(port_$(call get-port,$1)_root)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_env := $(port_$(call get-group,$1)_$(call get-port,$1)_env)
+$(call generate-instance-flavor-record,				       \
+  $(call instance-key,$(call get-group,$1),$(call get-port,$1)),       \
+  $(port_$(call get-group,$1)_$(call get-port,$1)_env))
 endef
 
 $(foreach p,$(ports_all_group),					\
@@ -468,28 +477,32 @@ $(foreach p,$(ports_all_group),					\
 # $(call instance-field, instance-key, field)
 instance-field		= $(instance_$(strip $1)_$(strip $2))
 
-# Explicit default selections re-enter the existing lifecycle with one scoped
-# environment record, so metadata, state and dispatch describe the same inputs.
-ifneq ($(strip $(_UPORTS_FLAVOR_TARGET)),)
-flavor-bridge-key	:= $(call instance-key,				\
-	$(call get-group,$(_UPORTS_FLAVOR_TARGET)),			\
-	$(call extract-port,$(call rm-group,$(_UPORTS_FLAVOR_TARGET))))
-instance_$(flavor-bridge-key)_env := $(strip				\
-	$(filter-out FLAVOR=%,						\
-	  $(call instance-field,$(flavor-bridge-key),env)))
-endif
-
-# $(call target-instance-key, group@port[:flavor].suffix)
-# Base lookup is shared; qualified dependency nodes are not enabled here.
-target-instance-key	= $(call instance-key,				\
+# $(call target-base-instance-key, group@port[:flavor].suffix)
+# The dependency Flavor module later resolves nondefault node keys.
+target-base-instance-key	= $(call instance-key,		       \
 			    $(strip $(firstword $(call rm-at,$1))),	\
 			    $(firstword $(subst :, ,		       \
 			      $(call extract-port,$(call rm-group,$1)))))
+target-instance-key	= $(call target-base-instance-key,$1)
+
+# A validated wrapper selection uses one scoped base record. Nondefault
+# instances are registered separately after Flavor helpers load.
+ifneq ($(strip $(_UPORTS_FLAVOR_TARGET)),)
+flavor-bridge-key	:= $(call target-base-instance-key,                \
+	$(_UPORTS_FLAVOR_TARGET))
+instance_$(flavor-bridge-key)_env := $(strip				\
+	$(filter-out FLAVOR=%,						\
+	  $(call instance-field,$(flavor-bridge-key),env)))
+instance_$(flavor-bridge-key)_project_flavor :=
+endif
 
 # $(call target-instance-field, group@port.suffix, field)
-target-instance-field	= $(call instance-field,			\
-			    $(strip $(call target-instance-key,$1)),	\
-			    $(strip $2))
+define target-instance-field
+$(strip $(if $(filter undefined,				       \
+  $(origin instance_$(strip $(call target-instance-key,$1))_$(strip $2))), \
+  $(call instance-field,$(call target-base-instance-key,$1),$2),       \
+  $(call instance-field,$(call target-instance-key,$1),$2)))
+endef
 
 # $(call target-alias-port, port.suffix)
 target-alias-port	= $(call extract-port,$(call rm-group,$1))
@@ -581,6 +594,7 @@ get-envs		= $(call target-instance-field,$1,env)
 
 include $(portdir)/Tools/dependency.mk
 include $(portdir)/Tools/flavor.mk
+include $(portdir)/Tools/dependency-flavor.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
 dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)

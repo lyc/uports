@@ -202,6 +202,22 @@ END {
 	}
 	if (unresolved_count && !unchecked) {
 		printf "unresolved_dependencies = %d\n", unresolved_count > "/dev/stderr"
+		error_format = ("unresolved dependency: consumer=%s " \
+		                "type=%s origin=%s resolution=%s\n")
+		for (n = 1; n <= node_count; n++) {
+			consumer = node_order[n]
+			if (!(consumer in requested))
+				continue
+			for (i = 1; i <= dependency_count[consumer]; i++) {
+				if (!unresolved[consumer, i])
+					continue
+				printf error_format, consumer,
+				       dependency_type[consumer, i],
+				       dependency_origin[consumer, i],
+				       dependency_resolution[consumer, i] \
+				    > "/dev/stderr"
+			}
+		}
 		exit 1
 	}
 	if (invalid_target_count && !unchecked) {

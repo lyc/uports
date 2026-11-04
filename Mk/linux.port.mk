@@ -355,21 +355,6 @@ check-if-post-makefile	:= $(strip					\
         $(error ERR, you cannot include linux.port[.post].mk twice),)
 _POSTMKINCLUDED		= yes
 
-# Source operations do not require the pending flavored dependency graph.
-# Default lifecycle behavior is unchanged; other phases remain blocked.
-ifneq ($(flavor-declared),)
-ifneq ($(flavor-selected),$(flavor-default))
-flavor-metadata-targets	= uports-flavor-metadata fetch makesum checksum
-ifeq ($(MAKECMDGOALS),)
-$(error Flavor lifecycle execution is not available yet;			\
-  use uports-flavor-metadata)
-endif
-ifneq ($(filter-out $(flavor-metadata-targets),$(MAKECMDGOALS)),)
-$(error Nondefault Flavor lifecycle needs flavored dependencies)
-endif
-endif
-endif
-
 # All three effective caches must be ready before lifecycle rules are read.
 # Use completed port settings; sites only select absent-path placement.
 $(foreach d,DISTDIR PACKAGES SCMDIR,					\
@@ -421,6 +406,12 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
+ifneq ($(flavor-declared),)
+BUILD_DEPENDS		+= $($(flavor-selected)_BUILD_DEPENDS)
+LIB_DEPENDS		+= $($(flavor-selected)_LIB_DEPENDS)
+RUN_DEPENDS		+= $($(flavor-selected)_RUN_DEPENDS)
+endif
+
 source-identity-required	= $(strip			       \
 			    $(or $(filter yes,$(_SOURCE_MODE_EXPLICIT)), \
 			      $(flavor-nondefault)))
@@ -2485,6 +2476,10 @@ uports-flavor-metadata:
 	  'path|alternative-source|$(ALTERNATIVE_WRKSRC)';,:)
 
 uports-dependency-metadata:
+	@printf '%s\n' 'context|$(OPSYS)|$(ARCH)'
+	@printf '%s\n' 'flavor-default|$(or $(flavor-default),default)' \
+	  'flavor-selected|$(flavor-selected)'
+	@$(foreach f,$(flavor-declared),printf '%s\n' 'flavor-choice|$f';)
 	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
 	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)

@@ -404,7 +404,7 @@ them onto the existing internal variant dimension, not a second parallel
 variant implementation. The initial scope includes declared choices, default
 selection, relevant naming/plist/dependency helpers and wrapper integration.
 
-The proposed rules are:
+Dependency selection follows these rules:
 
 - A port declares supported flavors; its first declaration is the default.
 - A project selects the needed flavor(s) for a group/port. Do not expand every
@@ -420,7 +420,7 @@ The proposed rules are:
   recursive builds. An unspecified dependency flavor resolves to the provider's
   documented default; any deliberate propagation must be explicit.
 
-Proposed identity is group + resolved origin + selected flavor, with target
+Instance identity is group + resolved origin + selected flavor, with target
 profile and configuration represented in saved build/package state. Bootstrap
 roles and readiness are attached to these instances rather than introducing
 a second configuration selector. Target triples/ABIs remain
@@ -453,6 +453,24 @@ Generate rules only for requested/configured selections, without expanding all
 declared Flavors across the project. Target .flavor-check performs metadata
 inspection without executing the selected lifecycle. Implementation availability
 and remaining dependency-enabled lifecycle work are recorded in the tracker.
+
+Dependency declarations use `requirement:category/port@flavor[:phase]`.
+The qualifier is part of the logical requirement and is resolved against the
+actual provider declaration. Existing origin/capability and group policy apply;
+unqualified requirements use the provider's default independently of project
+root selections. A generic external provider cannot substitute for a named
+uports Flavor without an explicit configuration contract. See the detailed
+[dependency interface](10.4-DEPENDENCY.md#flavor-selection-and-dependency-instances).
+
+Default instance keys retain compatibility. Nondefault keys append
+`__flavor_<name>` and carry their own metadata, cookies and saved state.
+Metadata snapshots retain the chosen variants across recursive make. Probes
+clear inherited FLAVOR before applying an instance selection. Flavor-specific
+BUILD_DEPENDS/LIB_DEPENDS/RUN_DEPENDS helpers add to ordinary requirements.
+Selected provider paths come from its installation root, including native build
+tools and matching target libraries; consumer tuple prefixes do not replace
+provider paths. OS/architecture checks support the native/target boundary;
+bootstrap ABI/output readiness remains part of the stage contract.
 
 Separate work/build/stage directories, cookies, dependency state, package
 identity and install records for incompatible instances. Distinct package
