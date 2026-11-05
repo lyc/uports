@@ -475,6 +475,7 @@ dependency-state-file-override := $(strip $(DEPENDENCY_STATE_FILE))
 DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
 dependency-state-file-for = $(if $(dependency-state-file-override),\
 	$(dependency-state-file-override),$(WRKDIR)/dependency.$1.state)
+dependency-build-state-file = $(call dependency-state-file-for,configure)
 dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
 	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
 	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
@@ -496,6 +497,7 @@ uports-dependency-state-invalidate:
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
 	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
 	  DEPENDENCY_STATE_BUILD_COOKIES="$(CONFIGURE_COOKIE) $(BUILD_COOKIE)" \
+	  DEPENDENCY_STATE_BUILD_FILE="$(dependency-build-state-file)" \
 	  DEPENDENCY_STATE_BUILD_MARKER="$(WRKDIR)/dependency.configure.changed" \
 	  DEPENDENCY_STATE_REBUILD_MARKER="$(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).changed" \
 	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \

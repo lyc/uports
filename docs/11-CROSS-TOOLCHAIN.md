@@ -457,6 +457,11 @@ comparison normalizes old/new uports command spellings, including embedded
 build-state records. Syntax alone does not invalidate build state; provider,
 Flavor and phase changes remain significant.
 
+Stage/install invalidation compares its embedded configure/build projection
+against the saved configure state when available. Missing or older stage state
+alone must not discard a matching completed build. Changed build dependencies
+still invalidate configure/build cookies.
+
 Resolve group/port through existing canonical and alias rules before applying
 the Flavor. Rejected or ambiguous aliases require an explicit group. Preserve
 unqualified targets; explicit default selection uses the existing default

@@ -81,7 +81,13 @@ printf 'dependency_state = %s\n' "$state"
 	# A stage request can also carry a changed configure/build projection.
 	if grep -q '^build-state|' "$source_normalized"; then
 		grep '^build-state|' "$source_normalized" > "$source_normalized.build"
-		grep '^build-state|' "$saved_normalized" > "$saved_normalized.build" || :
+		if [ -f "${DEPENDENCY_STATE_BUILD_FILE:-}" ]; then
+			normalize_state "$DEPENDENCY_STATE_BUILD_FILE" |
+				sed 's/^/build-state|/' > "$saved_normalized.build"
+		else
+			grep '^build-state|' "$saved_normalized" \
+				> "$saved_normalized.build" || :
+		fi
 		if ! cmp -s "$source_normalized.build" "$saved_normalized.build"; then
 			if [ -n "${DEPENDENCY_STATE_BUILD_MARKER:-}" ]; then
 				mkdir -p "${DEPENDENCY_STATE_BUILD_MARKER%/*}"
