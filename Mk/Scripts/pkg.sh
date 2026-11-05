@@ -45,6 +45,127 @@ validate_env() {
 #      %%%%% (end of pkg-plist.EXT, must same as separator defined in previously)
 #      TXZ BLOB
 
+# match_packages query database [match-origin]
+match_packages() {
+    awk -v p="$1" -v match_origin="${3:-0}" '
+# Match an installed full name or its exact base, never a name prefix.
+{
+    name = $1
+    sub(/:$/, "", name)
+    suffix = "-" $2
+    base = name
+    if (substr(name, length(name) - length(suffix) + 1) == suffix)
+        base = substr(name, 1, length(name) - length(suffix))
+    if (name == p || base == p || (match_origin && $3 == p))
+        print
+}
+    ' "$2"
+}
+
+# parse_plist runtime-prefix manifest
+parse_plist() {
+    awk -v prefix="$1" '
+# Normalize the bounded uports plist subset into kind|prefix-relative-path.
+function invalid(message) {
+	printf "invalid plist entry at %s:%d: %s\n", FILENAME, FNR, \
+	    message > "/dev/stderr"
+	exit 1
+}
+{
+	line = $0
+	if (line == "" || line ~ /^@comment([[:space:]]|$)/)
+		next
+	kind = "path"
+	if (line ~ /^@dir[[:space:]]+/) {
+		kind = "dir"
+		sub(/^@dir[[:space:]]+/, "", line)
+	} else if (line ~ /^@rmdir[[:space:]]+/) {
+		kind = "cleanup"
+		sub(/^@rmdir[[:space:]]+/, "", line)
+	} else if (line ~ /^@/)
+		invalid("unsupported or malformed directive: " line)
+	if (line ~ /%%/ || line ~ /[[:space:]|]/)
+		invalid("unresolved token or unsupported path: " line)
+	if (line ~ /^\//) {
+		if (kind != "cleanup")
+			invalid("absolute paths are only supported for @rmdir")
+		base = prefix
+		sub(/\/$/, "", base)
+		if (prefix !~ /^\// || index(line, base "/") != 1)
+			invalid("cleanup path is outside PREFIX: " line)
+		line = substr(line, length(base) + 2)
+	}
+	if (line ~ /\/\//)
+		invalid("empty path component: " line)
+	sub(/^\.\//, "", line)
+	sub(/\/$/, "", line)
+	if (line == "" || line ~ /(^|\/)\.\.?($|\/)/ || line ~ /^\//)
+		invalid("path must stay below PREFIX: " line)
+	path = "./" line
+	if (path in seen)
+		invalid("duplicate path: " path)
+	seen[path] = 1
+	print kind "|" path
+}
+    ' "$2"
+}
+
+# check_plist staged-prefix manifest runtime-prefix
+# Isolate its temporary-directory trap from the archive writer's trap.
+check_plist() (
+    set -eu
+    root=$1
+    plist=$2
+    prefix=$3
+    temporary=$(mktemp -d "${TMPDIR:-/tmp}/uports-plist-check.XXXXXX")
+    trap 'rm -rf -- "$temporary"' EXIT HUP INT TERM
+
+    [ -d "$root" ] || {
+        printf '  ERR     staged prefix is missing: %s\n' "$root" >&2
+        exit 1
+    }
+    [ -r "$plist" ] || {
+        printf '  ERR     package manifest is not readable: %s\n' "$plist" >&2
+        exit 1
+    }
+    parse_plist "$prefix" "$plist" > "$temporary/records"
+    : > "$temporary/expected-paths"
+    while IFS='|' read -r kind path
+    do
+        case "$kind" in
+            dir)
+            if [ ! -d "$root/${path#./}" ] ||
+                [ -L "$root/${path#./}" ]; then
+                printf '  ERR     declared directory is missing: %s\n' \
+                    "$path" >&2
+                exit 1
+            fi
+            ;;
+            cleanup)
+            if [ ! -e "$root/${path#./}" ] &&
+                [ ! -L "$root/${path#./}" ]; then
+                continue
+            fi
+            if [ ! -d "$root/${path#./}" ] ||
+                [ -L "$root/${path#./}" ]; then
+                printf '  ERR     invalid cleanup directory: %s\n' \
+                    "$path" >&2
+                exit 1
+            fi
+            ;;
+        esac
+        printf '%s\n' "$path" >> "$temporary/expected-paths"
+    done < "$temporary/records"
+    LC_ALL=C sort "$temporary/expected-paths" > "$temporary/expected"
+    (cd "$root" && find . -print) > "$temporary/inventory"
+    sed '/^\.$/d' "$temporary/inventory" > "$temporary/paths"
+    LC_ALL=C sort "$temporary/paths" > "$temporary/actual"
+    if ! diff -u "$temporary/expected" "$temporary/actual"; then
+        printf '  ERR     package manifest differs from staged contents\n' >&2
+        exit 1
+    fi
+)
+
 do_create() {
     local rc pver temporary
 
@@ -59,7 +180,7 @@ do_create() {
 	pver=1
     fi
 
-    sh "$(dirname "$0")/plist-check.sh" "$STAGEDIR$PREFIX" "$PLIST"
+    check_plist "$STAGEDIR$PREFIX" "$PLIST" "$PREFIX"
     temporary=$(mktemp "$WRKDIR_PKGFILE.XXXXXX")
     trap 'rm -f -- "$temporary"' EXIT HUP INT TERM
     echo "PVER: $pver"          > "$temporary"
@@ -202,6 +323,7 @@ do_add() {
         NR >= start && NR < end - 1 {print}
         NR >= end - 1 {exit}
         ' "$pkgname" > "$tmpdir/plist"
+    parse_plist "$prefix" "$tmpdir/plist" > "$tmpdir/records"
     tail -n +"$payload_line" "$pkgname" > "$tmpdir/payload"
     [ "$compress" = XZ ] || {
         echo 'Unsupported package compression' >&2
@@ -278,8 +400,7 @@ do_info()
 #    echo pkgname=$pkgname
 
     if [ -f "${db}/pkg" ]; then
-        info=$(awk -v p="$pkgname" -v match_origin=1 \
-            -f "$(dirname "$0")/pkg-match.awk" "${db}/pkg")
+        info=$(match_packages "$pkgname" "${db}/pkg" 1)
     fi
 #    echo info=$info
 
@@ -357,7 +478,7 @@ do_version()
 
 do_delete()
 {
-    local quiet dryrun all p info plist prefix root f fname dir
+    local quiet dryrun all p info plist prefix root f fname dir kind
     local tmpdir names
 
     quiet=0
@@ -399,8 +520,7 @@ do_delete()
     fi
     for p in $names
     do
-        info=$(awk -v p="$p" \
-            -f "$(dirname "$0")/pkg-match.awk" "$DESTDIR/var/db/pkg")
+        info=$(match_packages "$p" "$DESTDIR/var/db/pkg")
         [ -n "$info" ] || continue
         # Resolve each matching installed package independently.
         printf '%s\n' "$info" > "$tmpdir/matches"
@@ -429,27 +549,10 @@ do_delete()
             [ -n "$root" ] || root=/
             : > "$tmpdir/dirs"
             if [ -f "$plist" ]; then
-                while IFS= read -r f
+                parse_plist "$prefix" "$plist" > "$tmpdir/records"
+                while IFS='|' read -r kind f
                 do
-                    case "$f" in
-                        @rmdir\ *)
-                            f=${f#@rmdir }
-                            case "$f" in
-                                /*)
-                                    fname="$DESTDIR$f"
-                                    ;;
-                                *)
-                                    fname="$root/${f#./}"
-                                    ;;
-                            esac
-                            ;;
-                        ./*)
-                            fname="$root/${f#./}"
-                            ;;
-                        *)
-                            continue
-                            ;;
-                    esac
+                    fname="$root/${f#./}"
                     case "$fname/" in
                         */../*|*/./*)
                             echo 'Invalid installed path' >&2
@@ -463,7 +566,9 @@ do_delete()
                             exit 1
                             ;;
                     esac
-                    if [ -d "$fname" ] && [ ! -L "$fname" ]; then
+                    if [ "$kind" = dir ] || [ "$kind" = cleanup ]; then
+                        printf '%s\n' "$fname" >> "$tmpdir/dirs"
+                    elif [ -d "$fname" ] && [ ! -L "$fname" ]; then
                         printf '%s\n' "$fname" >> "$tmpdir/dirs"
                     else
                         [ "$quiet" -eq 1 ] || printf 'delete %s\n' "$fname"
@@ -480,7 +585,7 @@ do_delete()
                             dir=${dir%/*}
                         done
                     fi
-                done < "$plist"
+                done < "$tmpdir/records"
                 awk '{print length($0) "|" $0}' "$tmpdir/dirs" | sort -rn |
                     cut -d'|' -f2- | awk '!seen[$0]++' > "$tmpdir/ordered"
                 while IFS= read -r dir
@@ -515,17 +620,30 @@ create=0
 delete=0
 info=0
 version=0
+check=0
 case "$1" in
     add) add=1 ;;
     create) create=1 ;;
     delete) delete=1 ;;
     info) info=1 ;;
     version) version=1 ;;
-    *) echo >&2 "Usage: $0 {add|create|delete|info|version}" ; exit 1 ;;
+    check-plist) check=1 ;;
+    *)
+        echo >&2 "Usage: $0 {add|create|delete|info|version|check-plist}"
+        exit 1
+        ;;
 esac
 
 shift 1
 
+if [ "$check" -eq 1 ]; then
+    [ "$#" -eq 3 ] || {
+        echo 'Usage: pkg check-plist staged-prefix manifest runtime-prefix' >&2
+        exit 1
+    }
+    check_plist "$@"
+    exit
+fi
 
 # echo "1==>$*"
 

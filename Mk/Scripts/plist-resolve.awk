@@ -17,6 +17,8 @@ BEGIN {
 }
 {
 	line = $0
+	if (line ~ /^@comment([[:space:]]|$)/)
+		next
 	output = ""
 	while (match(line, /%%[A-Za-z0-9_]+%%/)) {
 		key = substr(line, RSTART + 2, RLENGTH - 4)

@@ -1754,8 +1754,8 @@ endif
 ifeq ($(filter $(override_targets),check-plist),)
 check-plist: generate-plist
 	@set -e; $(resolve-package-plist);			       \
-	  $(SH) "$(SCRIPTSDIR)/plist-check.sh"                            \
-	    "$(STAGEDIR)$(PREFIX)" "$(package-plist)"
+	  $(SH) "$(SCRIPTSDIR)/pkg.sh" check-plist		       \
+	    "$(STAGEDIR)$(PREFIX)" "$(package-plist)" "$(PREFIX)"
 endif
 
 ifeq ($(filter $(override_targets),stage-qa),)
