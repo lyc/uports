@@ -219,10 +219,186 @@ do_create() {
     return ${rc}
 }
 
+# Check destination parents before extraction can follow a directory symlink.
+# check_install_parents destination-path
+check_install_parents() {
+    local parent
+
+    parent=${1%/*}
+    while [ "$parent" != "$DESTDIR" ] && [ "$parent" != / ] &&
+        [ -n "$parent" ]; do
+        if [ -L "$parent" ] ||
+            { [ -e "$parent" ] && [ ! -d "$parent" ]; }; then
+            echo "Install conflict: unsafe destination parent $parent" >&2
+            exit 1
+        fi
+        parent=${parent%/*}
+    done
+}
+
+# Build an ownership index from installed manifests, not filename prefixes.
+# collect_install_owners database scratch incoming-name incoming-prefix
+collect_install_owners() {
+    local db scratch incoming new_prefix entry owner old_prefix
+    local manifest kind file type
+
+    db=$1
+    scratch=$2
+    incoming=$3
+    new_prefix=$4
+    : > "$scratch/owners"
+    [ -f "$db/pkg" ] || return 0
+    while IFS= read -r entry
+    do
+        owner=$(printf '%s\n' "$entry" | awk '{sub(/:$/, "", $1); print $1}')
+        old_prefix=$(printf '%s\n' "$entry" | awk '{print $4}')
+        manifest=$(printf '%s\n' "$entry" | awk '{print $NF}')
+        case "$old_prefix" in
+            /) ;;
+            *)
+                case "$old_prefix/" in
+                    /*/../*|*/./*|*//*|*[[:space:]\|]*)
+                        echo "Invalid installed prefix: $old_prefix" >&2
+                        exit 1
+                        ;;
+                esac
+                ;;
+        esac
+        case "$old_prefix" in
+            /*) ;;
+            *)
+                echo 'Invalid installed package record' >&2
+                exit 1
+                ;;
+        esac
+        case "$manifest" in
+            ""|.|..|*[!A-Za-z0-9_.+:-]*)
+                echo 'Invalid installed manifest name' >&2
+                exit 1
+                ;;
+        esac
+        if [ "$owner" = "$incoming" ] &&
+            [ "$old_prefix" != "$new_prefix" ]; then
+            echo 'Install conflict: remove package before changing PREFIX' >&2
+            exit 1
+        fi
+        [ -r "$db/$manifest" ] || {
+            echo "Missing installed manifest: $db/$manifest" >&2
+            exit 1
+        }
+        parse_plist "$old_prefix" "$db/$manifest" > "$scratch/old-records"
+        while IFS='|' read -r kind file
+        do
+            file="${old_prefix%/}/${file#./}"
+            type=file
+            if [ "$kind" != path ] ||
+                { [ -d "$DESTDIR$file" ] && [ ! -L "$DESTDIR$file" ]; }; then
+                type=dir
+            fi
+            printf '%s|%s|%s\n' "$file" "$owner" "$type" >> "$scratch/owners"
+        done < "$scratch/old-records"
+    done < "$db/pkg"
+}
+
+# Validate every prospective path before creating destination directories.
+# check_install_conflicts scratch-directory incoming-name runtime-prefix
+check_install_conflicts() {
+    local scratch incoming runtime_prefix kind file source type present target
+
+    scratch=$1
+    incoming=$2
+    runtime_prefix=$3
+    collect_install_owners "$DESTDIR/var/db" "$scratch" \
+        "$incoming" "$runtime_prefix"
+    : > "$scratch/incoming"
+    while IFS='|' read -r kind file
+    do
+        source="$scratch/stage/${file#./}"
+        [ -e "$source" ] || [ -L "$source" ] || continue
+        type=file
+        if [ -d "$source" ] && [ ! -L "$source" ]; then
+            type=dir
+        fi
+        file="${runtime_prefix%/}/${file#./}"
+        target="$DESTDIR$file"
+        check_install_parents "$target"
+        present=missing
+        if [ -L "$target" ] || [ -e "$target" ]; then
+            present=file
+            if [ -d "$target" ] && [ ! -L "$target" ]; then
+                present=dir
+            fi
+        fi
+        printf '%s|%s|%s\n' "$file" "$type" "$present" >> "$scratch/incoming"
+    done < "$scratch/records"
+    awk -F '|' -v incoming="$incoming" '
+    FILENAME == ARGV[1] {
+        if ($3 == "dir")
+            directories[$1] = 1
+        else {
+            files[$1] = 1
+            if ($2 == incoming)
+                own[$1] = 1
+            else
+                other[$1] = $2
+        }
+        next
+    }
+    {
+        reason = ""
+        if ($2 == "dir" && (files[$1] || $3 == "file"))
+            reason = "directory would replace a file or symlink"
+        if ($2 == "file") {
+            if (other[$1])
+                reason = "owned by " other[$1]
+            else if (directories[$1] || $3 == "dir")
+                reason = "file would replace a directory"
+            else if ($3 != "missing" && !own[$1])
+                reason = "unmanaged existing file or symlink"
+        }
+        if (reason != "") {
+            print "Install conflict: " $1 ": " reason > "/dev/stderr"
+            failed = 1
+        }
+    }
+    END {exit failed}
+    ' "$scratch/owners" "$scratch/incoming"
+}
+
+# Serialize installs into one canonical destination, including path aliases.
+# acquire_install_lock destination-root
+acquire_install_lock() {
+    local parent suffix canonical key lock attempts
+
+    parent=${1:-/}
+    suffix=
+    while [ ! -d "$parent" ]; do
+        suffix="/${parent##*/}$suffix"
+        parent=${parent%/*}
+        [ -n "$parent" ] || parent=/
+    done
+    canonical=$(cd "$parent" && pwd -P)
+    canonical="${canonical%/}$suffix"
+    [ -n "$canonical" ] || canonical=/
+    key=$(printf '%s' "$canonical" | cksum | awk '{print $1}')
+    # Coordination must not depend on a caller-specific TMPDIR.
+    lock="/tmp/uports-pkg-add.$(id -u).$key"
+    attempts=0
+    until mkdir "$lock" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 30 ]; then
+            echo "Package install lock timed out: $lock" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    printf '%s\n' "$lock"
+}
+
 do_add() {
     local quiet strip pkgname db name ver path prefix index compress ext
     local pver sep p_start provenance_end plist_line payload_line
-    local tmpdir root
+    local tmpdir root install_lock
 
     quiet=
     strip=
@@ -252,7 +428,9 @@ do_add() {
         exit 1
     }
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/uports-pkg.XXXXXX")
-    trap 'rm -rf -- "$tmpdir"' EXIT
+    install_lock=
+    trap 'rm -rf -- "$tmpdir"; [ -z "$install_lock" ] ||
+        rmdir -- "$install_lock"' EXIT
     # Read only the text header, never interpret the binary payload as text.
     awk 'NR <= 8 {print} NR == 8 {exit}' "$pkgname" > "$tmpdir/header"
     pver=$(sed -n '1s/^PVER: //p' "$tmpdir/header")
@@ -273,7 +451,7 @@ do_add() {
         /) ;;
         *)
             case "$prefix/" in
-                /*/../*|*/./*|//*)
+                /*/../*|*/./*|*//*|*[[:space:]\|]*)
                     echo 'Invalid package prefix' >&2
                     exit 1
                     ;;
@@ -329,11 +507,24 @@ do_add() {
         echo 'Unsupported package compression' >&2
         exit 1
     }
+    # Inspect the actual payload in private storage before destination writes.
+    mkdir "$tmpdir/stage"
+    tar -xJf "$tmpdir/payload" -C "$tmpdir/stage"
+    check_plist "$tmpdir/stage" "$tmpdir/plist" "$prefix"
     # Preserve runtime PREFIX; DESTDIR is only the installation root.
-    [ -z "$strip" ] || prefix=/
+    if [ -n "$strip" ]; then
+        prefix=/
+        awk -F '|' '
+            $1 == "path" {print $2}
+            $1 == "dir" {print "@dir " $2}
+            $1 == "cleanup" {print "@rmdir " $2}
+            ' "$tmpdir/records" > "$tmpdir/plist"
+    fi
     db="$DESTDIR/var/db"
     root="$DESTDIR${prefix%/}"
     [ -n "$root" ] || root=/
+    install_lock=$(acquire_install_lock "$DESTDIR")
+    check_install_conflicts "$tmpdir" "$name" "$prefix"
     mkdir -p "$root"
     if [ -n "$quiet" ]; then
         tar -xJf "$tmpdir/payload" -C "$root"
@@ -349,6 +540,7 @@ do_add() {
     cp "$tmpdir/plist" "$db/$name-pkg-plist.$ext"
     cp "$tmpdir/db" "$db/pkg"
     rm -rf -- "$tmpdir"
+    rmdir -- "$install_lock"
     trap - EXIT
 }
 

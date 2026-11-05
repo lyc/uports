@@ -92,6 +92,48 @@ without requiring DESTDIR. Framework check-plist calls this same operation.
 Standalone management consumes the resolved manifest embedded in an archive;
 PLIST_SUB expansion remains a port-build responsibility.
 
+## Installation Conflict Preflight
+
+Before changing the destination, pkg.sh add unpacks the payload in private
+temporary storage, checks it against the manifest, and reads ownership from
+the installed manifests under DESTDIR/var/db. Matching uses normalized runtime
+paths, so packages with different names or prefixes cannot silently overwrite
+the same destination path. Missing or invalid installed manifests stop the
+operation rather than assuming their files are unowned.
+
+| Incoming path | Existing destination | Result |
+| --- | --- | --- |
+| Real directory | Real directory | Allow sharing |
+| File/symlink | Owned by the same exact installed package | Allow reinstall |
+| File/symlink | Owned by another package | Reject, even for identical bytes |
+| File/symlink | Unmanaged file/symlink | Reject |
+| File/symlink | Directory | Reject |
+| Directory | File/symlink | Reject |
+
+A different version is another full package identity and must not overwrite
+the old version's files. Remove the previous package first. Reinstalling an
+exact package into a changed PREFIX likewise requires removal first. Directory
+symlinks in destination parents reject, preventing extraction through them;
+an explicitly chosen DESTDIR directory alias is supported.
+
+Known conflicts are reported before destination directories, payload files or
+registration data are written. Existing directories can be shared, but this
+does not permit shared file ownership. Gforth default/libffcall packages reject
+each other while their bootstrap package can coexist using distinct files.
+
+Same-user installs into the same canonical DESTDIR are serialized from ownership
+inspection through registration using a temporary mkdir lock under /tmp,
+independent of caller TMPDIR. A busy/stale lock times out after 30 attempts;
+the installer does not delete another process's lock. Deletion does not yet
+participate in this coordination; do not run add and delete concurrently.
+There is no cross-user or cross-version transaction guarantee.
+
+Preflight requires temporary space for an unpacked payload. It prevents known
+conflict writes, but does not roll back a later I/O failure during destination
+extraction and is not an untrusted-archive sandbox. Ownership-aware removal
+remains separate work. Prefix-stripping add -p stores normalized relative
+directory directives so later removal follows the effective root prefix.
+
 ## Conditional Plist Processing
 
 `PLIST_SUB` accepts shell-quoted `KEY=value` words. Input manifests may use
