@@ -955,34 +955,51 @@ info.ports.sep:
 	printf "%21s" "";						\
 	printf "%*s\n" "$$((cols - 21))" "" | tr ' ' '-'
 
-info_ports_status = $(strip						\
-  $(if $(wildcard $1/install._done.*),I,				\
-    $(if $(wildcard $1/package._done.*),K,			\
-      $(if $(wildcard $1/stage._done.*),S,			\
-        $(if $(wildcard $1/build._done.*),B,			\
-          $(if $(wildcard $1/configure._done.*),C,		\
-            $(if $(wildcard $1/patch._done.*),P,		\
-              $(if $(wildcard $1/extract._done.*),E,))))))))
-
 info_ports_instance_key = $(call instance-key,$(call get-group,$1),	\
 			    $(call get-port,$1))
 info_ports_work = $(call instance-field,$(call info_ports_instance_key,$1),root)/$(call instance-field,$(call info_ports_instance_key,$1),origin)/work$($(call get-group,$1)_SUFFIX)
 
-info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\n'		\
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),group)' \
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),origin)' \
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),root)' \
-  '$(call info_ports_status,$(call info_ports_work,$1))'		\
-  '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )' \
-  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])';
+# $(call info_ports_field, group@category/port, field)
+info_ports_field = $(call instance-field,			       \
+	$(call info_ports_instance_key,$1),$2)
+
+# $(call info_ports_record, group@category/port)
+info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n'      \
+  '$(call info_ports_field,$1,group)'				       \
+  '$(call info_ports_field,$1,origin)'				       \
+  '$(call info_ports_field,$1,root)' ''				       \
+  '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )'    \
+  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])' \
+  '$(call info_ports_work,$1)'					       \
+  '$(call info_ports_field,$1,project_flavor)'			       \
+  '$(call info_ports_field,$1,env) $(call info_ports_global_env,$1)';
+
+# $(call info_ports_global_env, group@category/port)
+# Explicit per-instance assignments take priority, as in lifecycle dispatch.
+define info_ports_global_env
+$(strip $(foreach v,WRKDIR TYPE_SUFFIX				       \
+  EXTRACT_COOKIE PATCH_COOKIE CONFIGURE_COOKIE BUILD_COOKIE	       \
+  STAGE_COOKIE PACKAGE_COOKIE INSTALL_COOKIE,			       \
+  $(if $(filter command line override environment,$(origin $v)),       \
+    $(if $(filter $v=%,$(call info_ports_field,$1,env)),,$v=$($v)))))
+endef
 
 info.ports.ports:
-	@{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } | \
-	  awk -F '	' -v mode=info-ports -v portdir="$(portdir)"	\
-	    -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"	\
-	    -f "$(port_info_awk)"
+	@set -e; status_dir=$$(mktemp -d			       \
+	  "$${TMPDIR:-/tmp}/uports-info-ports.XXXXXX");		       \
+	trap 'rm -rf -- "$$status_dir"' EXIT HUP INT TERM;	       \
+	{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } \
+	  > "$$status_dir/input";				       \
+	awk -F '\t' -v mode=info-candidates -v portdir="$(portdir)"    \
+	  -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"  \
+	  -f "$(port_info_awk)" "$$status_dir/input"		       \
+	  > "$$status_dir/candidates";				       \
+	$(SHELL) "$(portdir)/Tools/port-status.sh" "$(MAKE)" "$(portdir)" \
+	  < "$$status_dir/candidates" > "$$status_dir/rows";	       \
+	awk -F '|' -v mode=info-ports -f "$(port_info_awk)"	       \
+	  "$$status_dir/rows"
 
-depends_exclude_targets	+= $(addsuffix .ports,i info)
+depends_exclude_targets	+= info.ports.ports $(addsuffix .ports,i info)
 $(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
 
 #

@@ -406,6 +406,15 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+# Port declarations are complete; avoid repeated shell version conversions.
+ARCH			:= $(ARCH)
+OPSYS			:= $(OPSYS)
+PORTVERSION		:= $(PORTVERSION)
+DISTVERSIONFULL		:= $(DISTVERSIONFULL)
+PKGVERSION		:= $(PKGVERSION)
+PKGNAME			:= $(PKGNAME)
+endif
 ifneq ($(flavor-declared),)
 BUILD_DEPENDS		+= $($(flavor-selected)_BUILD_DEPENDS)
 LIB_DEPENDS		+= $($(flavor-selected)_LIB_DEPENDS)
@@ -1204,6 +1213,8 @@ package-dependency-provenance :=
 else
 package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
 endif
+# Display-only metadata needs paths/cookies, not archive compatibility checks.
+ifneq ($(MAKECMDGOALS),uports-port-status-metadata)
 package-provenance-required := $(strip $(package-dependency-provenance) \
 	$(package-source-state) $(PACKAGE_BUILD_ID))
 dependency-package-mismatch := $(if $(package-provenance-required),\
@@ -1242,6 +1253,7 @@ package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 	  fi; \
 	done))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
+endif
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
 
@@ -2485,6 +2497,22 @@ $(strip $(if $(installed-package-plists),			       \
 endef
 .PHONY: uports-dependency-metadata
 .PHONY: uports-flavor-metadata
+.PHONY: uports-port-status-metadata
+uports-port-status-metadata:
+	@printf '%s\n'						       \
+	  'flavors|$(flavor-declared)'				       \
+	  'default|$(or $(flavor-default),default)'		       \
+	  'path|work|$(WRKDIR)'					       \
+	  'display|version|$(DISTVERSIONFULL)'			       \
+	  'display|license|$(LICENSE)'				       \
+	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
+	  'cookie|patch|$(PATCH_COOKIE)'			       \
+	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \
+	  'cookie|build|$(BUILD_COOKIE)'			       \
+	  'cookie|stage|$(STAGE_COOKIE)'			       \
+	  'cookie|package|$(PACKAGE_COOKIE)'			       \
+	  'cookie|install|$(INSTALL_COOKIE)'
+
 uports-flavor-metadata:
 	@printf '%s\n'							\
 	  'flavor-schema|1'						\

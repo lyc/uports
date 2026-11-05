@@ -465,6 +465,22 @@ declared Flavors across the project. Target .flavor-check performs metadata
 inspection without executing the selected lifecycle. Implementation availability
 and remaining dependency-enabled lifecycle work are recorded in the tracker.
 
+`make info.ports` keeps one row per port/group instance and preserves the
+original leading default-instance lifecycle status. Additional declared Flavors
+always appear as compact entries such as `libffcall:I`, including after
+distclean. A dot means no lifecycle cookie exists, for example `libffcall:.`.
+Version/license differences are annotated on the affected entry; long lists
+wrap onto aligned continuations. Status describes work cookies, not an audit of
+installed files or package ownership.
+
+Ordinary ports retain lightweight source scanning. Flavor declarations and
+custom artifact mappings trigger actual port metadata evaluation, using exact
+work/cookie paths. The scanner is not a complete Make interpreter; arbitrary
+dynamic declarations hidden outside its include scan are not guaranteed to be
+discovered. The display-only metadata goal avoids archive compatibility scans;
+normal lifecycle checks remain in force. Display collection does not resolve
+the dependency graph, execute builds or introduce a persistent metadata cache.
+
 Dependency declarations use `requirement:category/port@flavor[:phase]`.
 The qualifier is part of the logical requirement and is resolved against the
 actual provider declaration. Existing origin/capability and group policy apply;

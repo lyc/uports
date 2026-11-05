@@ -2,6 +2,11 @@
 # ports framework for every port.
 
 BEGIN {
+	flavor_marker = "(^|[^A-Za-z0-9_])FLAVORS([^A-Za-z0-9_]|$)"
+	work_marker = "^((override|export)[[:space:]]+)*WRKDIR"
+	work_marker = work_marker "[[:space:]]*[:+?]?="
+	cookie_marker = "^((override|export)[[:space:]]+)*[A-Z_]+_COOKIE"
+	cookie_marker = cookie_marker "[[:space:]]*[:+?]?="
 	if (makefile != "") {
 		init_port(curdir)
 		parse_file(makefile)
@@ -11,7 +16,7 @@ BEGIN {
 	}
 }
 
-mode == "info-ports" {
+mode == "info-ports" || mode == "info-candidates" {
 	group = $1
 	port = $2
 	base = $3
@@ -21,15 +26,28 @@ mode == "info-ports" {
 	if (status == "")
 		status = " "
 
-	init_port(base "/" port)
-	parse_file(base "/" port "/Makefile")
+	if (mode == "info-candidates" || NF < 9) {
+		init_port(base "/" port)
+		parse_file(base "/" port "/Makefile")
+	}
+	if (mode == "info-candidates") {
+		probe = status_probe ? "probe" : "fast"
+		if (work_mapping)
+			probe = "custom"
+		for (field = 1; field <= 9; field++)
+			printf "%s|", $field
+		print probe "|" package_version() "|" vars["LICENSE"]
+		next
+	}
 
 	row_count++
+	row_instance[row_count] = group SUBSEP base SUBSEP port
 	row_flag[row_count] = flag
 	row_status[row_count] = status
 	row_port[row_count] = port suffix
-	row_version[row_count] = package_version()
-	row_license[row_count] = vars["LICENSE"]
+	row_flavor[row_count] = ($7 == "") ? "-" : $7
+	row_version[row_count] = (NF >= 9) ? $8 : package_version()
+	row_license[row_count] = (NF >= 9) ? $9 : vars["LICENSE"]
 
 	if (length(row_port[row_count]) > port_width)
 		port_width = length(row_port[row_count])
@@ -58,6 +76,8 @@ function init_port(port_curdir,    i) {
 	vars["CURDIR"] = port_curdir
 	vars["OPSYS"] = opsys
 	vars["ARCH"] = arch
+	status_probe = 0
+	work_mapping = 0
 	if_depth = 0
 }
 
@@ -74,11 +94,54 @@ function package_info() {
 	return package_version() " " vars["LICENSE"]
 }
 
-function print_info_ports(    i) {
+function print_info_ports(    i, key, first, entry, status, prefix, line,
+	license_width, width) {
 	for (i = 1; i <= row_count; i++) {
-		printf "                     [%s%s]: %-*s  %-*s  %s\n",
+		key = row_instance[i]
+		if (!(key in first_row))
+			first_row[key] = i
+		first = first_row[key]
+		status = trim(row_status[i])
+		entry = row_flavor[i] ":" ((status == "") ? "." : status)
+		if (row_version[i] != row_version[first])
+			entry = entry "(version=" row_version[i] ")"
+		if (row_license[i] != row_license[first])
+			entry = entry "(license=" row_license[i] ")"
+		flavor_entry[i] = entry
+		if (length(row_license[i]) > license_width)
+			license_width = length(row_license[i])
+	}
+	if (version_width < length("VERSION"))
+		version_width = length("VERSION")
+	if (license_width < length("LICENSE"))
+		license_width = length("LICENSE")
+	printf "%27s%-*s  %-*s  %-*s  %s\n", "",
+	    port_width, "PORT", version_width, "VERSION",
+	    license_width, "LICENSE", "FLAVORS/STATUS"
+	for (i = 1; i <= row_count; i++) {
+		key = row_instance[i]
+		if (first_row[key] != i)
+			continue
+		prefix = sprintf("%21s[%s%s]: %-*s  %-*s  %-*s  ", "",
 		    row_flag[i], row_status[i], port_width, row_port[i],
-		    version_width, row_version[i], row_license[i]
+		    version_width, row_version[i],
+		    license_width, row_license[i])
+		width = length(prefix)
+		line = prefix
+		for (first = i + 1; first <= row_count; first++) {
+			if (row_instance[first] != key)
+				continue
+			entry = flavor_entry[first]
+			if (length(line) > width &&
+			    length(line) + 1 + length(entry) > 160) {
+				print line
+				line = sprintf("%*s", width, "")
+			}
+			if (length(line) > width)
+				line = line " "
+			line = line entry
+		}
+		print line
 	}
 }
 
@@ -93,7 +156,8 @@ function dirname(path) {
 	return path
 }
 
-function parse_file(file,    line, raw, nextline, incfile, base, var, op, value) {
+function parse_file(file,    line, raw, nextline, incfile, base, var, op, value,
+	read_status) {
 	if (seen[file]++)
 		return
 
@@ -101,7 +165,7 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value)
 	parent_active[0] = 1
 	active[0] = 1
 
-	while ((getline raw < file) > 0) {
+	while ((read_status = getline raw < file) > 0) {
 		while (raw ~ /\\$/) {
 			sub(/\\$/, "", raw)
 			if ((getline nextline < file) <= 0)
@@ -112,6 +176,15 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value)
 		line = trim(raw)
 		if (line == "" || line ~ /^#/)
 			continue
+		# Evaluate declarations and custom artifact paths with actual make.
+		if (line ~ flavor_marker)
+			status_probe = 1
+		if (line ~ work_marker) {
+			status_probe = 1
+			work_mapping = 1
+		}
+		if (line ~ cookie_marker)
+			status_probe = 1
 
 		if (line ~ /^ifeq[[:space:]]*\(/) {
 			handle_ifeq(line)
@@ -137,6 +210,11 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value)
 			incfile = line
 			sub(/^include[[:space:]]+/, "", incfile)
 			incfile = expand(trim(incfile))
+			if (incfile ~ /\$/) {
+				status_probe = 1
+				work_mapping = 1
+				continue
+			}
 			if (incfile !~ /^\//)
 				incfile = base "/" incfile
 			if (incfile ~ "/Mk/linux[.]port([.]pre|[.]post)?[.]mk$")
@@ -164,6 +242,10 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value)
 		}
 	}
 
+	if (read_status < 0) {
+		status_probe = 1
+		work_mapping = 1
+	}
 	close(file)
 }
 
