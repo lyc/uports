@@ -423,7 +423,7 @@ endif
 
 source-identity-required	= $(strip			       \
 			    $(or $(filter yes,$(_SOURCE_MODE_EXPLICIT)), \
-			      $(flavor-nondefault)))
+			      $(flavor-active)))
 source-cookie-suffix	:= $(strip \
 	$(if $(source-identity-required),.$(source-identity-key)))
 source-cookie-name	= $(PKGNAME)$(source-cookie-suffix)
@@ -455,7 +455,7 @@ source-state-environment = \
 	SOURCE_STATE_PATH='$(WRKSRC)' \
 	SOURCE_STATE_ARCHIVES='$(strip $(DISTFILES) $(PATCHFILES))' \
 	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'		       \
-	SOURCE_STATE_FLAVOR='$(flavor-nondefault)'
+	SOURCE_STATE_FLAVOR='$(flavor-active)'
 
 .PHONY: uports-source-state-check uports-source-state-save
 uports-source-state-check:
@@ -2536,7 +2536,7 @@ uports-flavor-metadata:
 	  'package|cache|$(PKGFILE)'				       \
 	  'package|work|$(WRKDIR_PKGFILE)'			       \
 	  'source|request-key|$(source-identity-key)'		       \
-	  'source|flavor|$(flavor-nondefault)'			       \
+	  'source|flavor|$(flavor-active)'				       \
 	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
 	  'cookie|patch|$(PATCH_COOKIE)'			       \
 	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \

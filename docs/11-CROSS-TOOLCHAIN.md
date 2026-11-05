@@ -158,6 +158,7 @@ For example, a port can declare two configurations:
 
 ```make
 FLAVORS = default libffcall
+libffcall_PKGNAMESUFFIX = -libffcall
 ```
 
 Declaration alone does not map recipe options or establish build support.
@@ -349,28 +350,35 @@ or unreviewed bootstrap passes are implicitly approved by this baseline.
 
 ### Artifact Identity And Isolation
 
-The artifact contract isolates mutable state while preserving default names.
+The artifact contract isolates mutable state for every declared Flavor.
 Implementation and manual acceptance status are recorded in the tracker.
 
-Default/unflavored paths, names and source identity remain compatible:
+Unflavored ports retain their original paths. Every declared Flavor, including
+the first/default, uses its selected name in work/source paths and source state:
 
 | Artifact | Default example | Nondefault example |
 | --- | --- | --- |
-| Work | work.compiler | work.compiler.flavor-libffcall |
-| Stage | work.compiler/stage | work.compiler.flavor-libffcall/stage |
-| Generated plist | work.compiler/.PLIST.mktmp | work.compiler.flavor-libffcall/.PLIST.mktmp |
+| Work | work.compiler.flavor-default | work.compiler.flavor-libffcall |
+| Stage | work.compiler.flavor-default/stage | work.compiler.flavor-libffcall/stage |
+| Generated plist | work.compiler.flavor-default/.PLIST.mktmp | work.compiler.flavor-libffcall/.PLIST.mktmp |
 | Package base | gforth | gforth-libffcall |
 | State/cookies | Within default work directory | Within nondefault work directory |
-| Alternative source base | ALTERNATIVE_WRKDIR | ALTERNATIVE_WRKDIR.flavor-libffcall |
+| Alternative source base | ALTERNATIVE_WRKDIR/gforth/flavor-default | ALTERNATIVE_WRKDIR/gforth/flavor-libffcall |
 
 The public alternative-source setting is not overwritten. Extraction, checkout
-placement and source links use its effective namespaced base, avoiding the
-default checkout. Downloads and mirrors remain shared in the local caches.
+placement and source links use its effective namespaced base for each Flavor.
+These namespaces live inside the single configured alternative-source root;
+each flavored port uses `<port-directory-name>/flavor-<selected>/<source>`.
+The port directory name distinguishes versioned ports sharing PORTNAME.
+The project planner already rejects duplicate short port names across selected
+origins. Separate direct invocations sharing a root must use unique port names
+or distinct ALTERNATIVE_WRKDIR settings. Unflavored source layout is unchanged.
+Downloads and mirrors remain shared in the local caches.
 
 Initial helpers are `<flavor>_PKGNAMEPREFIX`, `<flavor>_PKGNAMESUFFIX` and
 `<flavor>_PLIST`. Defined helpers override the corresponding fallback, including
-an explicitly empty value. Without a suffix helper, a nondefault Flavor appends
-`-<flavor>` after the ordinary package suffix. Default selection adds nothing.
+an explicitly empty value. There is no automatic Flavor package suffix;
+recipes must distinguish package names using explicit prefix/suffix settings.
 PKGBASE follows the same helpers as PKGNAME. A plist helper selects a read-only
 input file and uses the platform as its package plist extension.
 PLIST_SUB independently resolves conditional entries into a concrete manifest
@@ -380,12 +388,11 @@ conditional entries for its optional libffcall wrapper; see
 [install/plist behavior](08-INSTALL.md). Separate package identities do not
 make configurations with overlapping installed files safe to coinstall.
 
-Nondefault WRKDIR overrides must retain the `.flavor-<name>` suffix. Mutable
+All declared Flavor WRKDIR overrides retain the `.flavor-<name>` suffix. Mutable
 source/build/stage directories, generated plists, cookies and saved-state/work
 package files must remain under that namespace; external read-only dependency
 input reports remain allowed. Alternative sources must use the effective
-alternative root. Explicit package overrides cannot use the ordinary package
-identity, and cache filenames must match the selected package name. Custom
+alternative root. Cache filenames must match the selected package name. Custom
 helper mappings must remain distinct across Flavors; selected-instance
 validation must detect conflicting mappings before execution. Separate artifacts
 do not imply safe coinstallation in one destination root.
@@ -396,12 +403,19 @@ Matching mappings fail before lifecycle execution; distinct custom suffixes
 remain permitted. This validates declared package naming, not installed file
 ownership or arbitrary conditionally hidden recipe mappings.
 
-Nondefault source request keys include `flavor=<name>`. Saved source state adds
+All declared Flavor source request keys include `flavor=<name>`. Source state adds
 `flavor|<name>`, and package creation uses the existing PVER 2 source-provenance
 path even when SOURCE_MODE was selected through legacy defaults. Package reuse
 therefore requires the matching source request key and available source
-evidence. Default selection adds no Flavor field/hash. The contract reuses the
-existing package format; planner integration owns dependency-instance identity.
+evidence. This includes the default Flavor; unflavored source identity is
+unchanged. The contract reuses the existing package format; planner integration
+owns dependency-instance identity.
+
+Changing from the former default path does not move or delete existing work or
+development sources. Old default package/source evidence is not equivalent to
+the new named-Flavor request; prepare and validate the selected configuration
+again. Default logical instance keys remain the project's existing alias for
+the first declared Flavor; this does not exempt its artifacts from isolation.
 
 Discovery exposes work/source/stage/plist/state paths, package name/base/
 cache/work files, source key/Flavor and lifecycle cookies. Alternative-source

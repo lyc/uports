@@ -43,11 +43,10 @@ endif
 endif
 
 flavor-selected		:= $(or $(strip $(FLAVOR)),default)
-flavor-nondefault	:= $(strip $(if $(flavor-declared),	       \
-			    $(filter-out $(flavor-default),$(flavor-selected))))
-flavor-work-suffix	= $(if $(flavor-nondefault),.flavor-$(flavor-selected))
+flavor-active		:= $(if $(flavor-declared),$(flavor-selected))
+flavor-work-suffix	= $(if $(flavor-active),.flavor-$(flavor-selected))
 flavor-work-name		= work$(TYPE_SUFFIX)$(flavor-work-suffix)
-flavor-source-identity	= $(if $(flavor-nondefault),|flavor=$(flavor-selected))
+flavor-source-identity	= $(if $(flavor-active),|flavor=$(flavor-selected))
 
 # $(call flavor-value, helper-name, fallback-value)
 # An explicitly empty helper is intentional, not an absent declaration.
@@ -67,21 +66,9 @@ define flavor-name-prefix
 $(strip $(call flavor-value-for,$1,PKGNAMEPREFIX,$(PKGNAMEPREFIX)))
 endef
 
-# $(call flavor-name-explicit, flavor)
-define flavor-name-explicit
-$(strip $(call flavor-value-for,$1,PKGNAMESUFFIX,$(PKGNAMESUFFIX)))
-endef
-
-# $(call flavor-name-auto, flavor)
-define flavor-name-auto
-$(strip $(if $(filter-out $(flavor-default),$(strip $1)),	       \
-  $(if $(filter undefined,$(origin $(strip $1)_PKGNAMESUFFIX)),	       \
-    -$(strip $1))))
-endef
-
 # $(call flavor-name-suffix, flavor)
 define flavor-name-suffix
-$(call flavor-name-explicit,$1)$(call flavor-name-auto,$1)
+$(strip $(call flavor-value-for,$1,PKGNAMESUFFIX,$(PKGNAMESUFFIX)))
 endef
 
 # $(call flavor-name-base, flavor)
@@ -91,26 +78,20 @@ endef
 
 flavor-pkgnameprefix	= $(strip $(call flavor-value,		       \
 			    PKGNAMEPREFIX,$(PKGNAMEPREFIX)))
-flavor-helper-pkgsuffix	= $(strip $(call flavor-value,		       \
+flavor-pkgnamesuffix	= $(strip $(call flavor-value,		       \
 			    PKGNAMESUFFIX,$(PKGNAMESUFFIX)))
-flavor-pkgnamesuffix	= $(flavor-helper-pkgsuffix)$(flavor-auto-pkgsuffix)
 flavor-package-stem	= $(flavor-pkgnameprefix)$(PORTNAME)
 flavor-package-base	= $(flavor-package-stem)$(flavor-pkgnamesuffix)
-flavor-auto-pkgsuffix	= $(strip				       \
-			    $(if $(flavor-nondefault),		       \
-			      $(if $(filter undefined,		       \
-			        $(origin $(flavor-selected)_PKGNAMESUFFIX)), \
-			        -$(flavor-selected))))
 
+# Use the port directory name; PORTNAME can be shared by versioned ports.
+flavor-port-name	= $(notdir $(CURDIR))
 # All extraction destinations use this effective root, not the shared base.
-flavor-alternative-root	= $(ALTERNATIVE_WRKDIR)$(flavor-work-suffix)
+flavor-alternative-root	= $(ALTERNATIVE_WRKDIR)$(if		       \
+	$(flavor-active),/$(flavor-port-name)/flavor-$(flavor-selected))
 
 flavor-execution	:= legacy
 ifneq ($(flavor-declared),)
 flavor-execution	:= enabled
-ifeq ($(flavor-selected),$(flavor-default))
-flavor-execution	:= legacy-default
-endif
 endif
 
 endif
@@ -128,27 +109,19 @@ ifneq ($(flavor-package-collisions),)
 $(error Flavor package identity collides with: $(flavor-package-collisions))
 endif
 
-ifneq ($(flavor-nondefault),)
+ifneq ($(flavor-active),)
 ifeq ($(filter %$(flavor-work-suffix),$(WRKDIR)),)
-$(error Nondefault WRKDIR must end in $(flavor-work-suffix))
-endif
-ifneq ($(strip $(PKGBASE)),)
-ifeq ($(PKGBASE),$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX))
-$(error Nondefault PKGBASE collides with the unflavored package base)
-endif
-endif
-ifeq ($(PKGNAME),$(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION))
-$(error Nondefault PKGNAME collides with the unflavored package name)
+$(error Flavor WRKDIR must end in $(flavor-work-suffix))
 endif
 ifneq ($(notdir $(PKGFILE)),$(PKGNAME)$(PKG_SUFX))
-$(error Nondefault PKGFILE must use the flavor package filename)
+$(error Flavor PKGFILE must use the selected package filename)
 endif
 
 # $(call flavor-confined-path, variable-name)
 # Reject mutable artifact overrides outside the selected work namespace.
 define flavor-confined-path
 $(if $(filter $(abspath $(WRKDIR))/%,$(abspath $($1))),,	       \
-  $(error $1 must be inside the nondefault flavor WRKDIR))
+  $(error $1 must be inside the selected flavor WRKDIR))
 endef
 
 $(foreach v,WRKSRC PATCH_WRKSRC CONFIGURE_WRKSRC		       \
@@ -161,7 +134,7 @@ $(foreach v,WRKSRC PATCH_WRKSRC CONFIGURE_WRKSRC		       \
 ifeq ($(USE_ALTERNATIVE),yes)
 ifeq ($(filter $(abspath $(flavor-alternative-root))/%,		       \
 	$(abspath $(ALTERNATIVE_WRKSRC))),)
-$(error ALTERNATIVE_WRKSRC must use the nondefault flavor source root)
+$(error ALTERNATIVE_WRKSRC must use the selected flavor source root)
 endif
 endif
 endif

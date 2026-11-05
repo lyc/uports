@@ -26,10 +26,9 @@ tool="$testdir/pkg.sh"
 cd "$testdir"
 
 for selected in default libffcall; do
-    work="$project/feeds/lang/gforth/work.compiler"
+    work="$project/feeds/lang/gforth/work.compiler.flavor-$selected"
     name=gforth
     if [ "$selected" = libffcall ]; then
-        work="$work.flavor-libffcall"
         name=gforth-libffcall
     fi
     [ -d "$work/stage/usr/local" ] &&
