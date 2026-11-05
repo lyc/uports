@@ -121,18 +121,49 @@ registration data are written. Existing directories can be shared, but this
 does not permit shared file ownership. Gforth default/libffcall packages reject
 each other while their bootstrap package can coexist using distinct files.
 
-Same-user installs into the same canonical DESTDIR are serialized from ownership
-inspection through registration using a temporary mkdir lock under /tmp,
+Same-user add/delete operations and deletion previews in the same canonical
+DESTDIR are serialized from ownership inspection through registration using
+a temporary mkdir lock under /tmp,
 independent of caller TMPDIR. A busy/stale lock times out after 30 attempts;
-the installer does not delete another process's lock. Deletion does not yet
-participate in this coordination; do not run add and delete concurrently.
-There is no cross-user or cross-version transaction guarantee.
+the manager does not delete another process's lock. Directory aliases use the
+same lock. There is no cross-user or unsynchronized older-manager transaction
+guarantee.
 
 Preflight requires temporary space for an unpacked payload. It prevents known
 conflict writes, but does not roll back a later I/O failure during destination
-extraction and is not an untrusted-archive sandbox. Ownership-aware removal
-remains separate work. Prefix-stripping add -p stores normalized relative
+extraction and is not an untrusted-archive sandbox. Prefix-stripping add -p
+stores normalized relative
 directory directives so later removal follows the effective root prefix.
+
+## Ownership-Aware Removal
+
+Deletion loads all installed manifests and builds complete plans for the
+selected packages before changing files. Missing/invalid manifests or unsafe
+destination parents stop even a bulk delete before its first removal.
+Package name/base matching remains exact: selecting gforth does not select
+gforth-libffcall or gforth-bootstrap.
+
+A file or symlink still named by another registered package is kept. Directory
+cleanup also preserves paths explicitly owned by another package and all
+parents needed for its listed paths, including currently empty directories.
+Other nonempty directories are retained by normal rmdir behavior, preserving
+unregistered user files. Directory directives never unlink replacement files
+or symlinks. Installed manifests are authoritative ownership records; this is
+not a content-based check that user-modified files still match their package.
+
+Plans simulate registration removal in order. With delete -a, a shared file is
+kept for earlier owners and becomes removable after its last selected owner;
+it is not abandoned merely because two owners existed at plan start. This
+also supports repairing legacy overlapping registrations without allowing new
+overlapping installations. Keeping a remaining owner's bytes does not repair
+an incompatible payload that an older installer had already overwritten.
+
+delete -n runs the same validation and planning under the shared lock, showing
+keep, rm and rmdir actions without changing files or registrations. Actual
+deletion removes only selected receipts/rows; -f does not bypass ownership.
+Validation is complete before removal, but later filesystem errors are not
+rolled back as a transaction. Administrative database files are updated only
+through registration handling, not through payload deletion plans.
 
 ## Conditional Plist Processing
 
@@ -195,14 +226,14 @@ its directive rather than listing both. Parent directories are not inferred.
 Unsupported or malformed directives reject explicitly. Ownership/mode
 annotations, @sample and executable hooks are outside this subset. Directory
 directives never unlink a file or symlink substituted at that location, and
-nonempty directories remain. This is directory cleanup, not shared-file
-ownership enforcement (separate work).
+nonempty directories remain. Shared-file ownership records are handled by
+the removal plan described above.
 
 Installation validates manifest syntax before extracting files. Deletion
-validates each selected package's complete saved manifest before removing its
-files, including previews. A malformed manifest therefore cannot silently
-skip entries while dropping that package's registration. This is per-package
-validation, not a transaction across all packages selected by delete -a.
+validates the installed ownership information and whole selected removal plan
+before changing files, including previews. A malformed manifest cannot silently
+skip entries while dropping registration or cause partial bulk deletion during
+validation. Later filesystem errors still have no transactional rollback.
 generate-plist continues to emit concrete paths, never directive templates.
 
 The following sections retain the original design rationale and examples.

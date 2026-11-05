@@ -219,17 +219,18 @@ do_create() {
     return ${rc}
 }
 
-# Check destination parents before extraction can follow a directory symlink.
-# check_install_parents destination-path
-check_install_parents() {
-    local parent
+# Reject symlink/file parents before package writes or removals.
+# check_package_parents destination-path [operation]
+check_package_parents() {
+    local parent operation
 
+    operation=${2:-Install}
     parent=${1%/*}
     while [ "$parent" != "$DESTDIR" ] && [ "$parent" != / ] &&
         [ -n "$parent" ]; do
         if [ -L "$parent" ] ||
             { [ -e "$parent" ] && [ ! -d "$parent" ]; }; then
-            echo "Install conflict: unsafe destination parent $parent" >&2
+            echo "$operation conflict: unsafe destination parent $parent" >&2
             exit 1
         fi
         parent=${parent%/*}
@@ -237,15 +238,15 @@ check_install_parents() {
 }
 
 # Build an ownership index from installed manifests, not filename prefixes.
-# collect_install_owners database scratch incoming-name incoming-prefix
-collect_install_owners() {
+# collect_package_owners database scratch [incoming-name incoming-prefix]
+collect_package_owners() {
     local db scratch incoming new_prefix entry owner old_prefix
     local manifest kind file type
 
     db=$1
     scratch=$2
-    incoming=$3
-    new_prefix=$4
+    incoming=${3:-}
+    new_prefix=${4:-}
     : > "$scratch/owners"
     [ -f "$db/pkg" ] || return 0
     while IFS= read -r entry
@@ -277,7 +278,7 @@ collect_install_owners() {
                 exit 1
                 ;;
         esac
-        if [ "$owner" = "$incoming" ] &&
+        if [ -n "$incoming" ] && [ "$owner" = "$incoming" ] &&
             [ "$old_prefix" != "$new_prefix" ]; then
             echo 'Install conflict: remove package before changing PREFIX' >&2
             exit 1
@@ -308,7 +309,7 @@ check_install_conflicts() {
     scratch=$1
     incoming=$2
     runtime_prefix=$3
-    collect_install_owners "$DESTDIR/var/db" "$scratch" \
+    collect_package_owners "$DESTDIR/var/db" "$scratch" \
         "$incoming" "$runtime_prefix"
     : > "$scratch/incoming"
     while IFS='|' read -r kind file
@@ -321,7 +322,7 @@ check_install_conflicts() {
         fi
         file="${runtime_prefix%/}/${file#./}"
         target="$DESTDIR$file"
-        check_install_parents "$target"
+        check_package_parents "$target"
         present=missing
         if [ -L "$target" ] || [ -e "$target" ]; then
             present=file
@@ -365,9 +366,9 @@ check_install_conflicts() {
     ' "$scratch/owners" "$scratch/incoming"
 }
 
-# Serialize installs into one canonical destination, including path aliases.
-# acquire_install_lock destination-root
-acquire_install_lock() {
+# Serialize package changes in a destination, including path aliases.
+# acquire_package_lock destination-root
+acquire_package_lock() {
     local parent suffix canonical key lock attempts
 
     parent=${1:-/}
@@ -387,7 +388,7 @@ acquire_install_lock() {
     until mkdir "$lock" 2>/dev/null; do
         attempts=$((attempts + 1))
         if [ "$attempts" -ge 30 ]; then
-            echo "Package install lock timed out: $lock" >&2
+            echo "Package operation lock timed out: $lock" >&2
             exit 1
         fi
         sleep 1
@@ -523,7 +524,7 @@ do_add() {
     db="$DESTDIR/var/db"
     root="$DESTDIR${prefix%/}"
     [ -n "$root" ] || root=/
-    install_lock=$(acquire_install_lock "$DESTDIR")
+    install_lock=$(acquire_package_lock "$DESTDIR")
     check_install_conflicts "$tmpdir" "$name" "$prefix"
     mkdir -p "$root"
     if [ -n "$quiet" ]; then
@@ -668,10 +669,80 @@ do_version()
     return ${rc}
 }
 
+# Build complete removal plans before deleting any package files.
+# plan_package_removals scratch-directory
+plan_package_removals() {
+    local scratch number entry owner prefix manifest kind file target dir
+
+    scratch=$1
+    number=0
+    cp "$scratch/owners" "$scratch/remaining"
+    : > "$scratch/plans"
+    while IFS= read -r entry
+    do
+        number=$((number + 1))
+        owner=$(printf '%s\n' "$entry" | awk '{sub(/:$/, "", $1); print $1}')
+        prefix=$(printf '%s\n' "$entry" | awk '{print $4}')
+        manifest=$(printf '%s\n' "$entry" | awk '{print $NF}')
+        parse_plist "$prefix" "$DESTDIR/var/db/$manifest" \
+            > "$scratch/records"
+        awk -F '|' -v owner="$owner" '$2 != owner' \
+            "$scratch/remaining" > "$scratch/after"
+        awk -F '|' '
+        {
+            path = $1
+            while (path != "" && path != "/") {
+                print path
+                sub(/\/[^/]*$/, "", path)
+            }
+        }
+        ' "$scratch/after" > "$scratch/protected"
+        # Administrative records are removed only by registration updates.
+        printf '/var/db/pkg\n' >> "$scratch/protected"
+        awk '{print "/var/db/" $NF}' "$DESTDIR/var/db/pkg" \
+            >> "$scratch/protected"
+        : > "$scratch/candidates"
+        : > "$scratch/dirs"
+        while IFS='|' read -r kind file
+        do
+            file="${prefix%/}/${file#./}"
+            target="$DESTDIR$file"
+            check_package_parents "$target" Removal
+            if [ "$kind" != path ] ||
+                { [ -d "$target" ] && [ ! -L "$target" ]; }; then
+                printf '%s\n' "$file" >> "$scratch/dirs"
+            else
+                printf 'remove|%s\n' "$file" >> "$scratch/candidates"
+                dir=${file%/*}
+                while [ "$dir" != "${prefix%/}" ] &&
+                    [ "$dir" != / ] && [ -n "$dir" ]; do
+                    printf '%s\n' "$dir" >> "$scratch/dirs"
+                    dir=${dir%/*}
+                done
+            fi
+        done < "$scratch/records"
+        awk '{print length($0) "|" $0}' "$scratch/dirs" | sort -rn |
+            cut -d'|' -f2- | awk '!seen[$0]++ {print "rmdir|" $0}' \
+            >> "$scratch/candidates"
+        awk -F '|' '
+        FILENAME == ARGV[1] {protected[$0] = 1; next}
+        {
+            action = ($2 in protected) ? "keep" : $1
+            record = action "|" $2
+            if (!seen[record]++) print record
+        }
+        ' "$scratch/protected" "$scratch/candidates" \
+            > "$scratch/plan.$number"
+        printf '%s|%s|%s\n' "$number" "$owner" "$manifest" \
+            >> "$scratch/plans"
+        mv "$scratch/after" "$scratch/remaining"
+    done < "$scratch/selected"
+}
+
 do_delete()
 {
-    local quiet dryrun all p info plist prefix root f fname dir kind
-    local tmpdir names
+    local quiet dryrun all p plist fname action entry installed number
+    local tmpdir names package_lock
 
     quiet=0
     dryrun=0
@@ -702,106 +773,71 @@ do_delete()
         echo 'Usage: pkg delete [-afnq] name' >&2
         exit 1
     }
-    [ -f "$DESTDIR/var/db/pkg" ] || return 0
     tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/uports-pkg-delete.XXXXXX")
-    trap 'rm -rf -- "$tmpdir"' EXIT
-    if [ "$all" -eq 1 ]; then
-        names=$(awk '{sub(/:$/, "", $1); print $1}' "$DESTDIR/var/db/pkg")
-    else
-        names=$1
-    fi
-    for p in $names
-    do
-        info=$(match_packages "$p" "$DESTDIR/var/db/pkg")
-        [ -n "$info" ] || continue
-        # Resolve each matching installed package independently.
-        printf '%s\n' "$info" > "$tmpdir/matches"
-        while IFS= read -r entry
+    package_lock=
+    trap 'rm -rf -- "$tmpdir"; [ -z "$package_lock" ] ||
+        rmdir -- "$package_lock"' EXIT
+    package_lock=$(acquire_package_lock "$DESTDIR")
+    if [ -f "$DESTDIR/var/db/pkg" ]; then
+        if [ "$all" -eq 1 ]; then
+            names=$(awk '{sub(/:$/, "", $1); print $1}' \
+                "$DESTDIR/var/db/pkg")
+        else
+            names=$1
+        fi
+        : > "$tmpdir/matches"
+        for p in $names
         do
-            prefix=$(printf '%s\n' "$entry" | awk '{print $4}')
-            plist="$DESTDIR/var/db/$(printf '%s\n' "$entry" | awk '{print $NF}')"
-            case "$prefix" in
-                /) ;;
-                *)
-                    case "$prefix/" in
-                        /*/../*|*/./*|//*)
-                            echo 'Invalid installed prefix' >&2
-                            exit 1
-                            ;;
-                    esac
-                    ;;
-            esac
-            case "$prefix" in
-                /*) ;;
-                *)
-                    exit 1
-                    ;;
-            esac
-            root="$DESTDIR${prefix%/}"
-            [ -n "$root" ] || root=/
-            : > "$tmpdir/dirs"
-            if [ -f "$plist" ]; then
-                parse_plist "$prefix" "$plist" > "$tmpdir/records"
-                while IFS='|' read -r kind f
+            match_packages "$p" "$DESTDIR/var/db/pkg" >> "$tmpdir/matches"
+        done
+        awk '!seen[$0]++' "$tmpdir/matches" > "$tmpdir/selected"
+        if [ -s "$tmpdir/selected" ]; then
+            collect_package_owners "$DESTDIR/var/db" "$tmpdir"
+            plan_package_removals "$tmpdir"
+            while IFS='|' read -r number installed plist
+            do
+                while IFS='|' read -r action entry
                 do
-                    fname="$root/${f#./}"
-                    case "$fname/" in
-                        */../*|*/./*)
-                            echo 'Invalid installed path' >&2
-                            exit 1
+                    fname="$DESTDIR$entry"
+                    case "$action" in
+                        keep)
+                            if [ "$quiet" -eq 0 ] || [ "$dryrun" -eq 1 ]; then
+                                printf 'keep %s (other package ownership)\n' \
+                                    "$fname"
+                            fi
+                            ;;
+                        remove)
+                            if [ "$dryrun" -eq 1 ]; then
+                                printf 'rm -f %s\n' "$fname"
+                            else
+                                [ "$quiet" -eq 1 ] || \
+                                    printf 'delete %s\n' "$fname"
+                                rm -f -- "$fname"
+                            fi
+                            ;;
+                        rmdir)
+                            if [ "$dryrun" -eq 1 ]; then
+                                printf 'rmdir %s\n' "$fname"
+                            else
+                                rmdir -- "$fname" 2>/dev/null || :
+                            fi
                             ;;
                     esac
-                    case "$fname" in
-                        "${root%/}/"*) ;;
-                        *)
-                            echo 'Plist path outside install prefix' >&2
-                            exit 1
-                            ;;
-                    esac
-                    if [ "$kind" = dir ] || [ "$kind" = cleanup ]; then
-                        printf '%s\n' "$fname" >> "$tmpdir/dirs"
-                    elif [ -d "$fname" ] && [ ! -L "$fname" ]; then
-                        printf '%s\n' "$fname" >> "$tmpdir/dirs"
-                    else
-                        [ "$quiet" -eq 1 ] || printf 'delete %s\n' "$fname"
-                        if [ "$dryrun" -eq 1 ]; then
-                            printf 'rm -f %s\n' "$fname"
-                        else
-                            rm -f -- "$fname"
-                        fi
-                        dir=${fname%/*}
-                        while [ "$dir" != "$root" ] && \
-                            [ "$dir" != / ] && [ -n "$dir" ]
-                        do
-                            printf '%s\n' "$dir" >> "$tmpdir/dirs"
-                            dir=${dir%/*}
-                        done
-                    fi
-                done < "$tmpdir/records"
-                awk '{print length($0) "|" $0}' "$tmpdir/dirs" | sort -rn |
-                    cut -d'|' -f2- | awk '!seen[$0]++' > "$tmpdir/ordered"
-                while IFS= read -r dir
-                do
-                    if [ "$dryrun" -eq 1 ]; then
-                        printf 'rmdir %s\n' "$dir"
-                    else
-                        rmdir -- "$dir" 2>/dev/null || :
-                    fi
-                done < "$tmpdir/ordered"
-                [ "$dryrun" -eq 1 ] || rm -f -- "$plist"
-            fi
-            if [ "$dryrun" -ne 1 ]; then
-                installed=$(printf '%s\n' "$entry" | awk '{print $1}')
-                awk -v name="$installed" '$1 != name' \
-                    "$DESTDIR/var/db/pkg" > "$tmpdir/db"
-                cp "$tmpdir/db" "$DESTDIR/var/db/pkg"
-            fi
-        done < "$tmpdir/matches"
-    done
-    if [ "$dryrun" -ne 1 ] && [ ! -s "$DESTDIR/var/db/pkg" ]; then
-        rm -f -- "$DESTDIR/var/db/pkg"
+                done < "$tmpdir/plan.$number"
+                if [ "$dryrun" -ne 1 ]; then
+                    rm -f -- "$DESTDIR/var/db/$plist"
+                    awk -v name="$installed:" '$1 != name' \
+                        "$DESTDIR/var/db/pkg" > "$tmpdir/db"
+                    cp "$tmpdir/db" "$DESTDIR/var/db/pkg"
+                fi
+            done < "$tmpdir/plans"
+        fi
+        if [ "$dryrun" -ne 1 ] && [ ! -s "$DESTDIR/var/db/pkg" ]; then
+            rm -f -- "$DESTDIR/var/db/pkg"
+        fi
     fi
     rm -rf -- "$tmpdir"
+    rmdir -- "$package_lock"
     trap - EXIT
 }
 
