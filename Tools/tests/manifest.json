@@ -70,6 +70,24 @@
         "Isolated installation, query, deletion preview and removal",
         "Preserve nonempty directories and unrelated user files"
       ]
+    },
+    {
+      "id": "w06c",
+      "feature": "Standalone installation ownership and conflict preflight",
+      "implementation_commits": [
+        "eaaef2685ba4d9e6b669fc5cffcd395fe6e9090e"
+      ],
+      "script": "w06c/check-pkg-conflicts-live.py",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Python 3, standard package tools and real cached gforth/default/libffcall/bootstrap archives",
+      "coverage": [
+        "Copy-only standalone package manager",
+        "Exact reinstall and shared directories with bootstrap",
+        "Reject opposite-Flavors in both orders without modifying destination",
+        "Reject unmanaged files, directory type conflicts and symlink parents",
+        "Serialize concurrent installs through destination aliases",
+        "Preserve original cache archive hashes"
+      ]
     }
   ]
 }

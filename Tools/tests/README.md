@@ -1,5 +1,20 @@
 # Real-world validation
 
+For W06C, run from the parent project:
+
+```sh
+python3 make/uports/Tools/tests/w06c/check-pkg-conflicts-live.py
+```
+
+This copies only pkg.sh and uses existing real gforth default/libffcall/bootstrap
+archives. It checks exact reinstalls, opposite-Flavor conflicts in both orders,
+shared directories, unmanaged files, type conflicts, symlink parents and
+concurrent installs through destination aliases. All installation data stays
+under /tmp/uports-w06c-manual.*/; original cache hashes are checked unchanged.
+The script records expected command exits, full per-case output and overall
+status; /tmp/uports-w06c-latest points to the saved evidence directory. No
+builds or existing installation changes are performed. Linux x86_64 only.
+
 For W06B, run from the parent project:
 
 ```sh
