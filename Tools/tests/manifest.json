@@ -52,6 +52,24 @@
         "Staged Scheme arithmetic, regexp and UNIX extension loading",
         "Source provenance and repeat preservation"
       ]
+    },
+    {
+      "id": "w06b",
+      "feature": "Bounded plist directives and standalone package management",
+      "implementation_commits": [
+        "54bba9d1eb19af5b1ccb9f335e273f236aa10d17"
+      ],
+      "script": "w06b/check-pkg-standalone-live.sh",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Real staged gforth 0.7.9_20260610 default/libffcall instances, Bash and standard package tools",
+      "coverage": [
+        "Copy only pkg.sh outside the framework",
+        "Real gforth inventories with comment, directory and legacy cleanup directives",
+        "Reject unsupported directives, traversal and out-of-prefix cleanup",
+        "Preserve archive checksums on validation failure",
+        "Isolated installation, query, deletion preview and removal",
+        "Preserve nonempty directories and unrelated user files"
+      ]
     }
   ]
 }

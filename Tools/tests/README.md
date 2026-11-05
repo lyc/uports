@@ -1,5 +1,20 @@
 # Real-world validation
 
+For W06B, run from the parent project:
+
+```sh
+bash make/uports/Tools/tests/w06b/check-pkg-standalone-live.sh
+```
+
+This uses existing staged gforth default/libffcall files without building or
+changing them. It copies only pkg.sh and creates manifests, packages and
+installation destinations under /tmp/uports-w06b-manual.*/. The script saves
+output and final exit status in validation.log; deletion previews have separate
+per-case logs. /tmp/uports-w06b-latest records the evidence directory for review.
+It exercises production package operations directly, bypassing wrapper/source
+preparation. Expected rejection messages are deliberate checks. Both Flavor
+PASS markers and exit=0 indicate success. Native macOS/ARM64 are not covered.
+
 [manifest.json](manifest.json) is the authoritative
 mapping between feature implementation commits and real-world test scripts.
 The slice 6 registered commit includes source-selection and global-cache fixes.
