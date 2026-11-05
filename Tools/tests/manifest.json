@@ -88,6 +88,24 @@
         "Serialize concurrent installs through destination aliases",
         "Preserve original cache archive hashes"
       ]
+    },
+    {
+      "id": "w06d",
+      "feature": "Standalone ownership-aware removal and mutation coordination",
+      "implementation_commits": [
+        "8382479ac9431f324754e87d6b44f1385becb529"
+      ],
+      "script": "w06d/check-pkg-removal-live.py",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Python 3, Git history containing 54bba9d, standard package tools and real cached gforth/default/libffcall/bootstrap archives",
+      "coverage": [
+        "Legacy overlap set up using earlier production installer and real archives",
+        "Preserve other Flavor payload, bootstrap and shared empty directories",
+        "Exact selection, previews and last-owner bulk removal",
+        "Reject malformed/missing manifests before partial deletion",
+        "Coordinate concurrent removals and add/delete through aliases",
+        "Preserve user files and original cached archives"
+      ]
     }
   ]
 }

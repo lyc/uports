@@ -1,5 +1,22 @@
 # Real-world validation
 
+For W06D, run from the parent project:
+
+```sh
+python3 make/uports/Tools/tests/w06d/check-pkg-removal-live.py
+```
+
+This uses real cached gforth Flavors and bootstrap archives. To reproduce legacy
+overlap, it reads the earlier production pkg.sh from commit 54bba9d in this
+repository's history and installs only into temporary destinations. It never
+checks out or edits another preserved instance. Current pkg.sh removal checks
+retain the other Flavor's files/shared empty directories and bootstrap, validate
+previews/bulk cleanup, reject invalid/missing ownership data, and coordinate
+concurrent mutations through aliases. Full per-case output and final status
+are under /tmp/uports-w06d-manual.*/; /tmp/uports-w06d-latest records the latest
+directory. Cache hashes are checked unchanged. No builds or real installation
+changes. Python handles snapshots/concurrency; the package tool remains shell.
+
 For W06C, run from the parent project:
 
 ```sh
