@@ -46,7 +46,7 @@ validate_env() {
 #      TXZ BLOB
 
 do_create() {
-    local rc pver
+    local rc pver temporary
 
     rc=0
     if [ -n "${PROVENANCE:-}${PACKAGE_BUILD_ID:-}" ]; then
@@ -59,30 +59,41 @@ do_create() {
 	pver=1
     fi
 
-    echo "PVER: $pver"          > "$WRKDIR_PKGFILE"
-    echo "NAME: $PKGNAME"      >> "$WRKDIR_PKGFILE"
-    echo "VER: $VERSION"       >> "$WRKDIR_PKGFILE"
-    echo "PATH: $ORIGIN"       >> "$WRKDIR_PKGFILE"
-    echo "PREFIX: $PREFIX"     >> "$WRKDIR_PKGFILE"
-    echo "INDEX: $INDEX"       >> "$WRKDIR_PKGFILE"
-    echo "COMPRESS: $COMPRESS" >> "$WRKDIR_PKGFILE"
-    echo "EXT: $EXT"           >> "$WRKDIR_PKGFILE"
+    sh "$(dirname "$0")/plist-check.sh" "$STAGEDIR$PREFIX" "$PLIST"
+    temporary=$(mktemp "$WRKDIR_PKGFILE.XXXXXX")
+    trap 'rm -f -- "$temporary"' EXIT HUP INT TERM
+    echo "PVER: $pver"          > "$temporary"
+    echo "NAME: $PKGNAME"      >> "$temporary"
+    echo "VER: $VERSION"       >> "$temporary"
+    echo "PATH: $ORIGIN"       >> "$temporary"
+    echo "PREFIX: $PREFIX"     >> "$temporary"
+    echo "INDEX: $INDEX"       >> "$temporary"
+    echo "COMPRESS: $COMPRESS" >> "$temporary"
+    echo "EXT: $EXT"           >> "$temporary"
     if [ "$pver" -eq 2 ]; then
-	echo "PROVENANCE: %%%%%-PROVENANCE" >> "$WRKDIR_PKGFILE"
+	echo "PROVENANCE: %%%%%-PROVENANCE" >> "$temporary"
 	[ -z "${PROVENANCE:-}" ] ||
-	    cat "$PROVENANCE" >> "$WRKDIR_PKGFILE"
+	    cat "$PROVENANCE" >> "$temporary"
 	[ -z "${PACKAGE_BUILD_ID:-}" ] ||
 	    printf 'package-build-id|%s\n' "$PACKAGE_BUILD_ID" \
-		   >> "$WRKDIR_PKGFILE"
-	echo "%%%%%-PROVENANCE" >> "$WRKDIR_PKGFILE"
+		   >> "$temporary"
+	echo "%%%%%-PROVENANCE" >> "$temporary"
     fi
-    echo "PLIST: %%%%%"        >> "$WRKDIR_PKGFILE"
-    cat "$PLIST"               >> "$WRKDIR_PKGFILE"
-    echo "%%%%%"               >> "$WRKDIR_PKGFILE"
+    echo "PLIST: %%%%%"        >> "$temporary"
+    cat "$PLIST"               >> "$temporary"
+    echo "%%%%%"               >> "$temporary"
     case "$COMPRESS" in
         XZ)
-            cd "$STAGEDIR$PREFIX" && tar Jcf - . >> "$WRKDIR_PKGFILE" ;;
+            (cd "$STAGEDIR$PREFIX" && tar Jcf - .) >> "$temporary" ;;
+        *)
+            echo "Unsupported package compression: $COMPRESS" >&2
+            exit 1
+            ;;
     esac
+    # Match ordinary archive creation permissions, honoring the current umask.
+    chmod =rw "$temporary"
+    mv -f -- "$temporary" "$WRKDIR_PKGFILE"
+    trap - EXIT HUP INT TERM
 
     return ${rc}
 }

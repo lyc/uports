@@ -92,6 +92,21 @@ existing explicit file/directory inventory format; general FreeBSD plist
 directives beyond conditional comments are not implemented by this processing.
 Each Flavor's generated files stay in its own work directory.
 
+Package creation always compares that concrete manifest against a fresh scan
+of STAGEDIR/PREFIX before writing archive bytes, including direct pkg.sh create
+calls. Missing/unlisted files, symlinks or directories reject the package with
+an inventory diff. The same checker is used by check-plist. This does not rely
+on a previously generated TMPPLIST or run compiler/dependency phases.
+
+The writer creates an archive in a unique sibling temporary file and renames
+it to the work-package path only after successful compression. Validation or
+archive-write failures retain the previous work archive and any published
+archive sharing its old hard link. A successful replacement becomes a separate
+inode until the existing publication rule copies/links it into the cache.
+Archive format and provenance records are unchanged. This is not a claim of
+transactional publication across filesystems or protection against a concurrent
+process changing staged contents between validation and compression.
+
 The following sections retain the original design rationale and examples.
 Substitution/manifest comparison are now implemented as described above;
 port-specific build/runtime validation and coinstallation remain separate.

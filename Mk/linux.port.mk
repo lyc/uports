@@ -1754,9 +1754,8 @@ endif
 ifeq ($(filter $(override_targets),check-plist),)
 check-plist: generate-plist
 	@set -e; $(resolve-package-plist);			       \
-	  LC_ALL=C sort "$(package-plist)" > "$(package-plist).sorted";    \
-	  LC_ALL=C sort "$(TMPPLIST)" > "$(TMPPLIST).sorted";	       \
-	  diff -u "$(package-plist).sorted" "$(TMPPLIST).sorted"
+	  $(SH) "$(SCRIPTSDIR)/plist-check.sh"                            \
+	    "$(STAGEDIR)$(PREFIX)" "$(package-plist)"
 endif
 
 ifeq ($(filter $(override_targets),stage-qa),)
