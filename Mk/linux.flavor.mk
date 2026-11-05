@@ -53,9 +53,40 @@ flavor-source-identity	= $(if $(flavor-nondefault),|flavor=$(flavor-selected))
 # An explicitly empty helper is intentional, not an absent declaration.
 define flavor-value
 $(if $(flavor-declared),					       \
-  $(if $(filter undefined,					       \
-    $(origin $(flavor-selected)_$(strip $1))),		       \
-    $2,$($(flavor-selected)_$(strip $1))),$2)
+  $(call flavor-value-for,$(flavor-selected),$1,$2),$2)
+endef
+
+# $(call flavor-value-for, flavor, helper-name, fallback-value)
+define flavor-value-for
+$(if $(filter undefined,					       \
+  $(origin $(strip $1)_$(strip $2))),$3,$($(strip $1)_$(strip $2)))
+endef
+
+# $(call flavor-name-prefix, flavor)
+define flavor-name-prefix
+$(strip $(call flavor-value-for,$1,PKGNAMEPREFIX,$(PKGNAMEPREFIX)))
+endef
+
+# $(call flavor-name-explicit, flavor)
+define flavor-name-explicit
+$(strip $(call flavor-value-for,$1,PKGNAMESUFFIX,$(PKGNAMESUFFIX)))
+endef
+
+# $(call flavor-name-auto, flavor)
+define flavor-name-auto
+$(strip $(if $(filter-out $(flavor-default),$(strip $1)),	       \
+  $(if $(filter undefined,$(origin $(strip $1)_PKGNAMESUFFIX)),	       \
+    -$(strip $1))))
+endef
+
+# $(call flavor-name-suffix, flavor)
+define flavor-name-suffix
+$(call flavor-name-explicit,$1)$(call flavor-name-auto,$1)
+endef
+
+# $(call flavor-name-base, flavor)
+define flavor-name-base
+$(call flavor-name-prefix,$1)$(PORTNAME)$(call flavor-name-suffix,$1)
 endef
 
 flavor-pkgnameprefix	= $(strip $(call flavor-value,		       \
@@ -87,6 +118,15 @@ endif
 ifdef _POSTMKINCLUDED
 ifndef _INCLUDE_LINUX_FLAVOR_POST_MK
 _INCLUDE_LINUX_FLAVOR_POST_MK	:= yes
+
+flavor-package-collisions := $(strip				       \
+	$(foreach f,$(filter-out $(flavor-selected),$(flavor-declared)), \
+	  $(if $(filter $(call flavor-name-base,$f),$(PKGBASE)),$f,    \
+	    $(if $(filter $(call flavor-name-base,$f)-$(PKGVERSION),   \
+	      $(PKGNAME)),$f))))
+ifneq ($(flavor-package-collisions),)
+$(error Flavor package identity collides with: $(flavor-package-collisions))
+endif
 
 ifneq ($(flavor-nondefault),)
 ifeq ($(filter %$(flavor-work-suffix),$(WRKDIR)),)

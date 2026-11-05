@@ -424,6 +424,8 @@ CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(source-cookie-name)
 BUILD_COOKIE		?= $(WRKDIR)/build._done.$(source-cookie-name)
 STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(source-cookie-name)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(source-cookie-name)
+installed-package-plists = $(wildcard				       \
+	$(DESTDIR)/var/db/$(PKGNAME)-pkg-plist.*)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(source-cookie-name)
 
 source-state-cookies	= $(EXTRACT_COOKIE) $(PATCH_COOKIE) \
@@ -515,6 +517,10 @@ uports-dependency-dispatch:
 	  exit 1; \
 	fi; \
 	cookie='$(dependency-target-cookie)'; \
+	if test "$(DEPENDENCY_TARGET_SUFFIX)" = install &&	       \
+	    test -z "$(installed-package-plists)"; then		       \
+	  cookie=;						       \
+	fi;							       \
 	if test -n "$$cookie" && test -f "$$cookie"; then \
 	  if test "$(PORTS_VERBOSE)" = 1; then \
 	    echo "  REUSE   $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
@@ -1056,6 +1062,20 @@ PKGMESSAGE		?= $(PKGDIR)/pkg-message
 # $(warning PLIST=$(PLIST))
 
 TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
+PLIST_SUB		?=
+package-plist		= $(WRKDIR)/.PLIST.resolved
+
+# Resolve into the selected work directory; preserve the read-only input plist.
+define resolve-package-plist
+$(MKDIR) "$(WRKDIR)";						       \
+temporary=$$(mktemp "$(package-plist).XXXXXX");			       \
+if awk -f "$(SCRIPTSDIR)/plist-resolve.awk"			       \
+    $(PLIST_SUB) "$(PLIST)" > "$$temporary"; then		       \
+  mv -f "$$temporary" "$(package-plist)";			       \
+else								       \
+  rm -f "$$temporary"; exit 1;					       \
+fi
+endef
 
 # stuff for package ...
 
@@ -1094,7 +1114,7 @@ PKG_ENV			+=						\
 	INDEX=$(CATEGORIES)						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
-	PLIST=$(PLIST)							\
+	PLIST=$(package-plist)					       \
 	PROVENANCE=$(package-provenance-file)				\
 	PACKAGE_BUILD_ID=$(PACKAGE_BUILD_ID)				\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
@@ -1203,6 +1223,10 @@ dependency-package-rebuild := $(or $(dependency-package-mismatch),\
 
 # Local state markers describe a build tree, not a compatible cached package.
 # Validate each candidate independently; prefer a compatible shared archive.
+# Internal metadata/state probes may not carry the install's provider report.
+# Report rejected candidates only when an install actually selects an archive.
+package-reuse-diagnostic := $(filter install reinstall install-package \
+	check-already-installed,$(MAKECMDGOALS) $(DEPENDENCY_TARGET_SUFFIX))
 package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 	for archive in "$(PKGFILE)" "$(WRKDIR_PKGFILE)"; do \
 	  test -f "$$archive" || continue; \
@@ -1211,7 +1235,8 @@ package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 	      "$(package-source-state)" "$(package-source-key)" \
 	      "$(PACKAGE_BUILD_ID)"; then \
 	    printf '%s' "$$archive"; break; \
-	  elif test "$(PORTS_VERBOSE)" = 1; then \
+	  elif test "$(PORTS_VERBOSE)" = 1 &&			       \
+	      test -n "$(package-reuse-diagnostic)"; then	       \
 	    printf '  PKG REJECT %s (prefix/provider/source/build identity mismatch)\n' \
 	      "$$archive" >&2; \
 	  fi; \
@@ -1728,6 +1753,10 @@ endif
 
 ifeq ($(filter $(override_targets),check-plist),)
 check-plist: generate-plist
+	@set -e; $(resolve-package-plist);			       \
+	  LC_ALL=C sort "$(package-plist)" > "$(package-plist).sorted";    \
+	  LC_ALL=C sort "$(TMPPLIST)" > "$(TMPPLIST).sorted";	       \
+	  diff -u "$(package-plist).sorted" "$(TMPPLIST).sorted"
 endif
 
 ifeq ($(filter $(override_targets),stage-qa),)
@@ -1832,6 +1861,7 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
+	$(resolve-package-plist);				       \
 	$(if $(filter git,$(_SOURCE_MODE)),                              \
 	  $(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh package-check;) \
 	$(if $(source-identity-required),			       \
@@ -2162,13 +2192,22 @@ _TARGET_TARGETS		= extract patch configure build stage install package
 #$(warning _INSTALL_REAL_SEQ=$(call get-real-seqs,INSTALL))
 #$(warning _PACKAGE_REAL_SEQ=$(call get-real-seqs,PACKAGE))
 
+# An absent installed manifest invalidates only the installation cookie.
+# $(call cookie-must-refresh, phase)
+define cookie-must-refresh
+$(strip $(or							       \
+  $(and $(filter yes,$(dependency-package-reconfigure)),	       \
+    $(filter configure build stage package install,$1)),	       \
+  $(and $(filter install,$1),$(if $(installed-package-plists),,yes))))
+endef
+
 # $(call generate-cookie-targets, target, TARGET)
 define generate-cookie-targets
 _PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
-ifeq ($(if $(and $(filter yes,$(dependency-package-reconfigure)),$(filter configure build stage package install,$1)),,$(wildcard $($2_COOKIE))),)
+ifeq ($(if $(call cookie-must-refresh,$1),,$(wildcard $($2_COOKIE))),)
 ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
 $$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
 endif
@@ -2439,9 +2478,12 @@ endif
 # requested for its next build. Never guess between multiple install markers.
 dependency-install-cookies = $(wildcard $(WRKDIR)/install._done.$(PKGNAME) \
 	$(WRKDIR)/install._done.$(PKGNAME).*)
-dependency-installed-cookie = $(strip $(or $(wildcard $(INSTALL_COOKIE)), \
-	$(if $(filter 1,$(words $(dependency-install-cookies))),         \
-	  $(dependency-install-cookies)),$(INSTALL_COOKIE)))
+define dependency-installed-cookie
+$(strip $(if $(installed-package-plists),			       \
+  $(or $(wildcard $(INSTALL_COOKIE)),				       \
+    $(if $(filter 1,$(words $(dependency-install-cookies))),	       \
+      $(dependency-install-cookies)),$(INSTALL_COOKIE))))
+endef
 .PHONY: uports-dependency-metadata
 .PHONY: uports-flavor-metadata
 uports-flavor-metadata:
@@ -2456,6 +2498,7 @@ uports-flavor-metadata:
 	  'path|stage|$(STAGEDIR)'				       \
 	  'path|plist|$(PLIST)'					       \
 	  'path|generated-plist|$(TMPPLIST)'			       \
+	  'path|resolved-plist|$(package-plist)'		       \
 	  'path|source-state|$(SOURCE_STATE_FILE)'		       \
 	  'path|configure-state|$(call dependency-state-file-for,configure)' \
 	  'path|stage-state|$(call dependency-state-file-for,stage)'   \

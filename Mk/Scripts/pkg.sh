@@ -267,8 +267,8 @@ do_info()
 #    echo pkgname=$pkgname
 
     if [ -f "${db}/pkg" ]; then
-        info=$(awk -v p="$pkgname" '{name=$1; sub(/:$/, "", name)}
-            name == p || index(name, p "-") == 1 || $3 == p {print}' "${db}/pkg")
+        info=$(awk -v p="$pkgname" -v match_origin=1 \
+            -f "$(dirname "$0")/pkg-match.awk" "${db}/pkg")
     fi
 #    echo info=$info
 
@@ -388,8 +388,8 @@ do_delete()
     fi
     for p in $names
     do
-        info=$(awk -v p="$p" '{name=$1; sub(/:$/, "", name)}
-            name == p || index(name, p "-") == 1 {print}' "$DESTDIR/var/db/pkg")
+        info=$(awk -v p="$p" \
+            -f "$(dirname "$0")/pkg-match.awk" "$DESTDIR/var/db/pkg")
         [ -n "$info" ] || continue
         # Resolve each matching installed package independently.
         printf '%s\n' "$info" > "$tmpdir/matches"

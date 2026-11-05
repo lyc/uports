@@ -372,8 +372,13 @@ Initial helpers are `<flavor>_PKGNAMEPREFIX`, `<flavor>_PKGNAMESUFFIX` and
 an explicitly empty value. Without a suffix helper, a nondefault Flavor appends
 `-<flavor>` after the ordinary package suffix. Default selection adds nothing.
 PKGBASE follows the same helpers as PKGNAME. A plist helper selects a read-only
-input file and uses the platform as its package plist extension; it does not
-imply PLIST_SUB support or a recipe-specific optional-file manifest conversion.
+input file and uses the platform as its package plist extension.
+PLIST_SUB independently resolves conditional entries into a concrete manifest
+under WRKDIR for packaging and staged-inventory comparison. It does not change
+the input plist or the inventory produced by generate-plist. Gforth uses
+conditional entries for its optional libffcall wrapper; see
+[install/plist behavior](08-INSTALL.md). Separate package identities do not
+make configurations with overlapping installed files safe to coinstall.
 
 Nondefault WRKDIR overrides must retain the `.flavor-<name>` suffix. Mutable
 source/build/stage directories, generated plists, cookies and saved-state/work
@@ -384,6 +389,12 @@ identity, and cache filenames must match the selected package name. Custom
 helper mappings must remain distinct across Flavors; selected-instance
 validation must detect conflicting mappings before execution. Separate artifacts
 do not imply safe coinstallation in one destination root.
+
+Port validation compares the selected package base/name with the mappings of
+the other declared Flavors using the helpers visible in that configuration.
+Matching mappings fail before lifecycle execution; distinct custom suffixes
+remain permitted. This validates declared package naming, not installed file
+ownership or arbitrary conditionally hidden recipe mappings.
 
 Nondefault source request keys include `flavor=<name>`. Saved source state adds
 `flavor|<name>`, and package creation uses the existing PVER 2 source-provenance
