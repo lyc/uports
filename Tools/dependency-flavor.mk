@@ -31,7 +31,7 @@ endef
 # $(call dependency-target-instance, canonical-target)
 dependency-target-instance = $(call dependency-flavor-key,	       \
 	$(call target-base-instance-key,$1),			       \
-	$(if $(findstring :,$1),				       \
+	$(if $(findstring @,$1),				       \
 	  $(call flavor-target-selection,$1)))
 target-instance-key	= $(call dependency-target-instance,$1)
 
@@ -348,7 +348,7 @@ $(foreach d,$1,							       \
       $(call dependency-metadata-origin,$d))))
 endef
 
-# $(call dependency-normalize-target, [group@]port[:flavor].phase)
+# $(call dependency-normalize-target, [group:]port[@flavor].phase)
 define dependency-normalize-target
 $(strip $(if $(call resolve-port-target,$1),			       \
   $(if $(call flavor-target-selection,				       \
@@ -358,7 +358,7 @@ $(strip $(if $(call resolve-port-target,$1),			       \
       $(dependency_default_$(call target-base-instance-key,	       \
         $(call resolve-port-target,$1)))),			       \
       $(call flavor-base-target,$1),				       \
-      $(call flavor-target-stem,$1):$(call dependency-root-ending,$1)), \
+      $(call flavor-target-stem,$1)@$(call dependency-root-ending,$1)), \
     $(call flavor-base-target,$1))))
 endef
 
@@ -378,15 +378,15 @@ endef
 
 # $(call dependency-command-base, instance-key)
 define dependency-command-base
-$(instance_$(strip $1)_group)@$(instance_$(strip $1)_port)
+$(instance_$(strip $1)_group):$(instance_$(strip $1)_port)
 endef
 
 # $(call dependency-command-qualifier, instance-key)
 # Explicit provider defaults bypass project root selections on that port.
 define dependency-command-qualifier
 $(strip $(if $(call instance-field,$1,flavor_base),		       \
-  :$(call instance-field,$1,variant),				       \
-  $(if $(dependency_choices_$(strip $1)),:$(dependency_default_$(strip $1)))))
+  @$(call instance-field,$1,variant),				       \
+  $(if $(dependency_choices_$(strip $1)),@$(dependency_default_$(strip $1)))))
 endef
 
 # Collect raw metadata without provider policy or lifecycle validation.
@@ -496,7 +496,7 @@ $(call dependency-expand-flavors,$(dependency_metadata_raw))
 endef
 
 # Register the one validated wrapper selection before lifecycle recipes expand.
-ifneq ($(findstring :,$(_UPORTS_FLAVOR_TARGET)),)
+ifneq ($(findstring @,$(_UPORTS_FLAVOR_TARGET)),)
 $(call dependency-create-variant,				       \
   $(call target-base-instance-key,$(_UPORTS_FLAVOR_TARGET)),	       \
   $(call flavor-target-selection,$(_UPORTS_FLAVOR_TARGET)))

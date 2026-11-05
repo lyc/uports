@@ -28,18 +28,18 @@ $(if $2,							       \
     $(subst $(firstword $2),,$1),$(wordlist 2,$(words $2),$2)),$1)
 endef
 
-# $(call flavor-target-base, [group@]port[:flavor].phase)
-flavor-target-base	= $(firstword $(subst :, ,		       \
+# $(call flavor-target-base, [group:]port[@flavor].phase)
+flavor-target-base	= $(firstword $(subst @, ,		       \
 			    $(call extract-port,$1)))$(suffix $1)
 
-# $(call flavor-target-selection, [group@]port[:flavor].phase)
-flavor-target-selection	= $(strip $(if $(findstring :,$1),	       \
-			    $(word 2,$(subst :, ,$(call extract-port,$1))), \
+# $(call flavor-target-selection, [group:]port[@flavor].phase)
+flavor-target-selection	= $(strip $(if $(findstring @,$1),	       \
+			    $(word 2,$(subst @, ,$(call extract-port,$1))), \
 			    $(call instance-field,		       \
 			      $(call target-base-instance-key,$1),     \
 			      project_flavor)))
 
-# $(call flavor-base-target, [group@]port[:flavor].phase)
+# $(call flavor-base-target, [group:]port[@flavor].phase)
 flavor-base-target	= $(strip $(if				       \
 			    $(filter .flavor-check,$(suffix $1)),      \
 			    $(patsubst %.fetch,%.flavor-check,	       \
@@ -58,19 +58,19 @@ flavor-ending		= $(call flavor-target-selection,$1)$(suffix $1)
 flavor-input-stem	= $(basename $(call flavor-target-base,$1))
 
 # $(call flavor-target-spelling, target)
-flavor-target-spelling	= $(call flavor-input-stem,$1):$(call flavor-ending,$1)
+flavor-target-spelling	= $(call flavor-input-stem,$1)@$(call flavor-ending,$1)
 
-# $(call resolve-port-target, [group@]port[:flavor].phase)
+# $(call resolve-port-target, [group:]port[@flavor].phase)
 # Keep colons as data; escape only when defining make rules/prerequisites.
 define resolve-port-target
-$(strip $(if $(findstring :,$1),				       \
+$(strip $(if $(findstring @,$1),				       \
   $(if $(call flavor-both,					       \
-    $(filter 2,$(words $(subst :, ,$(call extract-port,$1)))),	       \
+    $(filter 2,$(words $(subst @, ,$(call extract-port,$1)))),	       \
     $(filter $1,$(call flavor-target-spelling,$1))),		       \
     $(if $(strip $(call flavor-target-remove-chars,		       \
       $(call flavor-target-selection,$1),$(flavor-target-chars))),,    \
       $(if $(call flavor-base-target,$1),			       \
-        $(call flavor-target-stem,$1):$(call flavor-ending,$1)))),     \
+        $(call flavor-target-stem,$1)@$(call flavor-ending,$1)))),     \
   $(call flavor-base-target,$1)))
 endef
 
@@ -98,13 +98,31 @@ flavor-target-directory	= $(call flavor-root,$1)/$(call flavor-origin,$1)
 flavor-wrapper-suffixes	= $(addprefix .,$(suffix_all_lists)) .flavor-check
 flavor-wrapper-goals	= $(filter $(addprefix %,		       \
 			    $(flavor-wrapper-suffixes)),$(MAKECMDGOALS))
+
+# $(call obsolete-port-target, target)
+# Planner group@origin records are internal; wrapper commands use group:port.
+define obsolete-port-target
+$(strip $(or $(filter $(groups_all),$(firstword $(subst @, ,$1))),     \
+  $(and $(findstring :,$1),					       \
+    $(filter-out $(groups_all),$(firstword $(subst :, ,$1))),	       \
+    $(port_$(firstword $(subst :, ,$1))_origin))))
+endef
+
+obsolete-port-requests	:= $(foreach t,$(flavor-wrapper-goals)	       \
+  $(dependency-requests) $(addsuffix .fetch,$(FLAVOR_REQUEST)),	       \
+  $(if $(call obsolete-port-target,$t),$t))
+ifneq ($(strip $(obsolete-port-requests)),)
+$(error Obsolete uports target syntax: $(obsolete-port-requests);      \
+  use [group:]port[@flavor].phase)
+endif
+
 flavor-qualified-goals	= $(foreach t,$(flavor-wrapper-goals),	       \
-			    $(if $(findstring :,$t),$t))
+			    $(if $(findstring @,$t),$t))
 
 # $(call flavor-dispatch-needed, target)
 flavor-dispatch-needed	= $(strip $(if				       \
 	$(call flavor-bridge-active,$(call resolve-port-target,$1)),,  \
-	$(call flavor-any,$(findstring :,$1),			       \
+	$(call flavor-any,$(findstring @,$1),			       \
 	  $(filter .flavor-check,$(suffix $1)),			       \
 	  $(call flavor-target-selection,$(call resolve-port-target,$1)))))
 
@@ -133,7 +151,7 @@ elif test "$$selected" != "$$default"; then			       \
         -C "$(call flavor-target-directory,$1)"			       \
         PORTSDIR="$(portdir)" $(call flavor-base-field,$1,env)	       \
         FLAVOR="$$selected" "$$phase";;				       \
-    *) target="$(call flavor-target-stem,$1):$${selected}.$${phase}"; \
+    *) target="$(call flavor-target-stem,$1)@$${selected}.$${phase}"; \
        $(MAKE) --no-print-directory                                   \
          _UPORTS_FLAVOR_TARGET="$$target" "$$target";;                  \
   esac;								       \
@@ -193,7 +211,7 @@ $(foreach t,$(flavor-dispatch-goals),				       \
   $(if $(filter-out $(call resolve-port-target,$t),$t),		       \
     $(eval $(call generate-flavor-alias,$t,$(call resolve-port-target,$t)))))
 
-# $(call flavor-request-instance, [group@]port)
+# $(call flavor-request-instance, [group:]port)
 flavor-request-instance	= $(call target-base-instance-key,	       \
 			    $(call resolve-port-target,$1.fetch))
 
@@ -208,7 +226,7 @@ $(MAKE) -s --no-print-directory					       \
       FLAVOR='$(call dependency-env-value,			       \
         $(call instance-field,$1,env),FLAVOR)',			       \
       --eval='override undefine FLAVOR'))			       \
-  $(if $(findstring :,$(FLAVOR_REQUEST)),			       \
+  $(if $(findstring @,$(FLAVOR_REQUEST)),			       \
     FLAVOR='$(call flavor-target-selection,$(FLAVOR_REQUEST).fetch)')  \
   uports-flavor-metadata > "$$metadata_file" || exit $$?;	       \
 $(call flavor-metadata-output,$(strip $1))
@@ -217,7 +235,7 @@ endef
 .PHONY: flavor-list flavor-check
 depends_exclude_targets	+= flavor-list flavor-check
 flavor-list flavor-check:
-	@$(if $(and $(findstring :,$(FLAVOR_REQUEST)),$(strip $(FLAVOR))), \
+	@$(if $(and $(findstring @,$(FLAVOR_REQUEST)),$(strip $(FLAVOR))), \
 	  $(if $(filter $(FLAVOR),				       \
 	    $(call flavor-target-selection,$(FLAVOR_REQUEST).fetch)),, \
 	    $(error FLAVOR conflicts with the qualified FLAVOR_REQUEST)))

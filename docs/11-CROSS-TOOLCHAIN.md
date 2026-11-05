@@ -180,7 +180,7 @@ characters, multiple selections and undeclared selections fail explicitly.
 No shell probe is needed to validate declaration syntax.
 
 Project diagnostics are `flavor-list` and `flavor-check`. FLAVOR_REQUEST accepts
-one selected `[group@]port` using existing canonical/unique-alias resolution;
+one selected `[group:]port` using existing canonical/unique-alias resolution;
 the output prefixes each record with the existing instance key. Omit the request
 to inspect all selected instances, including fallbacks, in planner order.
 Unscoped inherited FLAVOR is cleared during all-instance discovery; scoped
@@ -189,8 +189,8 @@ Port parsing retains its existing cache-directory preparation contract; these
 diagnostics do not fetch, extract, patch, build or install sources/packages.
 
 ```sh
-make FLAVOR_REQUEST=compiler@gforth flavor-list
-make FLAVOR_REQUEST=compiler@gforth FLAVOR=libffcall flavor-check
+make FLAVOR_REQUEST=compiler:gforth flavor-list
+make FLAVOR_REQUEST=compiler:gforth FLAVOR=libffcall flavor-check
 make flavor-list
 ```
 
@@ -198,7 +198,7 @@ This is demand-driven metadata collection: no extra port probes or selected
 nondefault instance records are added to ordinary planner startup. Existing
 info.debug.variants still describes the implemented planner's implicit default
 instances. FLAVOR_REQUEST is an inspection selector. It may include the selected
-Flavor as [group@]port:flavor; existing scoped FLAVOR queries remain supported.
+Flavor as [group:]port@flavor; existing scoped FLAVOR queries remain supported.
 Conflicting selections are rejected. Lifecycle target syntax is defined below.
 
 ### Toolchain Profile Contract
@@ -437,14 +437,25 @@ roles and readiness are attached to these instances rather than introducing
 a second configuration selector. Target triples/ABIs remain
 first-class configuration: naming a flavor does not itself configure GCC.
 
-Public flavored targets use [group@]port:flavor.phase. Examples:
+Public lifecycle targets use `[group:]port[@flavor].phase`. Examples:
 
 ```sh
-make gforth:libffcall.fetch
-make compiler@gforth:libffcall.fetch
-make compiler@gforth:default.fetch
-make gforth:libffcall.flavor-check
+make gforth@libffcall.fetch
+make compiler:gforth@libffcall.fetch
+make compiler:gforth@default.fetch
+make gforth@libffcall.flavor-check
 ```
+
+Group-qualified unflavored commands use `compiler:gforth.build`; ordinary
+aliases and group/category/global aggregates retain their previous spelling.
+The old `group@port` and `port:flavor` wrapper syntax is rejected with a
+migration hint. Planner `group@category/port` records, provider policy syntax,
+dependency declarations and internal instance keys retain their meanings.
+Only public command/request spelling changes; port Flavor declarations,
+artifact paths and package identities remain unchanged. Saved dependency-state
+comparison normalizes old/new uports command spellings, including embedded
+build-state records. Syntax alone does not invalidate build state; provider,
+Flavor and phase changes remain significant.
 
 Resolve group/port through existing canonical and alias rules before applying
 the Flavor. Rejected or ambiguous aliases require an explicit group. Preserve

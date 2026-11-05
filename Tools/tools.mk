@@ -158,12 +158,12 @@ filter-out-group-extra	= $(if						\
 			      $(if $(filter-out $(PORTS_GROUP_DEFAULT),	\
 			        $(call get-group,$1)),,$1),$1)
 
-# $(call rm-group, group@port.suffix)
-rm-group		= $(lastword $(call rm-at,$1))
+# $(call rm-group, group:port[@flavor].suffix)
+rm-group		= $(lastword $(subst :, ,$1))
 
-# $(call transform-port-string, group@port.suffix)
+# $(call transform-port-string, group:port.suffix)
 transform-port-string	= $(subst ., ,					\
-			    $(firstword $(call rm-at,			\
+			    $(firstword $(subst :, ,			\
 			      $1))$(AT)$(call get-category,		\
 			        $(call rm-group,$1))$(SLASH)$(call rm-group,$1))
 
@@ -477,11 +477,11 @@ $(foreach p,$(ports_all_group),					\
 # $(call instance-field, instance-key, field)
 instance-field		= $(instance_$(strip $1)_$(strip $2))
 
-# $(call target-base-instance-key, group@port[:flavor].suffix)
+# $(call target-base-instance-key, group:port[@flavor].suffix)
 # The dependency Flavor module later resolves nondefault node keys.
 target-base-instance-key	= $(call instance-key,		       \
-			    $(strip $(firstword $(call rm-at,$1))),	\
-			    $(firstword $(subst :, ,		       \
+			    $(strip $(firstword $(subst :, ,$1))),	\
+			    $(firstword $(subst @, ,		       \
 			      $(call extract-port,$(call rm-group,$1)))))
 target-instance-key	= $(call target-base-instance-key,$1)
 
@@ -496,7 +496,7 @@ instance_$(flavor-bridge-key)_env := $(strip				\
 instance_$(flavor-bridge-key)_project_flavor :=
 endif
 
-# $(call target-instance-field, group@port.suffix, field)
+# $(call target-instance-field, group:port[@flavor].suffix, field)
 define target-instance-field
 $(strip $(if $(filter undefined,				       \
   $(origin instance_$(strip $(call target-instance-key,$1))_$(strip $2))), \
@@ -513,15 +513,18 @@ target-alias-instance	= $(firstword $(filter				\
 			    $(ports_all_group_extra)))
 
 # $(call target-alias-canonical, port.suffix)
-target-alias-canonical	= $(call get-group,$(call target-alias-instance,$1))$(AT)$(call target-alias-port,$1)$(suffix $1)
+define target-alias-canonical
+$(call get-group,						       \
+  $(call target-alias-instance,$1)):$(call target-alias-port,$1)$(suffix $1)
+endef
 
 #
-# generate group@port.suffix target...
+# generate group:port.suffix target...
 #
 
 ports_target_all	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),		\
-			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
+			      $(foreach p,$(groups_$g),$g:$p.$s)))
 ports_alias_target_all	:= $(foreach p,$(ports_all_group_extra),		\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(call get-port,$p).$s))
@@ -535,7 +538,7 @@ ports_aggregate_target_all := $(ports_category_target_all)		\
 			      $(ports_global_target_all)
 ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 
-# $(call resolve-unflavored-port-target, [group@]port.suffix)
+# $(call resolve-unflavored-port-target, [group:]port.suffix)
 resolve-unflavored-port-target = $(strip			       \
 			    $(if $(filter $1,$(ports_target_all)),$1,	\
 			      $(if $(filter $1,$(ports_alias_target_all)),	\
@@ -569,7 +572,7 @@ aggregate-group-prerequisites = $(if				\
 			    $(filter $(call aggregate-target-name,$1),	\
 			      $(groups_all)),				\
 			    $(addprefix					\
-			      $(call aggregate-target-name,$1)$(AT),	\
+			      $(call aggregate-target-name,$1):,	       \
 			      $(addsuffix					\
 			        .$(call aggregate-target-suffix,$1),	\
 			        $(groups_$(call aggregate-target-name,$1)))))
@@ -640,7 +643,7 @@ uports-force:
 validate-port-target	= $(if $(resolved-port-target),,		\
 			    $(error Unknown uports lifecycle target: $@)) \
 			  $(if $(strip $(FLAVOR)),		       \
-			    $(error Use port:flavor.phase,	       \
+			    $(error Use port@flavor.phase,	       \
 			      not global FLAVOR))		       \
 			  $(if $(flavor-mixed-goals),		       \
 			    $(error Do not mix qualified and unqualified \
@@ -724,15 +727,15 @@ $(foreach s,$(suffix_special_all),					\
     $(call generate-port-special-pattern,$s)))
 
 transform_category	= $(foreach p,$(categories_$1),			\
-			    $(foreach g,$($p_groups),$g$(AT)$p))
+			    $(foreach g,$($p_groups),$g:$p))
 
 transform_root_category = $(foreach p,$(categories_$1),		\
 			    $(foreach g,$($p_groups),			\
 			      $(if $(filter $g$(AT)%/$p,		\
-			        $(ports_root_group)),$g$(AT)$p)))
+			        $(ports_root_group)),$g:$p)))
 
 transform_all_group	= $(foreach p,$1,				\
-			    $(call get-group,$p)@$(call get-port,$p))
+			    $(call get-group,$p):$(call get-port,$p))
 
 #
 # finally, ports target...
