@@ -267,13 +267,65 @@ $(foreach p,$(ports_all_raw_lists),					\
 #   xxx_groups:
 #
 
+group-name-chars		= a b c d e f g h i j k l m n o p q r s t       \
+			  u v w x y z A B C D E F G H I J K L M N       \
+			  O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9 _ -
+
+# $(call group-name-invalid, name, remaining-characters)
+group-name-invalid	= $(if $2,$(call group-name-invalid,	       \
+	$(subst $(firstword $2),,$1),$(wordlist 2,$(words $2),$2)),$1)
+
+ifneq ($(origin PORTS_GROUPS),undefined)
+ifeq ($(strip $(PORTS_GROUPS)),)
+$(error PORTS_GROUPS must contain at least one group)
+endif
+ifneq ($(words $(PORTS_GROUPS)),$(words $(sort $(PORTS_GROUPS))))
+$(error PORTS_GROUPS contains duplicate group names)
+endif
+ports_invalid_group_names := $(strip				       \
+	$(foreach g,$(PORTS_GROUPS),				       \
+	  $(call group-name-invalid,$g,$(group-name-chars)))	       \
+	$(filter -%,$(PORTS_GROUPS)))
+ifneq ($(ports_invalid_group_names),)
+$(error Invalid group name in PORTS_GROUPS=$(PORTS_GROUPS))
+endif
+ifeq ($(filter undefined environment,$(origin PORTS_GROUP_DEFAULT)),)
+ports_group_default_source := explicit
+else
+override PORTS_GROUP_DEFAULT := $(firstword $(PORTS_GROUPS))
+ports_group_default_source := first-group
+endif
+ifeq ($(filter $(PORTS_GROUP_DEFAULT),$(PORTS_GROUPS)),)
+$(error PORTS_GROUP_DEFAULT must name a group in PORTS_GROUPS)
+endif
+ports_membership_groups	:= $(PORTS_GROUPS)
+ports_unknown_group_members := $(strip				       \
+	$(foreach g,$(PORTS_GROUPS),$(foreach p,$($(g)_lists),	       \
+	  $(if $(wildcard $(feeds)/$p/Makefile $(portdir)/$p/Makefile), \
+	    ,$g:$p))))
+ifneq ($(ports_unknown_group_members),)
+$(error Unknown group membership origins: $(ports_unknown_group_members))
+endif
+ifneq ($(filter-out $(PORTS_GROUPS),$(ports_native_groups)),)
+$(error Native groups must be declared in PORTS_GROUPS)
+endif
+else
 PORTS_GROUP_DEFAULT	?= host
+ports_group_default_source := legacy
+ports_membership_groups	:= $(special_groups_all)
+endif
+
+ifneq ($(filter bs host,$(ports_native_groups)),)
+$(error uports-native-group is for custom groups;                   \
+  bs/host have built-in defaults)
+endif
 
 ports_root_group	:= $(strip					\
 			    $(foreach p,				\
 			      $(if $(PORTS_LISTS),$(PORTS_LISTS),	\
 			        $(call set-special-groups,		\
-			          $(special_groups_all),$(ports_all_raw))),\
+			          $(ports_membership_groups),		       \
+			          $(ports_all_raw))),			       \
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
 
@@ -290,9 +342,19 @@ endif
 
 ports_all_group		:= $(strip $(ports_root_group) $(ports_fallback_group))
 
-groups_all		:= $(sort					\
-			    $(foreach p,$(ports_all_group),		\
-			      $(call rm-at,$(call get-groups,$p))))
+ports_used_groups	:= $(sort					       \
+	$(foreach p,$(ports_all_group),$(call rm-at,$(call get-groups,$p))))
+ifneq ($(origin PORTS_GROUPS),undefined)
+ifneq ($(filter-out $(PORTS_GROUPS),$(ports_used_groups)),)
+$(error Build instances use undeclared groups:                       \
+  $(filter-out $(PORTS_GROUPS),$(ports_used_groups)))
+endif
+groups_all		:= $(strip $(PORTS_GROUPS))
+ports_all_group		:= $(foreach g,$(groups_all),		       \
+	$(filter $g@%,$(ports_all_group)))
+else
+groups_all		:= $(ports_used_groups)
+endif
 
 # $(warning groups_all=$(groups_all))
 
@@ -376,6 +438,28 @@ PORTS_host_ENVS		:= $(strip					\
 			     PREFIX=$(PREFIX) DESTDIR=$(DESTDIR))
 PORTS_bs_ENVS		:= $(PORTS_host_ENVS) FORCE_REBUILD=yes
 
+# $(call group-env-default, group, variable, value)
+group-env-default	= $(if $(filter $(strip $2)=%,		       \
+	$(PORTS_$(strip $1)_ENVS)),,$(strip $2)=$(strip $3))
+
+# $(call generate-group-default-env, group)
+# Fill missing context fields without replacing project-selected values.
+define generate-group-default-env
+PORTS_$1_ENVS		+= $(strip				       \
+	$(call group-env-default,$1,PORTSDIR,$(portdir))		       \
+	$(call group-env-default,$1,PREFIX,$(PREFIX))		       \
+	$(call group-env-default,$1,DESTDIR,$(DESTDIR)/$1)		       \
+	$(call group-env-default,$1,USE_ALTERNATIVE,		       \
+	  $(or $(USE_ALTERNATIVE),yes))				       \
+	$(call group-env-default,$1,ALTERNATIVE_WRKDIR,		       \
+	  $(or $(ALTERNATIVE_WRKDIR),$(DESTDIR)/$1/src)))
+endef
+
+ifneq ($(origin PORTS_GROUPS),undefined)
+$(foreach g,$(filter-out bs host,$(groups_all)),		       \
+  $(eval $(call generate-group-default-env,$g)))
+else
+ifeq ($(filter $(PORTS_GROUP_DEFAULT),$(ports_native_groups)),)
 ifneq ($(PORTS_GROUP_DEFAULT),host)
 PORTS_$(PORTS_GROUP_DEFAULT)_ENVS	+=				\
 			   $(strip					\
@@ -391,6 +475,8 @@ PORTS_$(PORTS_GROUP_DEFAULT)_ENVS	+=				\
 else
 PORTS_host_ENVS		+= ALTERNATIVE=yes				\
 			   ALTERNATIVE_WRKDIR=$(DESTDIR)/src
+endif
+endif
 endif
 
 # $(warning PORTS_ENVS=$(PORTS_ENVS))
@@ -1118,7 +1204,9 @@ show-%-categories:
 
 info.debug.group:
 	@$(echo) "special_groups_all = $(special_groups_all)"
+	@$(echo) "PORTS_GROUPS = $(PORTS_GROUPS)"
 	@$(echo) "PORTS_GROUP_DEFAULT = $(PORTS_GROUP_DEFAULT)"
+	@$(echo) "PORTS_GROUP_DEFAULT_source = $(ports_group_default_source)"
 	@$(echo) "groups_all = $(groups_all)"
 	@$(echo) "ports_all_group = $(ports_all_group)"
 	@$(echo) "ports_all_group_extra = $(ports_all_group_extra)"
@@ -1186,6 +1274,7 @@ $(addprefix info.debug.,$(filter sep%,$(debug_targets))):
 	fi
 
 depends_exclude_targets	+= $(addsuffix .debug,i info)			\
+			    $(addprefix info.debug.,$(debug_targets))  \
 			    info.debug.instance-envs info.debug.dependencies \
 			    info.debug.dependency-graph info.debug.dependency-order \
 			    info.debug.dependency-lifecycle		\
