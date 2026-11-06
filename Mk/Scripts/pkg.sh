@@ -84,7 +84,9 @@ function invalid(message) {
 		sub(/^@rmdir[[:space:]]+/, "", line)
 	} else if (line ~ /^@/)
 		invalid("unsupported or malformed directive: " line)
-	if (line ~ /%%/ || line ~ /[[:space:]|]/)
+	# Spaces are literal filename characters; controls and the record separator
+	# cannot be represented by this line-oriented, pipe-delimited format.
+	if (line ~ /%%/ || line ~ /[[:cntrl:]|]/)
 		invalid("unresolved token or unsupported path: " line)
 	if (line ~ /^\//) {
 		if (kind != "cleanup")

@@ -223,7 +223,10 @@ Paths are relative to the package runtime PREFIX. An optional leading `./`
 and trailing slash are normalized. Legacy absolute @rmdir paths are accepted
 only below that PREFIX and translated to the same relative representation.
 Empty paths, root entries, dot/dot-dot components, repeated separators,
-whitespace, record separators, unresolved tokens and duplicate paths reject.
+control characters, record separators, unresolved tokens and duplicate paths
+reject. Ordinary spaces in manifest filenames are supported, including CMake's
+`Help/generator/Watcom WMake.rst`; package metadata/PREFIX restrictions remain
+unchanged.
 This remains an explicit inventory: replace the ordinary directory entry with
 its directive rather than listing both. Parent directories are not inferred.
 
