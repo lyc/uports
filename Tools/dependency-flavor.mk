@@ -11,6 +11,11 @@ dependency-instances	= $(dependency-base-instances)		       \
 dependency-base-instance = $(strip $(call flavor-either,	       \
 	$(call instance-field,$1,flavor_base),$1))
 
+# $(call dependency-instance-flavors, instance-key)
+define dependency-instance-flavors
+$(dependency_choices_$(call dependency-base-instance,$1))
+endef
+
 # $(call dependency-origin-base, origin[@flavor])
 dependency-origin-base	= $(firstword $(subst @, ,$1))
 
@@ -226,8 +231,8 @@ endef
 # $(call dependency-record-context-compatible-impl, record-id)
 define dependency-record-context-compatible-impl
 $(strip $(if $(call flavor-either,				       \
-  $(call instance-field,$($1_consumer),flavor_base),		       \
-  $(call instance-field,$($1_provider_instance),flavor_base)),	       \
+  $(call dependency-instance-flavors,$($1_consumer)),		       \
+  $(call dependency-instance-flavors,$($1_provider_instance))),	       \
   $(call flavor-both,$(filter					       \
     $(if $(filter build,$($1_type)),$(DEPENDENCY_BUILD_OPSYS),	       \
       $(dependency_context_$($1_consumer)_opsys)),		       \
@@ -268,8 +273,8 @@ dependency-uports-library-paths = include lib lib64		       \
 # Existing unflavored edges keep their established environment behavior.
 define dependency-flavor-environment
 $(if $(call flavor-either,					       \
-  $(call instance-field,$($1_consumer),flavor_base),		       \
-  $(call instance-field,$($1_provider_instance),flavor_base)),	       \
+  $(call dependency-instance-flavors,$($1_consumer)),		       \
+  $(call dependency-instance-flavors,$($1_provider_instance))),	       \
   $(if $(filter build,$($1_type)),				       \
     printf '%s\n' '$(call dependency-uports-contribution,$1,bindir,/bin)';, \
     $(foreach s,$(dependency-uports-library-paths),		       \
