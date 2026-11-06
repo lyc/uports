@@ -103,6 +103,8 @@ endef
 
 # $(call dependency-probe-variant-impl, normalized arguments)
 define dependency-probe-variant-impl
+$(if $(filter $1,$(dependency_variant_cached)),                      \
+  $(eval dependency_variant_raw := $(dependency_variant_cache_$1)), \
 $(eval dependency_variant_raw := $(shell			       \
   $(MAKE) -s --no-print-directory -C				       \
     "$(call dependency-variant-path,$1)" PORTSDIR="$(portdir)"	       \
@@ -111,7 +113,8 @@ $(eval dependency_variant_raw := $(shell			       \
     $(call dependency-metadata-source-options,$1)		       \
     uports-dependency-metadata))				       \
 $(if $(filter-out 0,$(.SHELLSTATUS)),				       \
-  $(error Flavor dependency metadata collection failed for $1))	       \
+  $(error Flavor dependency metadata collection failed for $1)))    \
+$(eval dependency_variant_loaded += $1)                             \
 $(eval dependency_metadata_raw +=				       \
   $(call dependency-variant-record,$1))				       \
 $(eval dependency_metadata_raw +=				       \
@@ -121,6 +124,85 @@ $(foreach d,$(addprefix $1|,$(dependency_variant_raw)),		       \
     $(call collect-dependency-capability,$d)))			       \
 $(call dependency-expand-flavors,				       \
   $(addprefix $1|,$(dependency_variant_raw)))
+endef
+
+# $(call dependency-prefetch-root, target)
+# Discover only known root variants; retain lazy fallback for later references.
+define dependency-prefetch-root
+$(if $(call resolve-port-target,$1),				       \
+  $(call dependency-prefetch-root-impl,				       \
+    $(call target-base-instance-key,$(call resolve-port-target,$1)),   \
+    $(call flavor-target-selection,$(call resolve-port-target,$1))))
+endef
+
+# $(call dependency-prefetch-root-impl, base-instance, flavor)
+define dependency-prefetch-root-impl
+$(call dependency-prefetch-root-normalized,$(strip $1),$(strip $2))
+endef
+
+# $(call dependency-prefetch-root-normalized, normalized arguments)
+define dependency-prefetch-root-normalized
+$(if $(call flavor-all,$2,					       \
+  $(call dependency-flavor-choice,$1,$2),			       \
+  $(filter-out $2,$(dependency_default_$1))),			       \
+  $(if $(filter $(call dependency-flavor-key,$1,$2),		       \
+    $(dependency_variant_loaded) $(dependency_prefetch_keys)),,	       \
+    $(call dependency-create-variant,$1,$2)			       \
+    $(eval dependency_prefetch_keys +=				       \
+      $(call dependency-flavor-key,$1,$2))))
+endef
+
+# $(call dependency-prefetch-worker, instance-key)
+define dependency-prefetch-worker
+$(MAKE) -s --no-print-directory -C				       \
+  "$(call dependency-variant-path,$1)" PORTSDIR="$(portdir)"	       \
+  $(call instance-field,$1,env)					       \
+  --eval='override FLAVOR := $(call instance-field,$1,variant)'	       \
+  $(call dependency-metadata-source-options,$1)			       \
+  uports-dependency-metadata > "$$metadata_dir/$1.raw"		       \
+  2> "$$metadata_dir/$1.errors" &				       \
+pids="$$pids $$!"; active=$$((active + 1));			       \
+if test "$$active" -ge "$(DEPENDENCY_METADATA_JOBS)"; then	       \
+  for pid in $$pids; do						       \
+    wait "$$pid" || failed=1;					       \
+  done;								       \
+  pids=; active=0;						       \
+fi;
+endef
+
+# $(call dependency-prefetch-command, instance-keys)
+define dependency-prefetch-command
+metadata_dir=$$(mktemp -d					       \
+  "$${TMPDIR:-/tmp}/uports-flavor-prefetch.XXXXXX") || exit 1;	       \
+trap 'wait || :; rm -rf -- "$$metadata_dir"' EXIT;		       \
+trap 'exit 1' HUP INT TERM;					       \
+pids=; active=0; failed=0;					       \
+$(foreach n,$1,$(call dependency-prefetch-worker,$n))		       \
+for pid in $$pids; do						       \
+  wait "$$pid" || failed=1;					       \
+done;								       \
+$(foreach n,$1,cat "$$metadata_dir/$n.errors" >&2;)		       \
+test "$$failed" -eq 0 || exit 1;				       \
+$(foreach n,$1,sed -e 's#^#$n|#' "$$metadata_dir/$n.raw";)
+endef
+
+# Prefetch results are invocation-local; import remains in the original order.
+define dependency-prefetch-roots
+$(eval dependency_prefetch_keys :=)				       \
+$(foreach n,$(dependency-base-instances),			       \
+  $(if $(call instance-field,$n,project_flavor),		       \
+    $(call dependency-prefetch-root,				       \
+      $(call dependency-command-base,$n).install)))		       \
+$(foreach r,$(dependency-requests),$(call dependency-prefetch-root,$r)) \
+$(if $(dependency_prefetch_keys),				       \
+  $(eval dependency_prefetch_raw := $(shell			       \
+    $(call dependency-prefetch-command,$(dependency_prefetch_keys))))  \
+  $(if $(filter-out 0,$(.SHELLSTATUS)),				       \
+    $(error Flavor dependency metadata prefetch failed))	       \
+  $(foreach n,$(dependency_prefetch_keys),			       \
+    $(eval dependency_variant_cache_$n :=			       \
+      $(patsubst $n|%,%,$(filter $n|%,$(dependency_prefetch_raw)))))   \
+  $(eval dependency_variant_cached += $(dependency_prefetch_keys)))
 endef
 
 # $(call dependency-reference-valid, origin[@flavor])
@@ -171,7 +253,7 @@ $(if $(call flavor-all,$(strip $2),                                   \
   $(call dependency-flavor-choice,$1,$2),                             \
   $(filter-out $2,$(dependency_default_$1))),			       \
   $(if $(filter $(call dependency-flavor-key,$1,$2),		       \
-    $(dependency_flavor_instances)),,				       \
+    $(dependency_variant_loaded)),,				       \
     $(call dependency-create-variant,$1,$2)			       \
     $(call dependency-probe-variant,				       \
       $(call dependency-flavor-key,$1,$2))))
@@ -428,7 +510,8 @@ endef
 # $(call dependency-import-variant, instance|variant|base|flavor)
 define dependency-import-variant
 $(call dependency-create-variant,$(word 3,$(subst |, ,$1)),	       \
-  $(word 4,$(subst |, ,$1)))
+  $(word 4,$(subst |, ,$1)))                                        \
+$(eval dependency_variant_loaded += $(word 1,$(subst |, ,$1)))
 endef
 
 # $(call dependency-refresh-default, target)
@@ -479,6 +562,8 @@ endef
 # Full snapshots preserve discovered variants, avoiding a probe per recursion.
 define load-dependency-flavors
 $(eval dependency_flavor_instances :=)				       \
+$(eval dependency_variant_loaded :=)                               \
+$(eval dependency_variant_cached :=)                               \
 $(eval dependency_default_refreshed :=)				       \
 $(foreach n,$(dependency-base-instances),			       \
   $(eval dependency_default_$n :=)				       \
@@ -492,6 +577,7 @@ $(foreach d,$(dependency_metadata_raw),				       \
     $(call dependency-import-variant,$d)))			       \
 $(foreach r,$(dependency-requests),				       \
   $(call dependency-refresh-default,$r))			       \
+$(dependency-prefetch-roots)                                       \
 $(foreach n,$(dependency-base-instances),			       \
   $(if $(call instance-field,$n,project_flavor),		       \
     $(call dependency-ensure-root,				       \

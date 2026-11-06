@@ -987,6 +987,8 @@ $(strip $(foreach v,WRKDIR TYPE_SUFFIX				       \
     $(if $(filter $v=%,$(call info_ports_field,$1,env)),,$v=$($v)))))
 endef
 
+INFO_PORTS_JOBS		?= 4
+
 info.ports.ports:
 	@set -e; status_dir=$$(mktemp -d			       \
 	  "$${TMPDIR:-/tmp}/uports-info-ports.XXXXXX");		       \
@@ -998,6 +1000,7 @@ info.ports.ports:
 	  -f "$(port_info_awk)" "$$status_dir/input"		       \
 	  > "$$status_dir/candidates";				       \
 	$(SHELL) "$(portdir)/Tools/port-status.sh" "$(MAKE)" "$(portdir)" \
+	  "$(INFO_PORTS_JOBS)"					       \
 	  < "$$status_dir/candidates" > "$$status_dir/rows";	       \
 	awk -F '|' -v mode=info-ports -f "$(port_info_awk)"	       \
 	  "$$status_dir/rows"
