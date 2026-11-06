@@ -406,14 +406,18 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
-ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
-# Port declarations are complete; avoid repeated shell version conversions.
+ifneq ($(filter uports-port-status-metadata uports-dependency-metadata \
+  uports-flavor-metadata,$(MAKECMDGOALS)),)
+ifeq ($(words $(MAKECMDGOALS)),1)
+# Port declarations are complete. Metadata expands paths and cookies repeatedly;
+# evaluate host facts and shell version conversions once for this probe.
 ARCH			:= $(ARCH)
 OPSYS			:= $(OPSYS)
 PORTVERSION		:= $(PORTVERSION)
 DISTVERSIONFULL		:= $(DISTVERSIONFULL)
 PKGVERSION		:= $(PKGVERSION)
 PKGNAME			:= $(PKGNAME)
+endif
 endif
 ifneq ($(flavor-declared),)
 BUILD_DEPENDS		+= $($(flavor-selected)_BUILD_DEPENDS)

@@ -448,6 +448,8 @@ endef
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(eval DEPENDENCY_BUILD_OPSYS := $(DEPENDENCY_BUILD_OPSYS))      \
+	$(eval DEPENDENCY_BUILD_ARCH := $(DEPENDENCY_BUILD_ARCH))        \
 	$(eval dependency_record_ids :=)			       \
 	$(eval dependency_scope_ready := no) \
 	$(eval dependency_planning_only := no) \
