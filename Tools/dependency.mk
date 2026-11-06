@@ -264,6 +264,8 @@ dependency-metadata-jobs-flag = $(if $(filter --jobserver-auth=% \
 dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
 	$(MAKE) -s --no-print-directory $(dependency-metadata-jobs-flag) \
+	  $(if $(filter-out undefined,$(origin PROJECT_PORTS)),          \
+	    _UPORTS_PROJECT_METADATA=yes)                                \
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
 	  >/dev/null &&							\
 	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\
@@ -462,7 +464,11 @@ load-dependency-records = 						\
 	$(foreach d,$(dependency_metadata_raw),			       \
 	  $(if $(filter context,$(word 2,$(subst |, ,$d))),	       \
 	    $(call collect-dependency-context,$d)))		       \
-	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),,$(load-dependency-provider-discovery)) \
+	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),, \
+	  $(if $(filter yes,$(project_provider_discovery_loaded)),,         \
+	    $(load-dependency-provider-discovery)                         \
+	    $(if $(filter-out undefined,$(origin PROJECT_PORTS)),           \
+	      $(eval project_provider_discovery_loaded := yes))))          \
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-cookie,$d)))			\
@@ -472,7 +478,8 @@ load-dependency-records = 						\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter state-file,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-state-file,$d)))			\
-	$(foreach d,$(dependency_metadata_raw),				\
+	$(foreach d,$(if $(filter undefined,$(origin PROJECT_PORTS)),     \
+	  $(dependency_metadata_raw),$(project_reached_metadata)),        \
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
 	$(if $(and $(dependency-scope-enabled),$(if $(dependency-invalid-requests),,yes)),\
@@ -497,6 +504,7 @@ load-dependency-records = 						\
 	  $(foreach p,$(dependency_provider_projection),		\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
 	      $(call apply-dependency-provider-projection,$p))))		\
+	$(call project-discover-providers)                               \
 	$(if $(and $(filter none,$(dependency-provider-fallback)),\
 	  $(filter uports,$(foreach d,$(dependency-active-record-ids),$($(d)_provider_kind)))),\
 	  $(error system-only provider mode has dependencies without external providers)) \

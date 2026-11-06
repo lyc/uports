@@ -98,3 +98,39 @@ project-ports-list:
 	  $(call project-root-probe,$r))                               \
 	printf '%s\n' 'group|origin|flavor';                           \
 	awk '!seen[$$0]++' "$$work/roots"
+
+# Planning starts with roots and explicitly configured provider bindings.
+# Do not manufacture the catalog/group Cartesian product.
+ifneq ($(origin PROJECT_PORTS),undefined)
+project_provider_bindings := $(ports_all_group)
+ports_root_group	:= $(call stable-unique,$(foreach r,           \
+	$(project_root_requests),$(call project-root-field,1,$r)@$(call project-root-field,2,$r)))
+ports_fallback_group	:= $(filter-out $(ports_root_group),           \
+	$(call stable-unique,                                          \
+	  $(foreach g,$(groups_all),$(addprefix $g@,$($(g)_lists)))    \
+	  $(foreach p,$(PORTS_FALLBACK_LISTS),                         \
+	    $(call complete-group-default,$p,$(PORTS_GROUP_DEFAULT)))))
+ports_all_group		:= $(ports_root_group) $(ports_fallback_group)
+ifneq ($(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),)
+ifneq ($(strip $(DEPENDENCY_METADATA_SOURCE)),)
+project_snapshot_instances := $(shell sed -n                           \
+	's/^project-instance|\([^|]*\)|\([^|]*\)$$/\1@\2/p'            \
+	"$(DEPENDENCY_METADATA_SOURCE)")
+ports_all_group		:= $(call stable-unique,                       \
+	$(ports_all_group) $(project_snapshot_instances))
+endif
+endif
+project_unknown_providers := $(filter-out $(ports_all_raw_lists),      \
+	$(foreach p,$(ports_all_group),$(call rm-groups,$p)))
+ifneq ($(strip $(project_unknown_providers)),)
+$(error Unknown project provider origins: $(project_unknown_providers))
+endif
+project_unknown_groups	:= $(filter-out $(groups_all),                 \
+	$(foreach p,$(ports_all_group),$(call get-group,$p)))
+ifneq ($(strip $(project_unknown_groups)),)
+$(error Undeclared project provider groups: $(project_unknown_groups))
+endif
+$(foreach g,$(groups_all),$(eval $(call generate-groups-lists,$g)))
+$(foreach p,$(ports_all_group),                                        \
+  $(eval $(call generate-port-env,$(call get-group,$p),$(call get-port,$p))))
+endif

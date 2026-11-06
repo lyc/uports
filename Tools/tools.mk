@@ -21,9 +21,12 @@ ifneq ($(origin PORTS_LISTS),undefined)
 $(error PROJECT_PORTS ($(origin PROJECT_PORTS)) conflicts with        \
   PORTS_LISTS ($(origin PORTS_LISTS)); declare only one root selector)
 endif
-ifneq ($(strip $(filter-out project-ports-list,$(MAKECMDGOALS))),)
-$(error PROJECT_PORTS currently supports project-ports-list only;     \
-  provider discovery and execution are not integrated)
+ifneq ($(strip $(filter-out project-ports-list project-dependency-plan \
+  project-dependency-snapshot                                      \
+  $(if $(filter yes,$(_UPORTS_PROJECT_METADATA)),                   \
+    dependency-metadata-probes),$(MAKECMDGOALS))),)
+$(error PROJECT_PORTS currently supports inspection targets only;     \
+  lifecycle execution is not integrated)
 endif
 ifeq ($(strip $(MAKECMDGOALS)),)
 $(error Specify project-ports-list to inspect PROJECT_PORTS)
@@ -196,6 +199,7 @@ get-dir			= $(port_$(call get-port,$1)_root)
 #   ports_all:
 #
 
+ifeq ($(origin PROJECT_PORTS),undefined)
 ifneq ($(strip $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS)),)
 ports_all_raw		:= $(foreach p,					\
 			    $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS),	\
@@ -206,6 +210,7 @@ endif
 ifneq ($(strip $(PORTS_FALLBACK_LISTS)),)
 ifeq ($(strip $(PORTS_LISTS)),)
 $(error PORTS_FALLBACK_LISTS requires explicit PORTS_LISTS roots)
+endif
 endif
 endif
 
@@ -344,6 +349,7 @@ ports_root_group	:= $(strip					\
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
 
+ifeq ($(origin PROJECT_PORTS),undefined)
 ports_fallback_group	:= $(strip					\
 			    $(foreach p,$(PORTS_FALLBACK_LISTS),		\
 			      $(call complete-group-default,		\
@@ -353,6 +359,7 @@ ports_root_fallback_overlap := $(filter $(ports_root_group),		\
 			    $(ports_fallback_group))
 ifneq ($(ports_root_fallback_overlap),)
 $(error instances cannot be both roots and fallbacks: $(ports_root_fallback_overlap))
+endif
 endif
 
 ports_all_group		:= $(strip $(ports_root_group) $(ports_fallback_group))
@@ -701,6 +708,7 @@ get-envs		= $(call target-instance-field,$1,env)
 include $(portdir)/Tools/dependency.mk
 include $(portdir)/Tools/flavor.mk
 include $(portdir)/Tools/dependency-flavor.mk
+include $(portdir)/Tools/project-dependency.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
 dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)

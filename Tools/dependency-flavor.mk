@@ -152,12 +152,13 @@ $(if $(call flavor-all,$2,					       \
       $(call dependency-flavor-key,$1,$2))))
 endef
 
-# $(call dependency-prefetch-worker, instance-key)
+# $(call dependency-prefetch-worker, instance-key, [default-mode])
 define dependency-prefetch-worker
 $(MAKE) -s --no-print-directory -C				       \
   "$(call dependency-variant-path,$1)" PORTSDIR="$(portdir)"	       \
   $(call instance-field,$1,env)					       \
-  --eval='override FLAVOR := $(call instance-field,$1,variant)'	       \
+  $(if $(filter default,$2),--eval='override undefine FLAVOR',        \
+    --eval='override FLAVOR := $(call instance-field,$1,variant)')    \
   $(call dependency-metadata-source-options,$1)			       \
   uports-dependency-metadata > "$$metadata_dir/$1.raw"		       \
   2> "$$metadata_dir/$1.errors" &				       \
@@ -170,14 +171,14 @@ if test "$$active" -ge "$(DEPENDENCY_METADATA_JOBS)"; then	       \
 fi;
 endef
 
-# $(call dependency-prefetch-command, instance-keys)
+# $(call dependency-prefetch-command, instance-keys, [default-mode])
 define dependency-prefetch-command
 metadata_dir=$$(mktemp -d					       \
   "$${TMPDIR:-/tmp}/uports-flavor-prefetch.XXXXXX") || exit 1;	       \
 trap 'wait || :; rm -rf -- "$$metadata_dir"' EXIT;		       \
 trap 'exit 1' HUP INT TERM;					       \
 pids=; active=0; failed=0;					       \
-$(foreach n,$1,$(call dependency-prefetch-worker,$n))		       \
+$(foreach n,$1,$(call dependency-prefetch-worker,$n,$2))              \
 for pid in $$pids; do						       \
   wait "$$pid" || failed=1;					       \
 done;								       \
@@ -428,11 +429,12 @@ dependency-metadata-origin = $(strip $(if			       \
 
 # $(call dependency-expand-flavors, metadata-records)
 define dependency-expand-flavors
+$(if $(filter undefined,$(origin PROJECT_PORTS)),                   \
 $(foreach d,$1,							       \
   $(if $(filter build lib run,$(word 2,$(subst |, ,$d))),	       \
     $(call dependency-ensure-reference,				       \
       $(call instance-field,$(word 1,$(subst |, ,$d)),group),	       \
-      $(call dependency-metadata-origin,$d))))
+      $(call dependency-metadata-origin,$d)))))
 endef
 
 # $(call dependency-normalize-target, [group:]port[@flavor].phase)
@@ -480,9 +482,10 @@ endef
 define load-dependency-metadata
 $(foreach n,$(dependency-instances),				       \
   $(eval dependency_capabilities_$n :=))			       \
+$(if $(filter yes,$(project_metadata_loaded)),,                      \
 $(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 $(if $(filter-out 0,$(.SHELLSTATUS)),				       \
-  $(error dependency metadata collection failed))		       \
+  $(error dependency metadata collection failed)))                  \
 $(foreach d,$(dependency_metadata_raw),				       \
   $(if $(filter provides,$(word 2,$(subst |, ,$d))),		       \
     $(call collect-dependency-capability,$d)))			       \
@@ -583,7 +586,9 @@ $(foreach n,$(dependency-base-instances),			       \
     $(call dependency-ensure-root,				       \
       $(call dependency-command-base,$n).install)))		       \
 $(foreach r,$(dependency-requests),$(call dependency-ensure-root,$r))  \
-$(call dependency-expand-flavors,$(dependency_metadata_raw))
+$(if $(filter undefined,$(origin PROJECT_PORTS)),                   \
+  $(call dependency-expand-flavors,$(dependency_metadata_raw)),     \
+  $(project-expand-reached-flavors))
 endef
 
 # Register the one validated wrapper selection before lifecycle recipes expand.
