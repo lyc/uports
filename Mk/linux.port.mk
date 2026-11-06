@@ -1095,9 +1095,8 @@ endef
 # stuff for package ...
 
 # $(call config.ext,$(WRKDIR),$(PLIST))
-config.ext		= $(patsubst					\
-			    $(patsubst					\
-			      %/$(flavor-work-name),%,$1)/pkg-plist%,%,$2)
+# The manifest name does not depend on where this build's work tree lives.
+config.ext		= $(patsubst pkg-plist%,%,$(notdir $2))
 ext			= $(call config.ext,$(WRKDIR),$(PLIST))
 ifneq ($(flavor-declared),)
 ifneq ($(origin $(flavor-selected)_PLIST),undefined)
