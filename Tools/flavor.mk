@@ -205,11 +205,14 @@ flavor-mixed-goals	= $(strip				       \
 depends_exclude_targets	+= $(flavor-qualified-goals)		       \
 			   $(flavor-dispatch-goals) $(flavor-dispatch-targets)
 
+ifneq ($(strip $(filter undefined,$(origin PROJECT_PORTS))            \
+  $(filter yes,$(UPORTS_DEPENDENCY_INVOCATION) $(_UPORTS_PROJECT_DIRECT))),)
 $(foreach t,$(flavor-dispatch-targets),				       \
   $(eval $(call generate-flavor-target,$t)))
 $(foreach t,$(flavor-dispatch-goals),				       \
   $(if $(filter-out $(call resolve-port-target,$t),$t),		       \
     $(eval $(call generate-flavor-alias,$t,$(call resolve-port-target,$t)))))
+endif
 
 # $(call flavor-request-instance, [group:]port)
 flavor-request-instance	= $(call target-base-instance-key,	       \

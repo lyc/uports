@@ -111,6 +111,16 @@ ports_fallback_group	:= $(filter-out $(ports_root_group),           \
 	  $(foreach p,$(PORTS_FALLBACK_LISTS),                         \
 	    $(call complete-group-default,$p,$(PORTS_GROUP_DEFAULT)))))
 ports_all_group		:= $(ports_root_group) $(ports_fallback_group)
+ifeq ($(_UPORTS_PROJECT_DIRECT),yes)
+project_direct_records	:= $(foreach t,$(MAKECMDGOALS),               \
+	$(if $(filter $(addprefix %.,$(suffix_all_lists))                \
+	  %.flavor-check,$t),                                         \
+	  $(call project-root-check,$(basename $t))                     \
+	  $(subst $(space),,$(call project-root-record,$(basename $t)))))
+ports_all_group		:= $(call stable-unique,                         \
+	$(ports_all_group) $(foreach r,$(project_direct_records),       \
+	  $(call project-root-field,1,$r)@$(call project-root-field,2,$r)))
+endif
 ifneq ($(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),)
 ifneq ($(strip $(DEPENDENCY_METADATA_SOURCE)),)
 project_snapshot_instances := $(shell sed -n                           \
@@ -131,6 +141,9 @@ ifneq ($(strip $(project_unknown_groups)),)
 $(error Undeclared project provider groups: $(project_unknown_groups))
 endif
 $(foreach g,$(groups_all),$(eval $(call generate-groups-lists,$g)))
+$(foreach p,$(ports_all),$(eval $(call generate-port-groups-lists,$p)))
+ports_all_group_extra	:= $(sort $(foreach p,$(ports_all_group),       \
+	$(call filter-out-group-extra,$p)))
 $(foreach p,$(ports_all_group),                                        \
   $(eval $(call generate-port-env,$(call get-group,$p),$(call get-port,$p))))
 endif

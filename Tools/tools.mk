@@ -15,21 +15,11 @@ ifneq ($(wildcard $(feeds)/group.mk),)
 include $(feeds)/group.mk
 endif
 
-# PROJECT_PORTS is diagnostic-only until lifecycle dispatch is integrated.
+# Project and legacy root selectors must not compete.
 ifneq ($(origin PROJECT_PORTS),undefined)
 ifneq ($(origin PORTS_LISTS),undefined)
 $(error PROJECT_PORTS ($(origin PROJECT_PORTS)) conflicts with        \
   PORTS_LISTS ($(origin PORTS_LISTS)); declare only one root selector)
-endif
-ifneq ($(strip $(filter-out project-ports-list project-dependency-plan \
-  project-dependency-snapshot                                      \
-  $(if $(filter yes,$(_UPORTS_PROJECT_METADATA)),                   \
-    dependency-metadata-probes),$(MAKECMDGOALS))),)
-$(error PROJECT_PORTS currently supports inspection targets only;     \
-  lifecycle execution is not integrated)
-endif
-ifeq ($(strip $(MAKECMDGOALS)),)
-$(error Specify project-ports-list to inspect PROJECT_PORTS)
 endif
 endif
 
@@ -709,6 +699,7 @@ include $(portdir)/Tools/dependency.mk
 include $(portdir)/Tools/flavor.mk
 include $(portdir)/Tools/dependency-flavor.mk
 include $(portdir)/Tools/project-dependency.mk
+include $(portdir)/Tools/project-lifecycle.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
 dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
@@ -766,6 +757,7 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 # through the shared lifecycle patterns without implicit-rule recursion.  With
 # dependency execution enabled, validate and prepare the union first, then let a
 # dependency-neutral recursive make dispatch the consumers.
+ifeq ($(origin PROJECT_PORTS),undefined)
 ifeq ($(UPORTS_DEPENDENCIES),yes)
 ports_cleanup_aggregate_targets := $(filter %.clean %.distclean %.deinstall %.uninstall,$(ports_aggregate_target_unique))
 ports_dependency_aggregate_targets := $(filter-out $(ports_cleanup_aggregate_targets),$(ports_aggregate_target_unique))
@@ -791,6 +783,7 @@ $(ports_dependency_aggregate_targets): %: uports-force
 endif
 else
 $(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
+endif
 endif
 
 # $(call generate-port-lifecycle-pattern, suffix)

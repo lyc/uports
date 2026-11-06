@@ -19,8 +19,14 @@ $(subst $(space),,$(call project-root-field,1,$1):                     \
     @$(call project-root-field,3,$1)).$(PROJECT_PHASE))
 endef
 
-override DEPENDENCY_REQUESTS := $(foreach r,$(project_root_requests),  \
+ifneq ($(filter project-dependency-plan project-dependency-snapshot   \
+  dependency-% dependencies-% info.debug.depend%,                   \
+  $(MAKECMDGOALS)),)
+ifeq ($(strip $(DEPENDENCY_REQUESTS) $(DEPENDENCY_REQUEST)),)
+DEPENDENCY_REQUESTS	:= $(foreach r,$(project_root_requests),          \
 	$(call project-root-target,$r))
+endif
+endif
 # PROJECT_PORTS selects root Flavors; dependency references select provider
 # Flavors. Legacy per-port root selections must not activate unrelated variants.
 $(foreach p,$(ports_all_group),                                        \

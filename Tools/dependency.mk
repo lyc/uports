@@ -265,7 +265,7 @@ dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
 	$(MAKE) -s --no-print-directory $(dependency-metadata-jobs-flag) \
 	  $(if $(filter-out undefined,$(origin PROJECT_PORTS)),          \
-	    _UPORTS_PROJECT_METADATA=yes)                                \
+	    DEPENDENCY_REQUESTS='$(dependency-requests)')                 \
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
 	  >/dev/null &&							\
 	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\
