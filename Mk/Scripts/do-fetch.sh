@@ -24,6 +24,8 @@
 set -eu
 set -f
 
+. "$(dirname "$0")/fetch-runtime-env.sh"
+
 die() { printf '  ERR     %s\n' "$*" >&2; exit 1; }
 for name in dp_DISTDIR dp_DIST_SUBDIR dp_DISTINFO_FILE dp_SITE_FLAVOR \
     dp_TARGET dp_FETCH_CMD dp_FETCH_TOOL dp_FETCH_TIMEOUT dp_FETCH_REGET; do

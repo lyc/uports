@@ -368,7 +368,8 @@ function flags(node, type, prefix, result, j) {
 	return result
 }
 
-function emit_exports(node, value, sysroot, sysroot_flag, runtime, j, variable) {
+function emit_exports(node, value, sysroot, sysroot_flag, runtime, j, variable,
+		      base) {
 	if (external_library_count && !uports_library_count)
 		print "UPORTS_LIB_DEPENDS_USES_UPORTS=no; export UPORTS_LIB_DEPENDS_USES_UPORTS"
 	value = joined_paths(node, "bindir", ":")
@@ -414,6 +415,11 @@ function emit_exports(node, value, sysroot, sysroot_flag, runtime, j, variable) 
 	runtime = joined_paths(node, "runtimedir", ":")
 	if (runtime != "none") {
 		value = (build_opsys == "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH")
+		base = "UPORTS_DEPENDENCY_BASE_" value
+		printf "if [ \"${%s_SET+x}\" != x ]; then\n", base
+		printf "  %s_SET=${%s+set}; export %s_SET\n", base, value, base
+		printf "  %s=${%s-}; export %s\n", base, value, base
+		printf "fi\n"
 		printf "%s='%s'${%s:+:}\"${%s-}\"; export %s\n", value, runtime, value, value, value
 	}
 	runtime = joined_paths(node, "targetruntimedir", ":")

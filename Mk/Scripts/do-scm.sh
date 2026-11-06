@@ -2,6 +2,8 @@
 # Git cache and developer checkout lifecycle. Existing trees are never reset.
 set -eu
 
+. "$(dirname "$0")/fetch-runtime-env.sh"
+
 fail() { printf '  ERR     SCM: %s\n' "$*" >&2; exit 1; }
 note() { printf '  GIT     %s\n' "$*"; }
 command_failed()
