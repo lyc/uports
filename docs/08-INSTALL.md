@@ -1,5 +1,9 @@
 # Install And Plist Notes
 
+Flavor declarations, isolated paths and package/manifest selection are
+described in [10.5-FLAVOR.md](10.5-FLAVOR.md). This document owns package
+installation, manifest parsing and installed ownership behavior.
+
 ## Cached Package Installation And DESTDIR
 
 `install` first considers compatible shared-cache and work-directory packages,
