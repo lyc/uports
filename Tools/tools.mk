@@ -15,6 +15,21 @@ ifneq ($(wildcard $(feeds)/group.mk),)
 include $(feeds)/group.mk
 endif
 
+# PROJECT_PORTS is diagnostic-only until lifecycle dispatch is integrated.
+ifneq ($(origin PROJECT_PORTS),undefined)
+ifneq ($(origin PORTS_LISTS),undefined)
+$(error PROJECT_PORTS ($(origin PROJECT_PORTS)) conflicts with        \
+  PORTS_LISTS ($(origin PORTS_LISTS)); declare only one root selector)
+endif
+ifneq ($(strip $(filter-out project-ports-list,$(MAKECMDGOALS))),)
+$(error PROJECT_PORTS currently supports project-ports-list only;     \
+  provider discovery and execution are not integrated)
+endif
+ifeq ($(strip $(MAKECMDGOALS)),)
+$(error Specify project-ports-list to inspect PROJECT_PORTS)
+endif
+endif
+
 # default target ...
 all:
 
@@ -521,6 +536,8 @@ $(foreach g,$(groups_all),						\
   $(foreach p,$(groups_$g),						\
     $(eval								\
       $(call generate-port-env,$g,$p))))
+
+include $(portdir)/Tools/project.mk
 
 #
 # normalized build-instance lookup records...
