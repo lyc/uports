@@ -972,7 +972,7 @@ info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n'      \
   '$(call info_ports_field,$1,origin)'				       \
   '$(call info_ports_field,$1,root)' ''				       \
   '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )'    \
-  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])' \
+  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1):])' \
   '$(call info_ports_work,$1)'					       \
   '$(call info_ports_field,$1,project_flavor)'			       \
   '$(call info_ports_field,$1,env) $(call info_ports_global_env,$1)';
