@@ -85,19 +85,58 @@ printf '%s|%s|%s\n' '$(call project-root-field,1,$1)'                  \
   '$(call project-root-field,2,$1)' "$$selected" >> "$$work/roots";
 endef
 
+# $(call project-root-worker, root-record)
+# Private files preserve declaration order without concurrent shared writes.
+define project-root-worker
+if test "$$failed" = 0; then					       \
+  rows=$$((rows + 1));						       \
+  (								       \
+    work="$$directory/$$rows"; mkdir -p "$$work";		       \
+    : > "$$work/roots";						       \
+    $(call project-root-probe,$1)				       \
+  ) 2> "$$directory/$$rows.errors" &				       \
+  pids="$$pids $$!"; active=$$((active + 1));			       \
+  if test "$$active" -ge "$$jobs"; then				       \
+    for pid in $$pids; do					       \
+      wait "$$pid" || failed=1;					       \
+    done;							       \
+    pids=; active=0;						       \
+  fi;								       \
+fi;
+endef
+
 .PHONY: project-ports-list
 depends_exclude_targets	+= project-ports-list
 project-ports-list:
 	@$(if $(filter undefined,$(origin PROJECT_PORTS)),             \
 	  $(error Define PROJECT_PORTS to inspect explicit roots))
-	@set -e; work=$$(mktemp -d                                     \
+	@set -e; directory=$$(mktemp -d				       \
 	  "$${TMPDIR:-/tmp}/uports-project-roots.XXXXXX");             \
-	trap 'rm -rf "$$work"' EXIT HUP INT TERM;                      \
-	: > "$$work/roots";                                            \
+	trap 'wait || :; rm -rf "$$directory"' EXIT;		       \
+	trap 'exit 1' HUP INT TERM;				       \
+	jobs='$(DEPENDENCY_METADATA_JOBS)';			       \
+	case "$$jobs" in					       \
+	  ''|*[!0-9]*|0)					       \
+	    echo 'DEPENDENCY_METADATA_JOBS must be a positive integer' >&2; \
+	    exit 1;;						       \
+	esac;							       \
+	rows=0; active=0; pids=; failed=0;			       \
 	$(foreach r,$(project_root_requests),                          \
-	  $(call project-root-probe,$r))                               \
+	  $(call project-root-worker,$r))			       \
+	for pid in $$pids; do					       \
+	  wait "$$pid" || failed=1;				       \
+	done;							       \
+	row=1; : > "$$directory/roots";				       \
+	while test "$$row" -le "$$rows"; do			       \
+	  cat "$$directory/$$row.errors" >&2;			       \
+	  if test "$$failed" = 0; then				       \
+	    cat "$$directory/$$row/roots" >> "$$directory/roots";      \
+	  fi;							       \
+	  row=$$((row + 1));					       \
+	done;							       \
+	test "$$failed" = 0 || exit 1;				       \
 	printf '%s\n' 'group|origin|flavor';                           \
-	awk '!seen[$$0]++' "$$work/roots"
+	awk '!seen[$$0]++' "$$directory/roots"
 
 # Planning starts with roots and explicitly configured provider bindings.
 # Do not manufacture the catalog/group Cartesian product.
