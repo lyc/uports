@@ -981,13 +981,62 @@ info:
 # info.ports
 #
 
+INFO_PORTS_VIEW		?= compact
+INFO_PORTS_GROUP		?=
+INFO_PORTS_PORT		?=
+
+ifneq ($(words $(INFO_PORTS_VIEW)),1)
+$(error INFO_PORTS_VIEW must be compact or detailed)
+endif
+ifneq ($(filter compact detailed,$(INFO_PORTS_VIEW)),$(INFO_PORTS_VIEW))
+$(error INFO_PORTS_VIEW must be compact or detailed)
+endif
+
+# $(call info-ports-reverse, group-list)
+define info-ports-reverse
+$(if $(strip $1),						       \
+  $(call info-ports-reverse,$(wordlist 2,$(words $1),$1))	       \
+  $(firstword $1))
+endef
+
+info_ports_groups	:= $(strip				       \
+			     $(call info-ports-reverse,		       \
+			       $(filter-out $(PORTS_GROUP_DEFAULT),    \
+			         $(groups_all)))		       \
+			     $(filter $(PORTS_GROUP_DEFAULT),$(groups_all)))
+info_ports_instances	= $(foreach g,$(info_ports_groups),	       \
+			    $(filter $g@%,$(ports_all_group)))
+info_ports_mode		= $(if					       \
+			    $(filter compact,$(INFO_PORTS_VIEW)),      \
+			    info-compact,info-ports)
+
+# $(call info-ports-selection)
+# Filter before collecting status, not after probing hidden instances.
+define info-ports-selection
+$(if $(strip $(INFO_PORTS_GROUP)),				       \
+  $(if $(filter-out $(groups_all),$(INFO_PORTS_GROUP)),		       \
+    $(error Unknown INFO_PORTS_GROUP=$(INFO_PORTS_GROUP))))	       \
+$(if $(strip $(INFO_PORTS_PORT)),				       \
+  $(if $(findstring %,$(INFO_PORTS_PORT)),			       \
+    $(error INFO_PORTS_PORT requires recipe names, not patterns))      \
+  $(if $(filter-out $(ports_all_raw_lists) $(ports_all),	       \
+    $(INFO_PORTS_PORT)),					       \
+    $(error Unknown INFO_PORTS_PORT=$(INFO_PORTS_PORT))))	       \
+$(foreach p,$(info_ports_instances),				       \
+  $(if $(or $(if $(strip $(INFO_PORTS_GROUP)),,yes),		       \
+    $(filter $(call get-group,$p),$(INFO_PORTS_GROUP))),	       \
+    $(if $(or $(if $(strip $(INFO_PORTS_PORT)),,yes),		       \
+      $(filter $(call get-port,$p) $(call rm-groups,$p),	       \
+        $(INFO_PORTS_PORT))),$p)))
+endef
+
 info.ports.groups-header:
 	@cols=$(info_ports_cols);					\
 	[ "$$cols" -gt 32 ] 2>/dev/null || cols=80;			\
 	header_cols=$$((cols - 15));					\
 	[ "$$header_cols" -gt 32 ] 2>/dev/null || header_cols=$$cols;	\
 	{								\
-	  for g in $(groups_all); do 					\
+	  for g in $(info_ports_groups); do			       \
 	    if [ $$g = $(PORTS_GROUP_DEFAULT) ]; then			\
 	      printf '%s\n' "[*]$$g";					\
 	    else							\
@@ -1050,7 +1099,7 @@ show_groups_$1:
 info.ports.groups-lists: show_groups_$1
 endef
 
-$(foreach g,$(groups_all), 						\
+$(foreach g,$(info_ports_groups),				       \
   $(eval								\
     $(call show-group-lists,$g)))
 
@@ -1097,7 +1146,8 @@ info.ports.ports:
 	@set -e; status_dir=$$(mktemp -d			       \
 	  "$${TMPDIR:-/tmp}/uports-info-ports.XXXXXX");		       \
 	trap 'rm -rf -- "$$status_dir"' EXIT HUP INT TERM;	       \
-	{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } \
+	{ $(foreach p,$(call info-ports-selection),		       \
+	    $(call info_ports_record,$p)) :; }			       \
 	  > "$$status_dir/input";				       \
 	awk -F '\t' -v mode=info-candidates -v portdir="$(portdir)"    \
 	  -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"  \
@@ -1106,11 +1156,22 @@ info.ports.ports:
 	$(SHELL) "$(portdir)/Tools/port-status.sh" "$(MAKE)" "$(portdir)" \
 	  "$(INFO_PORTS_JOBS)"					       \
 	  < "$$status_dir/candidates" > "$$status_dir/rows";	       \
-	awk -F '|' -v mode=info-ports -f "$(port_info_awk)"	       \
+	awk -F '|' -v mode='$(strip $(info_ports_mode))'	       \
+	  -v groups='$(info_ports_groups)'			       \
+	  -v default_group='$(PORTS_GROUP_DEFAULT)'		       \
+	  -v project='$(if $(filter undefined,			       \
+	    $(origin PROJECT_PORTS)),no,yes)'			       \
+	  -v roots='$(strip $(project_root_requests))'		       \
+	  -v cols='$(info_ports_cols)' -f "$(port_info_awk)"	       \
 	  "$$status_dir/rows"
 
 depends_exclude_targets	+= info.ports.ports $(addsuffix .ports,i info)
-$(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
+ifeq ($(INFO_PORTS_VIEW),compact)
+$(addsuffix .ports,i info): info.ports.ports
+else
+$(addsuffix .ports,i info): $(pecho)				       \
+	$(addprefix info.ports.,groups-header groups-lists sep ports)
+endif
 
 #
 # info.pc ...

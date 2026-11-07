@@ -7,6 +7,8 @@ BEGIN {
 	work_marker = work_marker "[[:space:]]*[:+?]?="
 	cookie_marker = "^((override|export)[[:space:]]+)*[A-Z_]+_COOKIE"
 	cookie_marker = cookie_marker "[[:space:]]*[:+?]?="
+	root_count = split(roots, project_roots, " ")
+	group_count = split(groups, display_groups, " ")
 	if (makefile != "") {
 		init_port(curdir)
 		parse_file(makefile)
@@ -16,7 +18,7 @@ BEGIN {
 	}
 }
 
-mode == "info-ports" || mode == "info-candidates" {
+mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
 	group = $1
 	port = $2
 	base = $3
@@ -42,12 +44,23 @@ mode == "info-ports" || mode == "info-candidates" {
 
 	row_count++
 	row_instance[row_count] = group SUBSEP base SUBSEP port
+	row_group[row_count] = group
+	row_origin[row_count] = port
+	if (!(row_instance[row_count] in first_row))
+		first_row[row_instance[row_count]] = row_count
+	context_head[port, group] = first_row[row_instance[row_count]]
+	context_count[row_instance[row_count]]++
+	context_row[row_instance[row_count],
+	    context_count[row_instance[row_count]]] = row_count
 	row_flag[row_count] = flag
 	row_status[row_count] = status
 	row_port[row_count] = port suffix
 	row_flavor[row_count] = ($7 == "") ? "-" : $7
 	row_version[row_count] = (NF >= 9) ? $8 : package_version()
 	row_license[row_count] = (NF >= 9) ? $9 : vars["LICENSE"]
+	row_root[row_count] = root_selected(row_count)
+	if (row_root[row_count])
+		context_root[row_instance[row_count]] = 1
 
 	if (length(row_port[row_count]) > port_width)
 		port_width = length(row_port[row_count])
@@ -56,8 +69,158 @@ mode == "info-ports" || mode == "info-candidates" {
 }
 
 END {
-	if (mode == "info-ports")
+	if (mode == "info-ports" || mode == "info-compact")
+		validate_root_flavors()
+	if (mode == "info-compact")
+		print_compact_ports()
+	else if (mode == "info-ports")
 		print_info_ports()
+}
+
+function root_selected(i,    r, fields, selected) {
+	for (r = 1; r <= root_count; r++) {
+		split(project_roots[r], fields, "|")
+		if (fields[1] != row_group[i] || fields[2] != row_origin[i])
+			continue
+		selected = fields[3]
+		if (selected == "")
+			selected = row_flavor[first_row[row_instance[i]]]
+		if (selected == row_flavor[i])
+			return 1
+	}
+	return 0
+}
+
+function validate_root_flavors(    r, i, fields, present, found) {
+	for (r = 1; r <= root_count; r++) {
+		split(project_roots[r], fields, "|")
+		present = found = 0
+		for (i = 1; i <= row_count; i++) {
+			if (fields[1] != row_group[i] ||
+			    fields[2] != row_origin[i])
+				continue
+			present = 1
+			if (fields[3] == "" || fields[3] == row_flavor[i])
+				found = 1
+		}
+		if (present && !found) {
+			print "Unknown project Flavor " fields[3] \
+			    " for " fields[2] > "/dev/stderr"
+			exit 1
+		}
+	}
+}
+
+function compact_append(entry) {
+	if ((compact_has_data ||
+	    length(compact_line) > length(compact_indent)) &&
+	    length(compact_line) + compact_has_data + length(entry) > cols) {
+		sub(/[[:space:]]+$/, "", compact_line)
+		print "    " compact_line
+		compact_line = compact_indent
+		compact_has_data = 0
+	}
+	if (compact_has_data)
+		compact_line = compact_line " "
+	compact_line = compact_line entry
+	compact_has_data = 1
+}
+
+function compact_status(i, primary,    entry, state) {
+	state = trim(row_status[i])
+	entry = (state == "") ? "." : state
+	if (row_version[i] != row_version[primary])
+		entry = entry "(v" row_version[i] ")"
+	if (row_license[i] != row_license[primary])
+		entry = entry "(license=" row_license[i] ")"
+	return entry
+}
+
+# Keep one group's Flavors together when group summaries need separate lines.
+function compact_group(head, primary,    entry, position, i) {
+	entry = row_group[head] ":"
+	if (row_flavor[head] == "-")
+		return entry compact_status(head, primary)
+	entry = entry "{"
+	for (position = 1; position <= context_count[row_instance[head]];
+	    position++) {
+		i = context_row[row_instance[head], position]
+		if (position > 1)
+			entry = entry ", "
+		entry = entry row_flavor[i] ":" compact_status(i, primary)
+	}
+	return entry "}"
+}
+
+function print_compact_ports(    i, j, g, n, origin, primary, head,
+	entry, count, port_size, version_size, license_size, prefix,
+	entries, combined, wrapped, selected, marker) {
+	if (cols < 40)
+		cols = 80
+	cols -= 4
+	compact_indent = "groups: "
+	compact_line = compact_indent
+	compact_has_data = 0
+	for (g = 1; g <= group_count; g++)
+		compact_append((display_groups[g] == default_group \
+		    ? "[*]" : "") \
+		    display_groups[g])
+	print "    " compact_line
+	for (i = 1; i <= row_count; i++) {
+		origin = row_origin[i]
+		if (row_root[i])
+			selected[origin] = 1
+		if (!(origin in compact_primary)) {
+			compact_origins[++n] = origin
+			compact_primary[origin] = i
+		}
+		primary = compact_primary[origin]
+		if (row_group[i] == default_group &&
+		    row_group[primary] != default_group)
+			compact_primary[origin] = i
+	}
+	port_size = length("PORT")
+	version_size = length("VERSION")
+	license_size = length("LICENSE")
+	for (j = 1; j <= n; j++) {
+		primary = compact_primary[compact_origins[j]]
+		if (length(row_origin[primary]) > port_size)
+			port_size = length(row_origin[primary])
+		if (length(row_version[primary]) > version_size)
+			version_size = length(row_version[primary])
+		if (length(row_license[primary]) > license_size)
+			license_size = length(row_license[primary])
+	}
+	printf "    %7s%-*s  %-*s  %-*s  %s\n", "", port_size, "PORT",
+	    version_size, "VERSION", license_size, "LICENSE", "GROUPS/FLAVORS"
+	for (j = 1; j <= n; j++) {
+		origin = compact_origins[j]
+		primary = compact_primary[origin]
+		marker = (project == "yes" && !selected[origin]) ? "-" : " "
+		prefix = sprintf("[%s%s%s]: %-*s  %-*s  %-*s  ",
+		    row_flag[primary], row_status[primary], marker, port_size, origin,
+		    version_size, row_version[primary],
+		    license_size, row_license[primary])
+		compact_indent = sprintf("%*s", length(prefix), "")
+		count = 0
+		combined = ""
+		for (g = 1; g <= group_count; g++) {
+			head = context_head[origin, display_groups[g]]
+			if (!head)
+				continue
+			entry = compact_group(head, primary)
+			entries[++count] = entry
+			combined = combined ((count == 1) ? "" : " ") entry
+		}
+		wrapped = length(prefix) + length(combined) > cols
+		if (!wrapped)
+			print "    " prefix combined
+		else {
+			for (g = 1; g <= count; g++)
+				print "    " ((g == 1) ? prefix : compact_indent) \
+				    entries[g]
+		}
+	}
 }
 
 function init_port(port_curdir,    i) {
@@ -95,7 +258,7 @@ function package_info() {
 }
 
 function print_info_ports(    i, key, first, entry, status, prefix, line,
-	license_width, width) {
+	license_width, width, marker) {
 	for (i = 1; i <= row_count; i++) {
 		key = row_instance[i]
 		if (!(key in first_row))
@@ -115,15 +278,16 @@ function print_info_ports(    i, key, first, entry, status, prefix, line,
 		version_width = length("VERSION")
 	if (license_width < length("LICENSE"))
 		license_width = length("LICENSE")
-	printf "%27s%-*s  %-*s  %-*s  %s\n", "",
+	printf "%28s%-*s  %-*s  %-*s  %s\n", "",
 	    port_width, "PORT", version_width, "VERSION",
 	    license_width, "LICENSE", "FLAVORS/STATUS"
 	for (i = 1; i <= row_count; i++) {
 		key = row_instance[i]
 		if (first_row[key] != i)
 			continue
-		prefix = sprintf("%21s[%s%s]: %-*s  %-*s  %-*s  ", "",
-		    row_flag[i], row_status[i], port_width, row_port[i],
+		marker = (project == "yes" && !context_root[key]) ? "-" : " "
+		prefix = sprintf("%21s[%s%s%s]: %-*s  %-*s  %-*s  ", "",
+		    row_flag[i], row_status[i], marker, port_width, row_port[i],
 		    version_width, row_version[i],
 		    license_width, row_license[i])
 		width = length(prefix)
