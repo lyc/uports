@@ -8,6 +8,13 @@ BEGIN {
 	cookie_marker = "^((override|export)[[:space:]]+)*[A-Z_]+_COOKIE"
 	cookie_marker = cookie_marker "[[:space:]]*[:+?]?="
 	group_count = split(groups, display_groups, " ")
+	if (mode == "info-compact-groups") {
+		if (cols < 40)
+			cols = 80
+		cols -= 4
+		print_compact_groups()
+		exit
+	}
 	if (makefile != "") {
 		init_port(curdir)
 		parse_file(makefile)
@@ -112,12 +119,7 @@ function compact_group(head, primary,    entry, position, i) {
 	return entry "}"
 }
 
-function print_compact_ports(    i, j, g, n, origin, primary, head,
-	entry, count, port_size, version_size, license_size, prefix,
-	entries, combined, wrapped) {
-	if (cols < 40)
-		cols = 80
-	cols -= 4
+function print_compact_groups(    g) {
 	compact_indent = "groups: "
 	compact_line = compact_indent
 	compact_has_data = 0
@@ -126,6 +128,16 @@ function print_compact_ports(    i, j, g, n, origin, primary, head,
 		    ? "[*]" : "") \
 		    display_groups[g])
 	print "    " compact_line
+}
+
+function print_compact_ports(    i, j, g, n, origin, primary, head,
+	entry, count, port_size, version_size, license_size, prefix,
+	entries, combined, wrapped) {
+	if (cols < 40)
+		cols = 80
+	cols -= 4
+	if (compact_groups_printed != "yes")
+		print_compact_groups()
 	for (i = 1; i <= row_count; i++) {
 		origin = row_origin[i]
 		if (!(origin in compact_primary)) {

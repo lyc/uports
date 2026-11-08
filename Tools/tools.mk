@@ -1108,6 +1108,12 @@ info.ports.ports:
 	@set -e; status_dir=$$(mktemp -d			       \
 	  "$${TMPDIR:-/tmp}/uports-info-ports.XXXXXX");		       \
 	trap 'rm -rf -- "$$status_dir"' EXIT HUP INT TERM;	       \
+	$(if $(filter compact,$(INFO_PORTS_VIEW)),		       \
+	  awk -v mode=info-compact-groups			       \
+	    -v groups='$(info_ports_groups)'			       \
+	    -v default_group='$(PORTS_GROUP_DEFAULT)'		       \
+	    -v cols='$(info_ports_cols)' -f "$(port_info_awk)"	       \
+	    </dev/null;)					       \
 	{ $(foreach p,$(call info-ports-selection),		       \
 	    $(call info_ports_record,$p)) :; }			       \
 	  > "$$status_dir/input";				       \
@@ -1119,6 +1125,7 @@ info.ports.ports:
 	  "$(INFO_PORTS_JOBS)"					       \
 	  < "$$status_dir/candidates" > "$$status_dir/rows";	       \
 	awk -F '|' -v mode='$(strip $(info_ports_mode))'	       \
+	  -v compact_groups_printed=yes				       \
 	  -v groups='$(info_ports_groups)'			       \
 	  -v default_group='$(PORTS_GROUP_DEFAULT)'		       \
 	  -v cols='$(info_ports_cols)' -f "$(port_info_awk)"	       \

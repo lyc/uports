@@ -139,7 +139,12 @@ ifeq ($(ARCH),)
 ifneq ($(CROSS_COMPILE),)
 ARCH			?= $(call triplet.cpu,$(CROSS_COMPILE))
 else
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+# Expand only the framework's host default once; preserve recipe assignments.
+$(eval ARCH ?= $(shell uname -m))
+else
 ARCH			?= $(shell uname -m)
+endif
 endif
 ARCH			?= $(shell $(UNAME) -m)
 endif
@@ -150,7 +155,11 @@ ifneq ($(CROSS_COMPILE),)
 OPSYS			?= $(call triplet.kernel,$(CROSS_COMPILE))
 OPSYS_SUFX		?= $(call triplet.system,$(CROSS_COMPILE))
 else
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+$(eval OPSYS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]'))
+else
 OPSYS			?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+endif
 ifeq ($(OPSYS),darwin)
 ifeq ($(ARCH),arm64)
 ARCH			:= aarch64
