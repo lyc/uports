@@ -264,8 +264,7 @@ dependency-metadata-jobs-flag = $(if $(filter --jobserver-auth=% \
 dependency-metadata-collect-command = 					\
 	metadata_dir=$$(mktemp -d "$${TMPDIR:-/tmp}/uports-dependencies.XXXXXX") && \
 	$(MAKE) -s --no-print-directory $(dependency-metadata-jobs-flag) \
-	  $(if $(filter-out undefined,$(origin PROJECT_PORTS)),          \
-	    DEPENDENCY_REQUESTS='$(dependency-requests)')                 \
+	  DEPENDENCY_REQUESTS='$(dependency-requests)'		       \
 	  DEPENDENCY_METADATA_DIR="$$metadata_dir" dependency-metadata-probes \
 	  >/dev/null &&							\
 	$(if $(strip $(ports_all_group)),cat $(foreach p,$(ports_all_group),\
@@ -467,8 +466,7 @@ load-dependency-records = 						\
 	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),, \
 	  $(if $(filter yes,$(project_provider_discovery_loaded)),,         \
 	    $(load-dependency-provider-discovery)                         \
-	    $(if $(filter-out undefined,$(origin PROJECT_PORTS)),           \
-	      $(eval project_provider_discovery_loaded := yes))))          \
+	    $(eval project_provider_discovery_loaded := yes)))	       \
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-cookie,$d)))			\
@@ -478,8 +476,7 @@ load-dependency-records = 						\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter state-file,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-state-file,$d)))			\
-	$(foreach d,$(if $(filter undefined,$(origin PROJECT_PORTS)),     \
-	  $(dependency_metadata_raw),$(project_reached_metadata)),        \
+	$(foreach d,$(dependency_context_reached_metadata),	       \
 	  $(if $(filter build lib run,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call generate-dependency-record,$d)))			\
 	$(if $(and $(dependency-scope-enabled),$(if $(dependency-invalid-requests),,yes)),\
@@ -504,7 +501,7 @@ load-dependency-records = 						\
 	  $(foreach p,$(dependency_provider_projection),		\
 	    $(if $(filter invalid%,$p),$(error dependency provider validation failed: $p),\
 	      $(call apply-dependency-provider-projection,$p))))		\
-	$(call project-discover-providers)                               \
+	$(call dependency-discover-providers)			       \
 	$(if $(and $(filter none,$(dependency-provider-fallback)),\
 	  $(filter uports,$(foreach d,$(dependency-active-record-ids),$($(d)_provider_kind)))),\
 	  $(error system-only provider mode has dependencies without external providers)) \
@@ -1022,7 +1019,9 @@ DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
 	UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
-dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
+dependency-requests = $(foreach r,				       \
+	$(or $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)),	       \
+	$(call group-request-target,$r))
 dependency-request-targets = $(foreach r,$(dependency-requests),       \
 	$(call dependency-normalize-target,$r))
 dependency-request-target = $(firstword $(dependency-request-targets))

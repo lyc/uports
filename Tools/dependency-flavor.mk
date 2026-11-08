@@ -121,9 +121,7 @@ $(eval dependency_metadata_raw +=				       \
   $(addprefix $1|,$(dependency_variant_raw)))			       \
 $(foreach d,$(addprefix $1|,$(dependency_variant_raw)),		       \
   $(if $(filter provides,$(word 2,$(subst |, ,$d))),		       \
-    $(call collect-dependency-capability,$d)))			       \
-$(call dependency-expand-flavors,				       \
-  $(addprefix $1|,$(dependency_variant_raw)))
+    $(call collect-dependency-capability,$d)))
 endef
 
 # $(call dependency-prefetch-root, target)
@@ -427,16 +425,6 @@ dependency-metadata-origin = $(strip $(if			       \
 	$(word 1,$(subst :, ,$(word 3,$(subst |, ,$1)))),	       \
 	$(word 2,$(subst :, ,$(word 3,$(subst |, ,$1))))))
 
-# $(call dependency-expand-flavors, metadata-records)
-define dependency-expand-flavors
-$(if $(filter undefined,$(origin PROJECT_PORTS)),                   \
-$(foreach d,$1,							       \
-  $(if $(filter build lib run,$(word 2,$(subst |, ,$d))),	       \
-    $(call dependency-ensure-reference,				       \
-      $(call instance-field,$(word 1,$(subst |, ,$d)),group),	       \
-      $(call dependency-metadata-origin,$d)))))
-endef
-
 # $(call dependency-normalize-target, [group:]port[@flavor].phase)
 define dependency-normalize-target
 $(strip $(if $(call resolve-port-target,$1),			       \
@@ -482,7 +470,7 @@ endef
 define load-dependency-metadata
 $(foreach n,$(dependency-instances),				       \
   $(eval dependency_capabilities_$n :=))			       \
-$(if $(filter yes,$(project_metadata_loaded)),,                      \
+$(if $(filter yes,$(dependency_context_metadata_loaded)),,                      \
 $(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
 $(if $(filter-out 0,$(.SHELLSTATUS)),				       \
   $(error dependency metadata collection failed)))                  \
@@ -586,9 +574,7 @@ $(foreach n,$(dependency-base-instances),			       \
     $(call dependency-ensure-root,				       \
       $(call dependency-command-base,$n).install)))		       \
 $(foreach r,$(dependency-requests),$(call dependency-ensure-root,$r))  \
-$(if $(filter undefined,$(origin PROJECT_PORTS)),                   \
-  $(call dependency-expand-flavors,$(dependency_metadata_raw)),     \
-  $(project-expand-reached-flavors))
+$(dependency-expand-reached-flavors)
 endef
 
 # Register the one validated wrapper selection before lifecycle recipes expand.

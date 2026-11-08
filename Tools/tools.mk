@@ -15,14 +15,6 @@ ifneq ($(wildcard $(feeds)/group.mk),)
 include $(feeds)/group.mk
 endif
 
-# Project and legacy root selectors must not compete.
-ifneq ($(origin PROJECT_PORTS),undefined)
-ifneq ($(origin PORTS_LISTS),undefined)
-$(error PROJECT_PORTS ($(origin PROJECT_PORTS)) conflicts with        \
-  PORTS_LISTS ($(origin PORTS_LISTS)); declare only one root selector)
-endif
-endif
-
 # default target ...
 all:
 
@@ -189,7 +181,6 @@ get-dir			= $(port_$(call get-port,$1)_root)
 #   ports_all:
 #
 
-ifeq ($(origin PROJECT_PORTS),undefined)
 ifneq ($(strip $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS)),)
 ports_all_raw		:= $(foreach p,					\
 			    $(PORTS_LISTS) $(PORTS_FALLBACK_LISTS),	\
@@ -200,7 +191,6 @@ endif
 ifneq ($(strip $(PORTS_FALLBACK_LISTS)),)
 ifeq ($(strip $(PORTS_LISTS)),)
 $(error PORTS_FALLBACK_LISTS requires explicit PORTS_LISTS roots)
-endif
 endif
 endif
 
@@ -339,7 +329,6 @@ ports_root_group	:= $(strip					\
 			      $(call complete-group-default,		\
 			        $p,$(PORTS_GROUP_DEFAULT))))
 
-ifeq ($(origin PROJECT_PORTS),undefined)
 ports_fallback_group	:= $(strip					\
 			    $(foreach p,$(PORTS_FALLBACK_LISTS),		\
 			      $(call complete-group-default,		\
@@ -349,7 +338,6 @@ ports_root_fallback_overlap := $(filter $(ports_root_group),		\
 			    $(ports_fallback_group))
 ifneq ($(ports_root_fallback_overlap),)
 $(error instances cannot be both roots and fallbacks: $(ports_root_fallback_overlap))
-endif
 endif
 
 ports_all_group		:= $(strip $(ports_root_group) $(ports_fallback_group))
@@ -534,7 +522,7 @@ $(foreach g,$(groups_all),						\
     $(eval								\
       $(call generate-port-env,$g,$p))))
 
-include $(portdir)/Tools/project.mk
+include $(portdir)/Tools/group-instance.mk
 
 #
 # normalized build-instance lookup records...
@@ -698,11 +686,16 @@ get-envs		= $(call target-instance-field,$1,env)
 include $(portdir)/Tools/dependency.mk
 include $(portdir)/Tools/flavor.mk
 include $(portdir)/Tools/dependency-flavor.mk
-include $(portdir)/Tools/project-dependency.mk
-include $(portdir)/Tools/project-lifecycle.mk
+include $(portdir)/Tools/dependency-context.mk
+include $(portdir)/Tools/group-lifecycle.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
-dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
+dependency-label-flavor = $(strip $(or				       \
+	$(call flavor-target-selection,$(resolved-port-target)),       \
+	$(if $(filter $(flavor-bridge-key),			       \
+	  $(call target-base-instance-key,$(resolved-port-target))),   \
+	  $(_UPORTS_FLAVOR_LABEL))))
+dependency-target-label = $(call target-instance-field,$(resolved-port-target),group):$(call target-instance-field,$(resolved-port-target),origin)$(if $(dependency-label-flavor),@$(dependency-label-flavor))
 quiet_cmd_generate-port-target	?= $(if $(dependency-provider-execution),,PORT    $(dependency-target-label) $(call extract-suffix,$(call rm-group,$(resolved-port-target))))
       cmd_generate-port-target	?= set -e;				\
 	dir=$(call target-instance-field,$(resolved-port-target),root);	\
@@ -753,38 +746,7 @@ validate-port-target	= $(if $(resolved-port-target),,		\
 
 .SECONDEXPANSION:
 
-# Aggregate targets are explicit so their canonical prerequisites can resolve
-# through the shared lifecycle patterns without implicit-rule recursion.  With
-# dependency execution enabled, validate and prepare the union first, then let a
-# dependency-neutral recursive make dispatch the consumers.
-ifeq ($(origin PROJECT_PORTS),undefined)
-ifeq ($(UPORTS_DEPENDENCIES),yes)
-ports_cleanup_aggregate_targets := $(filter %.clean %.distclean %.deinstall %.uninstall,$(ports_aggregate_target_unique))
-ports_dependency_aggregate_targets := $(filter-out $(ports_cleanup_aggregate_targets),$(ports_aggregate_target_unique))
-$(ports_cleanup_aggregate_targets): %: uports-force
-	@roots="$(call aggregate-prerequisites,$@)"; \
-	  if test -n "$$roots"; then \
-	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
-	      UPORTS_DEPENDENCY_STATE=no $$roots; \
-	  fi
-ifeq ($(UPORTS_DEPENDENCY_INVOCATION),yes)
-$(ports_dependency_aggregate_targets): %: uports-force
-	@roots="$(call aggregate-prerequisites,$@)"; \
-	  if test -n "$$roots"; then \
-	    $(MAKE) --no-print-directory DEPENDENCY_REQUESTS="$$roots" \
-	      dependency-lifecycle-execute && \
-	    $(MAKE) --no-print-directory UPORTS_DEPENDENCIES=no \
-	      UPORTS_DEPENDENCY_PROVENANCE=$(UPORTS_DEPENDENCY_PROVENANCE) \
-	      UPORTS_DEPENDENCY_STATE=yes $$roots; \
-	  fi
-else
-$(ports_dependency_aggregate_targets): %: uports-force
-	@$(call dependency-invocation-command,$@)
-endif
-else
-$(ports_aggregate_target_unique): %: $$(call aggregate-prerequisites,$$@) uports-force ;
-endif
-endif
+# Group aggregate dispatch is registered in Tools/group-lifecycle.mk.
 
 # $(call generate-port-lifecycle-pattern, suffix)
 define generate-port-lifecycle-pattern
@@ -1159,9 +1121,6 @@ info.ports.ports:
 	awk -F '|' -v mode='$(strip $(info_ports_mode))'	       \
 	  -v groups='$(info_ports_groups)'			       \
 	  -v default_group='$(PORTS_GROUP_DEFAULT)'		       \
-	  -v project='$(if $(filter undefined,			       \
-	    $(origin PROJECT_PORTS)),no,yes)'			       \
-	  -v roots='$(strip $(project_root_requests))'		       \
 	  -v cols='$(info_ports_cols)' -f "$(port_info_awk)"	       \
 	  "$$status_dir/rows"
 

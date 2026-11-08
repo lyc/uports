@@ -7,7 +7,6 @@ BEGIN {
 	work_marker = work_marker "[[:space:]]*[:+?]?="
 	cookie_marker = "^((override|export)[[:space:]]+)*[A-Z_]+_COOKIE"
 	cookie_marker = cookie_marker "[[:space:]]*[:+?]?="
-	root_count = split(roots, project_roots, " ")
 	group_count = split(groups, display_groups, " ")
 	if (makefile != "") {
 		init_port(curdir)
@@ -58,9 +57,6 @@ mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
 	row_flavor[row_count] = ($7 == "") ? "-" : $7
 	row_version[row_count] = (NF >= 9) ? $8 : package_version()
 	row_license[row_count] = (NF >= 9) ? $9 : vars["LICENSE"]
-	row_root[row_count] = root_selected(row_count)
-	if (row_root[row_count])
-		context_root[row_instance[row_count]] = 1
 
 	if (length(row_port[row_count]) > port_width)
 		port_width = length(row_port[row_count])
@@ -69,46 +65,10 @@ mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
 }
 
 END {
-	if (mode == "info-ports" || mode == "info-compact")
-		validate_root_flavors()
 	if (mode == "info-compact")
 		print_compact_ports()
 	else if (mode == "info-ports")
 		print_info_ports()
-}
-
-function root_selected(i,    r, fields, selected) {
-	for (r = 1; r <= root_count; r++) {
-		split(project_roots[r], fields, "|")
-		if (fields[1] != row_group[i] || fields[2] != row_origin[i])
-			continue
-		selected = fields[3]
-		if (selected == "")
-			selected = row_flavor[first_row[row_instance[i]]]
-		if (selected == row_flavor[i])
-			return 1
-	}
-	return 0
-}
-
-function validate_root_flavors(    r, i, fields, present, found) {
-	for (r = 1; r <= root_count; r++) {
-		split(project_roots[r], fields, "|")
-		present = found = 0
-		for (i = 1; i <= row_count; i++) {
-			if (fields[1] != row_group[i] ||
-			    fields[2] != row_origin[i])
-				continue
-			present = 1
-			if (fields[3] == "" || fields[3] == row_flavor[i])
-				found = 1
-		}
-		if (present && !found) {
-			print "Unknown project Flavor " fields[3] \
-			    " for " fields[2] > "/dev/stderr"
-			exit 1
-		}
-	}
 }
 
 function compact_append(entry) {
@@ -154,7 +114,7 @@ function compact_group(head, primary,    entry, position, i) {
 
 function print_compact_ports(    i, j, g, n, origin, primary, head,
 	entry, count, port_size, version_size, license_size, prefix,
-	entries, combined, wrapped, selected, marker) {
+	entries, combined, wrapped) {
 	if (cols < 40)
 		cols = 80
 	cols -= 4
@@ -168,8 +128,6 @@ function print_compact_ports(    i, j, g, n, origin, primary, head,
 	print "    " compact_line
 	for (i = 1; i <= row_count; i++) {
 		origin = row_origin[i]
-		if (row_root[i])
-			selected[origin] = 1
 		if (!(origin in compact_primary)) {
 			compact_origins[++n] = origin
 			compact_primary[origin] = i
@@ -191,14 +149,13 @@ function print_compact_ports(    i, j, g, n, origin, primary, head,
 		if (length(row_license[primary]) > license_size)
 			license_size = length(row_license[primary])
 	}
-	printf "    %7s%-*s  %-*s  %-*s  %s\n", "", port_size, "PORT",
+	printf "    %6s%-*s  %-*s  %-*s  %s\n", "", port_size, "PORT",
 	    version_size, "VERSION", license_size, "LICENSE", "GROUPS/FLAVORS"
 	for (j = 1; j <= n; j++) {
 		origin = compact_origins[j]
 		primary = compact_primary[origin]
-		marker = (project == "yes" && !selected[origin]) ? "-" : " "
-		prefix = sprintf("[%s%s%s]: %-*s  %-*s  %-*s  ",
-		    row_flag[primary], row_status[primary], marker, port_size, origin,
+		prefix = sprintf("[%s%s]: %-*s  %-*s  %-*s  ",
+		    row_flag[primary], row_status[primary], port_size, origin,
 		    version_size, row_version[primary],
 		    license_size, row_license[primary])
 		compact_indent = sprintf("%*s", length(prefix), "")
@@ -258,7 +215,7 @@ function package_info() {
 }
 
 function print_info_ports(    i, key, first, entry, status, prefix, line,
-	license_width, width, marker) {
+	license_width, width) {
 	for (i = 1; i <= row_count; i++) {
 		key = row_instance[i]
 		if (!(key in first_row))
@@ -278,16 +235,15 @@ function print_info_ports(    i, key, first, entry, status, prefix, line,
 		version_width = length("VERSION")
 	if (license_width < length("LICENSE"))
 		license_width = length("LICENSE")
-	printf "%28s%-*s  %-*s  %-*s  %s\n", "",
+	printf "%27s%-*s  %-*s  %-*s  %s\n", "",
 	    port_width, "PORT", version_width, "VERSION",
 	    license_width, "LICENSE", "FLAVORS/STATUS"
 	for (i = 1; i <= row_count; i++) {
 		key = row_instance[i]
 		if (first_row[key] != i)
 			continue
-		marker = (project == "yes" && !context_root[key]) ? "-" : " "
-		prefix = sprintf("%21s[%s%s%s]: %-*s  %-*s  %-*s  ", "",
-		    row_flag[i], row_status[i], marker, port_width, row_port[i],
+		prefix = sprintf("%21s[%s%s]: %-*s  %-*s  %-*s  ", "",
+		    row_flag[i], row_status[i], port_width, row_port[i],
 		    version_width, row_version[i],
 		    license_width, row_license[i])
 		width = length(prefix)
