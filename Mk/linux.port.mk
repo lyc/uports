@@ -132,6 +132,10 @@ triplet.os		= $(strip					\
 triplet.kernel		?= $(word 1,$(call triplet.os,$1))
 triplet.system		?= $(word 2,$(call triplet.os,$1))
 
+port-metadata-only	= $(and $(filter 1,$(words $(MAKECMDGOALS))),  \
+	$(filter uports-port-status-metadata uports-dependency-metadata\
+	  uports-flavor-metadata,$(MAKECMDGOALS)))
+
 # $(warning CROSS_COMPILE=$(CROSS_COMPILE))
 
 # Get the architecture
@@ -139,7 +143,7 @@ ifeq ($(ARCH),)
 ifneq ($(CROSS_COMPILE),)
 ARCH			?= $(call triplet.cpu,$(CROSS_COMPILE))
 else
-ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+ifneq ($(port-metadata-only),)
 # Expand only the framework's host default once; preserve recipe assignments.
 $(eval ARCH ?= $(shell uname -m))
 else
@@ -155,7 +159,7 @@ ifneq ($(CROSS_COMPILE),)
 OPSYS			?= $(call triplet.kernel,$(CROSS_COMPILE))
 OPSYS_SUFX		?= $(call triplet.system,$(CROSS_COMPILE))
 else
-ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+ifneq ($(port-metadata-only),)
 $(eval OPSYS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]'))
 else
 OPSYS			?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
@@ -1227,8 +1231,8 @@ package-dependency-provenance :=
 else
 package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
 endif
-# Display-only metadata needs paths/cookies, not archive compatibility checks.
-ifneq ($(MAKECMDGOALS),uports-port-status-metadata)
+# Metadata needs paths/cookies; archive invalidation belongs to lifecycle goals.
+ifeq ($(port-metadata-only),)
 package-provenance-required := $(strip $(package-dependency-provenance) \
 	$(package-source-state) $(PACKAGE_BUILD_ID))
 dependency-package-mismatch := $(if $(package-provenance-required),\
@@ -2560,24 +2564,23 @@ uports-flavor-metadata:
 	  'path|alternative-source|$(ALTERNATIVE_WRKSRC)';,:)
 
 uports-dependency-metadata:
-	@printf '%s\n' 'context|$(OPSYS)|$(ARCH)'
-	@printf '%s\n' 'flavor-default|$(or $(flavor-default),default)' \
-	  'flavor-selected|$(flavor-selected)'
-	@$(foreach f,$(flavor-declared),printf '%s\n' 'flavor-choice|$f';)
-	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
-	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
-	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)
-	@$(foreach d,$(RUN_DEPENDS),printf '%s\n' 'run|$(d)';)
-	@printf '%s\n' \
-	  'cookie|extract|$(EXTRACT_COOKIE)' \
-	  'cookie|patch|$(PATCH_COOKIE)' \
-	  'cookie|configure|$(CONFIGURE_COOKIE)' \
-	  'cookie|build|$(BUILD_COOKIE)' \
-	  'cookie|stage|$(STAGE_COOKIE)' \
-	  'cookie|package|$(PACKAGE_COOKIE)' \
-	  'cookie|install|$(dependency-installed-cookie)'
-	@printf '%s\n' 'install-root|$(abspath $(DESTDIR)$(PREFIX))'
-	@printf '%s\n' \
+	@printf '%s\n'						       \
+	  'context|$(OPSYS)|$(ARCH)'				       \
+	  'flavor-default|$(or $(flavor-default),default)'	       \
+	  'flavor-selected|$(flavor-selected)'			       \
+	  $(foreach f,$(flavor-declared),'flavor-choice|$f')	       \
+	  $(foreach p,$(PORT_PROVIDES),'provides|$p')		       \
+	  $(foreach d,$(BUILD_DEPENDS),'build|$d')		       \
+	  $(foreach d,$(LIB_DEPENDS),'lib|$d')			       \
+	  $(foreach d,$(RUN_DEPENDS),'run|$d')			       \
+	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
+	  'cookie|patch|$(PATCH_COOKIE)'			       \
+	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \
+	  'cookie|build|$(BUILD_COOKIE)'			       \
+	  'cookie|stage|$(STAGE_COOKIE)'			       \
+	  'cookie|package|$(PACKAGE_COOKIE)'			       \
+	  'cookie|install|$(dependency-installed-cookie)'	       \
+	  'install-root|$(abspath $(DESTDIR)$(PREFIX))'		       \
 	  'state-file|configure|$(call dependency-state-file-for,configure)' \
 	  'state-file|stage|$(call dependency-state-file-for,stage)'
 

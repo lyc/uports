@@ -24,7 +24,8 @@ BEGIN {
 	}
 }
 
-mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
+mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" ||
+mode == "dependency-candidates" {
 	group = $1
 	port = $2
 	base = $3
@@ -34,9 +35,16 @@ mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
 	if (status == "")
 		status = " "
 
-	if (mode == "info-candidates" || NF < 9) {
+	if (mode == "info-candidates" || mode == "dependency-candidates" || NF < 9) {
 		init_port(base "/" port)
 		parse_file(base "/" port "/Makefile")
+	}
+	if (mode == "dependency-candidates") {
+		scan_capability_uses()
+		if (capability_probe || vars["USESDIR"] != "" ||
+		    $9 ~ /PORT_PROVIDES|USESDIR=/)
+			print group "@" port
+		next
 	}
 	if (mode == "info-candidates") {
 		probe = status_probe ? "probe" : "fast"
@@ -71,11 +79,39 @@ mode == "info-ports" || mode == "info-compact" || mode == "info-candidates" {
 		version_width = length(row_version[row_count])
 }
 
+
 END {
 	if (mode == "info-compact")
 		print_compact_ports()
 	else if (mode == "info-ports")
 		print_info_ports()
+}
+
+function scan_capability_uses(    uses, count, i, name, file, raw, result) {
+	if (vars["USES"] ~ /\$/) {
+		capability_probe = 1
+		return
+	}
+	count = split(vars["USES"], uses, /[[:space:]]+/)
+	for (i = 1; i <= count; i++) {
+		name = uses[i]
+		sub(/:.*/, "", name)
+		if (name == "")
+			continue
+		file = portdir "/Mk/Uses/" name ".mk"
+		while ((result = getline raw < file) > 0) {
+			raw = trim(raw)
+			if (raw ~ /^#/)
+				continue
+			# Standard USES helpers are known framework code. Check their
+			# declarations; custom USESDIR already selects full probing.
+			if (raw ~ /PORT_PROVIDES|^-?include[[:space:]]/)
+				capability_probe = 1
+		}
+		if (result < 0)
+			capability_probe = 1
+		close(file)
+	}
 }
 
 function compact_append(entry) {
@@ -210,6 +246,7 @@ function init_port(port_curdir,    i) {
 	vars["ARCH"] = arch
 	status_probe = 0
 	work_mapping = 0
+	capability_probe = 0
 	if_depth = 0
 }
 
@@ -309,6 +346,12 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value,
 		if (line == "" || line ~ /^#/)
 			continue
 		# Evaluate declarations and custom artifact paths with actual make.
+		# Capability hints only select probes; actual Make supplies their values.
+		if (line ~ /PORT_PROVIDES/ ||
+		    (line ~ /^\$\(/ && line !~ /^\$\(error[[:space:]]/) ||
+		    (line ~ /^-?include[[:space:]]/ &&
+		    line !~ /\/Mk\/linux[.]port([.]pre|[.]post)?[.]mk/))
+			capability_probe = 1
 		if (line ~ flavor_marker)
 			status_probe = 1
 		if (line ~ work_marker) {
@@ -345,6 +388,7 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value,
 			if (incfile ~ /\$/) {
 				status_probe = 1
 				work_mapping = 1
+				capability_probe = 1
 				continue
 			}
 			if (incfile !~ /^\//)
@@ -377,6 +421,7 @@ function parse_file(file,    line, raw, nextline, incfile, base, var, op, value,
 	if (read_status < 0) {
 		status_probe = 1
 		work_mapping = 1
+		capability_probe = 1
 	}
 	close(file)
 }

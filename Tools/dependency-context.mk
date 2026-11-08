@@ -24,6 +24,53 @@ $(foreach p,$(ports_all_group),					       \
   $(eval instance_$(call dependency-instance-key,$p)_project_flavor :=))
 dependency-scoped-targets += group-dependency-snapshot
 
+# Capability declarations may supply origins other than their recipe directory.
+# The cheap scan is conservative; values always come from actual Make probes.
+define dependency-context-initial-command
+$(eval dependency_context_capability_candidates := $(if		       \
+  $(and $(filter undefined,$(origin PORT_PROVIDES)),		       \
+    $(filter undefined,$(origin USESDIR))),			       \
+  $(shell { $(foreach p,$(ports_all_group),			       \
+    $(call info_ports_record,$p)) :; } |			       \
+    awk -F '\t' -v mode=dependency-candidates -v portdir='$(portdir)'  \
+      -v opsys='$(info_ports_opsys)' -v arch='$(info_ports_arch)'      \
+      -f "$(port_info_awk)"),$(ports_all_group)))		       \
+$(if $(and $(filter undefined,$(origin PORT_PROVIDES)),		       \
+  $(filter undefined,$(origin USESDIR)),			       \
+  $(filter-out 0,$(.SHELLSTATUS))),				       \
+  $(error Dependency capability candidate scan failed))		       \
+$(call dependency-prefetch-command,				       \
+  $(call stable-unique,						       \
+    $(foreach r,$(dependency-requests),				       \
+      $(call target-base-instance-key,$(call resolve-port-target,$r))) \
+    $(foreach p,$(dependency_context_capability_candidates),	       \
+      $(call dependency-instance-key,$p))),default)
+endef
+
+# $(call dependency-context-ensure-bases, candidate-instance-keys)
+# Read a frontier together and keep results for the rest of this invocation.
+define dependency-context-ensure-bases
+$(eval dependency_context_pending_bases := $(call stable-unique,       \
+  $(foreach n,$1,$(if $(dependency_default_$(strip $n)),,$n))))	       \
+$(if $(dependency_context_pending_bases),			       \
+  $(eval dependency_context_frontier := $(shell			       \
+    $(call dependency-prefetch-command,				       \
+      $(dependency_context_pending_bases),default)))		       \
+  $(if $(filter-out 0,$(.SHELLSTATUS)),				       \
+    $(error Dependency frontier metadata collection failed))	       \
+  $(eval dependency_metadata_raw += $(dependency_context_frontier))    \
+  $(foreach d,$(dependency_context_frontier),			       \
+    $(call dependency-collect-flavor,$d)			       \
+    $(if $(filter provides,$(word 2,$(subst |, ,$d))),		       \
+      $(call collect-dependency-capability,$d))))
+endef
+
+# $(call dependency-context-reference-bases, consumer-group, origin[@flavor])
+dependency-context-reference-bases = $(foreach p,		       \
+  $(call dependency-allowed-provider-candidates,$1,		       \
+    $(call dependency-origin-base,$2)),				       \
+  $(call dependency-instance-key,$p))
+
 # $(call dependency-context-phase-types, lifecycle-phase)
 dependency-context-phase-types	= $(if $(call dependency-state-class,$1),\
 	build lib)$(if $(filter stage,				       \
@@ -42,6 +89,21 @@ endef
 dependency-context-record-phase	= $(or $(word 3,		       \
 	$(subst :, ,$(word 3,$(subst |, ,$1)))),install)
 
+# $(call dependency-context-prefetch-reference, metadata-record)
+define dependency-context-prefetch-reference
+$(if $(and $(call dependency-origin-flavor,			       \
+  $(call dependency-metadata-origin,$1)),			       \
+  $(call dependency-reference-valid,				       \
+    $(call dependency-metadata-origin,$1))),			       \
+  $(call dependency-prefetch-root-impl,				       \
+    $(call dependency-instance-key,				       \
+      $(call dependency-reference-provider,			       \
+        $(call instance-field,$(word 1,$(subst |, ,$1)),group),	       \
+        $(call dependency-metadata-origin,$1))),		       \
+    $(call dependency-origin-flavor,				       \
+      $(call dependency-metadata-origin,$1))))
+endef
+
 # $(call dependency-context-expand-node, instance-key, lifecycle-phase)
 # Only reached references may materialize provider Flavors. Mark before walking
 # children so a cycle terminates here and is diagnosed by the graph validator.
@@ -49,6 +111,19 @@ define dependency-context-expand-node
 $(if $(strip $1),						       \
   $(if $(filter $(strip $1).$(strip $2),$(dependency_context_flavor_visited)),,\
     $(eval dependency_context_flavor_visited += $(strip $1).$(strip $2))\
+    $(call dependency-context-ensure-bases,			       \
+      $(foreach d,$(filter $(strip $1)|%,$(dependency_metadata_raw)),  \
+        $(if $(filter $(call dependency-context-phase-types,$2),       \
+          $(word 2,$(subst |, ,$d))),				       \
+          $(call dependency-context-reference-bases,		       \
+            $(call instance-field,$1,group),			       \
+            $(call dependency-metadata-origin,$d)))))		       \
+    $(eval dependency_prefetch_keys :=)				       \
+    $(foreach d,$(filter $(strip $1)|%,$(dependency_metadata_raw)),    \
+      $(if $(filter $(call dependency-context-phase-types,$2),	       \
+        $(word 2,$(subst |, ,$d))),				       \
+        $(call dependency-context-prefetch-reference,$d)))	       \
+    $(dependency-prefetch-variants)				       \
     $(foreach d,$(filter $(strip $1)|%,$(dependency_metadata_raw)),    \
       $(if $(filter $(call dependency-context-phase-types,$2),	       \
         $(word 2,$(subst |, ,$d))),				       \

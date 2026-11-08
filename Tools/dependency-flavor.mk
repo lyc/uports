@@ -171,6 +171,11 @@ endef
 
 # $(call dependency-prefetch-command, instance-keys, [default-mode])
 define dependency-prefetch-command
+case '$(DEPENDENCY_METADATA_JOBS)' in				       \
+  ''|*[!0-9]*|0)						       \
+    echo 'DEPENDENCY_METADATA_JOBS must be a positive integer' >&2;    \
+    exit 1;;							       \
+esac;								       \
 metadata_dir=$$(mktemp -d					       \
   "$${TMPDIR:-/tmp}/uports-flavor-prefetch.XXXXXX") || exit 1;	       \
 trap 'wait || :; rm -rf -- "$$metadata_dir"' EXIT;		       \
@@ -193,6 +198,11 @@ $(foreach n,$(dependency-base-instances),			       \
     $(call dependency-prefetch-root,				       \
       $(call dependency-command-base,$n).install)))		       \
 $(foreach r,$(dependency-requests),$(call dependency-prefetch-root,$r)) \
+$(dependency-prefetch-variants)
+endef
+
+# Fill the selected variant caches without changing their later import order.
+define dependency-prefetch-variants
 $(if $(dependency_prefetch_keys),				       \
   $(eval dependency_prefetch_raw := $(shell			       \
     $(call dependency-prefetch-command,$(dependency_prefetch_keys))))  \

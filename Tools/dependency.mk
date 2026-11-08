@@ -286,7 +286,9 @@ dependency-metadata-command = $(if $(and \
 	$(filter yes,$(UPORTS_DEPENDENCY_INVOCATION)),\
 	$(strip $(DEPENDENCY_METADATA_SOURCE))),\
 	cat "$(DEPENDENCY_METADATA_SOURCE)",\
-	$(dependency-metadata-collect-command))
+	$(if $(dependency-requests),				       \
+	  $(dependency-context-initial-command),		       \
+	  $(dependency-metadata-collect-command)))
 
 DEPENDENCY_CONTEXT_ROOT ?=
 DEPENDENCY_CONTEXT_DIR ?=
@@ -694,6 +696,15 @@ dependency-state-save-command = $(if $(and \
 .PHONY: dependencies-list
 depends_exclude_targets	+= dependencies-list
 dependencies-list: info.debug.dependencies
+
+# A prerequisite finishes before Make expands the metadata-loading recipes.
+.PHONY: dependency-inspection-start
+depends_exclude_targets += dependency-inspection-start
+dependency-execution-plan info.debug.dependencies: | dependency-inspection-start
+dependency-inspection-start:
+	@printf '  DEP     inspecting %s\n'			       \
+	  '$(strip $(if $(filter 1,$(words $(dependency-requests))),   \
+	    $(dependency-requests),dependency graph))' >&2
 
 .PHONY: dependency-metadata-snapshot
 depends_exclude_targets += dependency-metadata-snapshot
