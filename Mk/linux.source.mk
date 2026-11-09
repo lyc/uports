@@ -56,7 +56,7 @@ provider=$(_SOURCE_PROVIDER)|repository=$(or $(SCM_REPO_URL),-)|	\
 ref-kind=$(_SOURCE_REF_KIND)|ref=$(_SOURCE_REF)|			\
 root=$(_SOURCE_ROOT_IDENTITY)|						\
 archives=$(strip $(DISTFILES) $(PATCHFILES))|				\
-layout=$(strip $(_GH_RECORDS))
+layout=$(strip $(_GH_RECORDS))$(flavor-source-identity)
 # $(call source-quote, value)
 source-quote		= '$(subst ','"'"',$1)'
 source-identity-key	= $(shell printf '%s\n'				\

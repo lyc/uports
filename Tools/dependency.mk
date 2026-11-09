@@ -211,6 +211,8 @@ endef
 
 define dependency-provider-environment-input
   $(dependency-provider-selection-input) \
+  $(foreach d,$(dependency-graph-record-ids),			       \
+    $(call dependency-flavor-environment,$d))			       \
   $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,COMMANDS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|command|$v';)) \
   $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,BINDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|bindir|$v';)) \
   $(foreach p,$(dependency-provider-contribution-policies),$(foreach v,$(call dependency-provider-value,INCLUDEDIRS,$p),printf '%s\n' 'contribution|$(call dependency-policy-field,7,$p)|$(call dependency-policy-field,6,$p)|includedir|$v';)) \
@@ -238,6 +240,7 @@ dependency-metadata-probe-$(call dependency-instance-key,$1):
 	@$$(MAKE) -s -C "$(call dependency-instance-directory,$1)" 	\
 	  --no-print-directory PORTSDIR="$(portdir)" 			\
 	  $(call instance-field,$(call dependency-instance-key,$1),env) \
+	  --eval='override undefine FLAVOR'			       \
 	  $$(call dependency-metadata-source-options,$(call dependency-instance-key,$1)) \
 	  uports-dependency-metadata					\
 	  > "$$(DEPENDENCY_METADATA_DIR)/$(call dependency-instance-key,$1).raw"
@@ -360,9 +363,9 @@ $(strip $(foreach d,$(dependency-active-record-ids),                   \
 endef
 
 dependency-missing-library-nodes = $(strip                           \
-  $(foreach p,$(ports_all_group),                                   \
-    $(if $(call dependency-missing-installed-libraries,$(call dependency-instance-key,$p)), \
-      $(call dependency-instance-key,$p))))
+  $(foreach p,$(dependency-instances),				       \
+    $(if $(call dependency-missing-installed-libraries,$p),	       \
+      $p)))
 
 define collect-dependency-state-file
   $(eval dependency_state_file_words := $(subst $(VERTICAL_BAR), ,$1))
@@ -391,17 +394,18 @@ endef
 
 # $(call dependency-allowed-provider-candidates, consumer-group, origin)
 dependency-allowed-provider-candidates = $(if $(filter undefined,     \
-  $(origin DEPENDENCY_PROVIDER_UPORTS_GROUPS.$1)),                    \
-  $(call dependency-all-provider-candidates,$2),                     \
-  $(filter $(foreach g,$(DEPENDENCY_PROVIDER_UPORTS_GROUPS.$1),        \
-    $g$(AT)%),$(call dependency-all-provider-candidates,$2)))
+  $(origin DEPENDENCY_PROVIDER_UPORTS_GROUPS.$(strip $1))),	       \
+  $(call dependency-all-provider-candidates,$(strip $2)),	       \
+  $(filter $(foreach g,$(DEPENDENCY_PROVIDER_UPORTS_GROUPS.$(strip $1)), \
+    $g$(AT)%),$(call dependency-all-provider-candidates,$(strip $2))))
 
 # $(call select-dependency-provider-candidates, group, origin, candidates)
 define select-dependency-provider-candidates
-$(strip $(if $(filter $1$(AT)$2,$3),$1$(AT)$2,                        \
-  $(if $(filter 1,$(words $(filter $1$(AT)%,$3))),                     \
-    $(filter $1$(AT)%,$3),                                          \
-    $(if $(filter 0,$(words $(filter $1$(AT)%,$3))),                   \
+$(strip $(if $(filter $(strip $1)$(AT)$(strip $2),$3),		       \
+  $(strip $1)$(AT)$(strip $2),					       \
+  $(if $(filter 1,$(words $(filter $(strip $1)$(AT)%,$3))),	       \
+    $(filter $(strip $1)$(AT)%,$3),				       \
+    $(if $(filter 0,$(words $(filter $(strip $1)$(AT)%,$3))),	       \
       $(if $(filter 1,$(words $3)),$3)))))
 endef
 
@@ -416,21 +420,35 @@ define generate-dependency-record
   $(eval dependency_type := $(word 2,$(dependency_words)))
   $(eval dependency_requirement := $(if $(filter :%,$(dependency_entry)),,$(word 1,$(dependency_parts))))
   $(eval dependency_origin := $(if $(filter :%,$(dependency_entry)),$(word 1,$(dependency_parts)),$(word 2,$(dependency_parts))))
-  $(eval dependency_provider := $(call select-dependency-provider,$(call instance-field,$(dependency_consumer),group),$(dependency_origin)))
+  $(eval dependency_provider := $(call dependency-reference-provider,  \
+    $(call instance-field,$(dependency_consumer),group),	       \
+    $(dependency_origin)))					       \
   $(eval $(dependency_record_id)_consumer := $(dependency_consumer))
   $(eval $(dependency_record_id)_type := $(dependency_type))
   $(eval $(dependency_record_id)_requirement := $(dependency_requirement))
   $(eval $(dependency_record_id)_origin := $(dependency_origin))
   $(eval $(dependency_record_id)_target := $(wordlist 3,$(words $(dependency_parts)),$(dependency_parts)))
-  $(eval $(dependency_record_id)_provider_kind := $(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),uports,unresolved))
-  $(eval $(dependency_record_id)_provider_instance := $(if $(dependency_provider),$(call instance-key,$(call get-group,$(dependency_provider)),$(call get-port,$(dependency_provider))),))
-  $(eval $(dependency_record_id)_resolution := $(if $(dependency_provider),selected,$(if $(or $(filter $(dependency_origin),$(ports_all_raw_lists)),$(call dependency-capability-candidates,$(dependency_origin))),$(if $(call dependency-allowed-provider-candidates,$(call instance-field,$(dependency_consumer),group),$(dependency_origin)),ambiguous,unselected),unknown-origin)))
+  $(eval $(dependency_record_id)_provider_kind :=		       \
+    $(call dependency-reference-kind,$(dependency_origin)))	       \
+  $(eval $(dependency_record_id)_provider_instance :=		       \
+    $(call dependency-reference-instance,			       \
+      $(dependency_provider),$(dependency_origin)))		       \
+  $(eval $(dependency_record_id)_resolution :=			       \
+    $(call dependency-reference-resolution,			       \
+      $(call instance-field,$(dependency_consumer),group),	       \
+      $(dependency_origin)))					       \
+  $(if $(call flavor-both,					       \
+    $(filter selected,$($(dependency_record_id)_resolution)),	       \
+    $(if $(call dependency-record-context-compatible,		       \
+      $(dependency_record_id)),,yes)),				       \
+    $(eval $(dependency_record_id)_resolution := incompatible-provider))
 endef
 
 # Load records only when a dependency diagnostic recipe is expanded.  GNU make
 # cannot reliably run recursive makes from a parse-time shell function, and
 # ordinary planner targets must not pay this metadata cost.
 load-dependency-records = 						\
+	$(eval dependency_record_ids :=)			       \
 	$(eval dependency_scope_ready := no) \
 	$(eval dependency_planning_only := no) \
 	$(if $(dependency-scope-enabled),,\
@@ -438,13 +456,11 @@ load-dependency-records = 						\
 	  $(error invalid dependency cross context: $(dependency-cross-context-errors))) \
 	$(if $(dependency-provider-mode-context-errors),		\
 	  $(error invalid dependency provider mode: $(dependency-provider-mode-context-errors)))) \
-	$(eval dependency_metadata_raw := $(shell $(dependency-metadata-command))) \
-	$(if $(filter-out 0,$(.SHELLSTATUS)),				\
-	  $(error dependency metadata collection failed),)		\
+	$(load-dependency-metadata)				       \
+	$(foreach d,$(dependency_metadata_raw),			       \
+	  $(if $(filter context,$(word 2,$(subst |, ,$d))),	       \
+	    $(call collect-dependency-context,$d)))		       \
 	$(if $(and $(dependency-scope-enabled),$(if $(dependency-preflight-required),,yes)),,$(load-dependency-provider-discovery)) \
-	$(foreach d,$(dependency_metadata_raw),				\
-	  $(if $(filter provides,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
-	    $(call collect-dependency-capability,$d)))			\
 	$(foreach d,$(dependency_metadata_raw),				\
 	  $(if $(filter cookie,$(word 2,$(subst $(VERTICAL_BAR), ,$d))),\
 	    $(call collect-dependency-cookie,$d)))			\
@@ -501,20 +517,21 @@ dependency-external-preflight = $(if $(filter yes,$(dependency-external-provider
 	    -f "$(portdir)/Tools/dependency-provider-selection.awk" >/dev/null &&)
 
 define dependency-graph-input
-  $(foreach p,$(ports_all_group),				\
-    printf '%s\n' '$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
+  $(foreach p,$(dependency-instances),				       \
+    printf '%s\n' '$p';)					       \
   $(foreach d,$(dependency-graph-record-ids),			\
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)';)
 endef
 
 define dependency-execution-input
   printf '%s\n' 'packaging-policy|$(dependency-provenance-enabled)'; \
-  $(foreach p,$(ports_all_group),				\
-    printf '%s\n' 'node|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),group)|$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),origin)|$(filter-out USE_GLOBALBASE=% DISTDIR_SITE=% PACKAGES_SITE=% SCMDIR_SITE=%,$(call instance-field,$(call instance-key,$(call get-group,$p),$(call get-port,$p)),env))';) \
-  $(foreach p,$(ports_all_group),$(foreach s,$(dependency-lifecycle-provider-suffixes),\
-    printf '%s\n' 'cookie|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$s|$(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)|$(if $(wildcard $(dependency_cookie_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$s)),ready,missing)';)) \
-  $(foreach p,$(ports_all_group),$(foreach c,configure stage,\
-    printf '%s\n' 'state-file|$(call instance-key,$(call get-group,$p),$(call get-port,$p))|$c|$(dependency_state_file_$(call instance-key,$(call get-group,$p),$(call get-port,$p))_$c)';)) \
+  $(foreach p,$(dependency-instances),				       \
+    printf '%s\n' '$(call dependency-node-record,$p)';)		       \
+  $(foreach p,$(dependency-instances),				       \
+    $(foreach s,$(dependency-lifecycle-provider-suffixes),	       \
+      printf '%s\n' '$(call dependency-cookie-record,$p,$s)';))	       \
+  $(foreach p,$(dependency-instances),$(foreach c,configure stage,     \
+    printf '%s\n' 'state-file|$p|$c|$(dependency_state_file_$p_$c)';)) \
   $(foreach d,$(dependency_record_ids),			\
     printf '%s\n' 'dependency|$($(d)_consumer)|$($(d)_provider_instance)|$($(d)_type)|$(if $($(d)_provider_instance),$(call dependency-lifecycle-provider-target,$d))|$(call dependency-lifecycle-provider-suffix,$d)|$($(d)_resolution)|$($(d)_requirement)|$($(d)_origin)|$($(d)_provider_kind)|$($(d)_provider_identity)|$(or $($(d)_provider_context),$(call dependency-record-context,$d))|$(or $($(d)_provider_opsys),$(call dependency-record-opsys,$d))|$(or $($(d)_provider_arch),$(call dependency-record-arch,$d))|$d';) \
   $(foreach p,$(dependency-provider-contribution-policies),	\
@@ -525,8 +542,8 @@ define dependency-execution-input
 endef
 
 define dependency-project-execution-input
-  $(foreach p,$(ports_all_group),				\
-    printf '%s\n' '$(call instance-key,$(call get-group,$p),$(call get-port,$p))';) \
+  $(foreach p,$(dependency-instances),				       \
+    printf '%s\n' '$p';)					       \
   $(foreach d,$(dependency-lifecycle-record-ids),		\
     printf '%s\n' '$($(d)_consumer)|$($(d)_provider_instance)|$(call dependency-lifecycle-provider-target,$d)';)
 endef
@@ -535,7 +552,7 @@ endef
 # canonical wrapper targets so group selection remains explicit and aliases are
 # never involved in execution planning.
 # $(call dependency-instance-target, instance-key, suffix)
-dependency-instance-target = $(call instance-field,$1,group)$(AT)$(call instance-field,$1,port).$2
+dependency-instance-target = $(call dependency-flavor-command,$1).$2
 
 # Build and library dependencies are needed by the consumer's configure stage;
 # runtime dependencies are needed by its stage/install flow.
@@ -620,7 +637,6 @@ dependency-dispatch-command = $(if $(filter yes,$(UPORTS_DEPENDENCIES)),\
 	  $(MAKE) --no-print-directory DEPENDENCY_REQUESTS= DEPENDENCY_REQUEST='$(resolved-port-target)' \
 	    dependency-lifecycle-execute || exit $$?;))
 dependency-consumer-environment-command = $(if $(and \
-	$(filter yes,$(dependency-external-providers-enabled)),\
 	$(dependency-dispatch-state-class),\
 	$(or $(dependency-context-enabled),$(filter yes,$(dependency-state-enabled)))),\
 	$(if $(dependency-context-enabled),\
@@ -675,7 +691,8 @@ dependencies-list: info.debug.dependencies
 .PHONY: dependency-metadata-snapshot
 depends_exclude_targets += dependency-metadata-snapshot
 dependency-metadata-snapshot:
-	@$(dependency-metadata-collect-command)
+	@$(load-dependency-metadata)
+	@$(foreach d,$(dependency_metadata_raw),printf '%s\n' '$d';)
 
 .PHONY: dependency-provider-mode-list dependency-provider-mode-check
 depends_exclude_targets += dependency-provider-mode-list dependency-provider-mode-check
@@ -901,7 +918,7 @@ dependency-target-context-prepare:
 	  printf '\n' >> "$(dependency-context-targets)"; \
 	  rm -f "$$provider_state"; \
 	  trap - EXIT HUP INT TERM; \
-	  if test "$(dependency-external-providers-enabled)" = yes; then \
+	  if test -n "$(dependency-environment-enabled)"; then	       \
 	    { $(dependency-provider-environment-input) :; } | \
 	      $(dependency-provider-export-awk) \
 	      > "$(dependency-context-environment)"; \
@@ -923,10 +940,9 @@ dependency-target-context-prepare:
 
 dependency-provider-environment-export:
 	@$(load-dependency-records)
-	@if test "$(dependency-external-providers-enabled)" != yes || \
-	    test "$(words $(dependency-requests))" -ne 1 || \
+	@if test "$(words $(dependency-requests))" -ne 1 ||	       \
 	    test -n "$(dependency-invalid-requests)"; then \
-	  echo "external provider export requires opt-in and one valid request" >&2; \
+	  echo "provider export requires one valid request" >&2;       \
 	  exit 1; \
 	fi
 	@{ $(dependency-provider-environment-input) :; } | \
@@ -997,12 +1013,13 @@ DEPENDENCY_EXECUTE_COMMAND ?= $(MAKE) --no-print-directory -j1 \
 	UPORTS_DEPENDENCIES=no $(if $(filter yes,$(dependency-external-providers-enabled)),UPORTS_DEPENDENCY_STATE=yes)
 
 dependency-requests = $(strip $(if $(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUESTS),$(DEPENDENCY_REQUEST)))
-dependency-request-targets = $(foreach r,$(dependency-requests),$(call resolve-port-target,$r))
+dependency-request-targets = $(foreach r,$(dependency-requests),       \
+	$(call dependency-normalize-target,$r))
 dependency-request-target = $(firstword $(dependency-request-targets))
 dependency-request-instance = $(call target-instance-key,$(dependency-request-target))
 dependency-request-phase = $(call extract-suffix,$(call rm-group,$(dependency-request-target)))
 dependency-invalid-requests = $(strip $(foreach r,$(dependency-requests),\
-	$(if $(call resolve-port-target,$r),,$r)))
+	$(if $(call dependency-normalize-target,$r),,$r)))
 
 dependency-execution-plan:
 	@$(load-dependency-records)
@@ -1119,7 +1136,7 @@ info.debug.dependencies:
 
 info.debug.dependency-graph:
 	@$(load-dependency-records)
-	@$(echo) "dependency_graph_nodes = $(words $(ports_all_group))"
+	@$(echo) "dependency_graph_nodes = $(words $(dependency-instances))"
 	@$(echo) "dependency_graph_edges = $(words $(dependency-graph-record-ids))"
 	@$(echo) "dependency_graph_unresolved = $(words $(dependency-unresolved-record-ids))"
 	@$(foreach d,$(dependency-graph-record-ids),			\
@@ -1131,7 +1148,7 @@ info.debug.dependency-graph:
 
 info.debug.dependency-order:
 	@$(load-dependency-records)
-	@$(echo) "dependency_order_nodes = $(words $(ports_all_group))"
+	@$(echo) "dependency_order_nodes = $(words $(dependency-instances))"
 	@$(echo) "dependency_order_edges = $(words $(dependency-graph-record-ids))"
 	@$(echo) "dependency_order_unresolved = $(words $(dependency-unresolved-record-ids))"
 	@{ $(dependency-graph-input) :; } | \

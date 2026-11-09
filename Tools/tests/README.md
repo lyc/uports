@@ -1,5 +1,52 @@
 # Real-world validation
 
+For W06D, run from the parent project:
+
+```sh
+python3 make/uports/Tools/tests/w06d/check-pkg-removal-live.py
+```
+
+This uses real cached gforth Flavors and bootstrap archives. To reproduce legacy
+overlap, it reads the earlier production pkg.sh from commit 54bba9d in this
+repository's history and installs only into temporary destinations. It never
+checks out or edits another preserved instance. Current pkg.sh removal checks
+retain the other Flavor's files/shared empty directories and bootstrap, validate
+previews/bulk cleanup, reject invalid/missing ownership data, and coordinate
+concurrent mutations through aliases. Full per-case output and final status
+are under /tmp/uports-w06d-manual.*/; /tmp/uports-w06d-latest records the latest
+directory. Cache hashes are checked unchanged. No builds or real installation
+changes. Python handles snapshots/concurrency; the package tool remains shell.
+
+For W06C, run from the parent project:
+
+```sh
+python3 make/uports/Tools/tests/w06c/check-pkg-conflicts-live.py
+```
+
+This copies only pkg.sh and uses existing real gforth default/libffcall/bootstrap
+archives. It checks exact reinstalls, opposite-Flavor conflicts in both orders,
+shared directories, unmanaged files, type conflicts, symlink parents and
+concurrent installs through destination aliases. All installation data stays
+under /tmp/uports-w06c-manual.*/; original cache hashes are checked unchanged.
+The script records expected command exits, full per-case output and overall
+status; /tmp/uports-w06c-latest points to the saved evidence directory. No
+builds or existing installation changes are performed. Linux x86_64 only.
+
+For W06B, run from the parent project:
+
+```sh
+bash make/uports/Tools/tests/w06b/check-pkg-standalone-live.sh
+```
+
+This uses existing staged gforth default/libffcall files without building or
+changing them. It copies only pkg.sh and creates manifests, packages and
+installation destinations under /tmp/uports-w06b-manual.*/. The script saves
+output and final exit status in validation.log; deletion previews have separate
+per-case logs. /tmp/uports-w06b-latest records the evidence directory for review.
+It exercises production package operations directly, bypassing wrapper/source
+preparation. Expected rejection messages are deliberate checks. Both Flavor
+PASS markers and exit=0 indicate success. Native macOS/ARM64 are not covered.
+
 [manifest.json](manifest.json) is the authoritative
 mapping between feature implementation commits and real-world test scripts.
 The slice 6 registered commit includes source-selection and global-cache fixes.

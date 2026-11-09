@@ -28,6 +28,9 @@ trap 'rm -f "$current" "$saved" "$current.tmp"' EXIT HUP INT TERM
 	printf 'root|%s\n' "${SOURCE_STATE_ROOT:--}"
 	printf 'archives|%s\n' "${SOURCE_STATE_ARCHIVES:--}"
 	printf 'layout|%s\n' "${SOURCE_STATE_LAYOUT:--}"
+	if [ -n "${SOURCE_STATE_FLAVOR:-}" ]; then
+		printf 'flavor|%s\n' "$SOURCE_STATE_FLAVOR"
+	fi
 } > "$current"
 
 if [ -f "$SOURCE_STATE_FILE" ]; then

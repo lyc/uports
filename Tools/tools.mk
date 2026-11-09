@@ -158,12 +158,12 @@ filter-out-group-extra	= $(if						\
 			      $(if $(filter-out $(PORTS_GROUP_DEFAULT),	\
 			        $(call get-group,$1)),,$1),$1)
 
-# $(call rm-group, group@port.suffix)
-rm-group		= $(lastword $(call rm-at,$1))
+# $(call rm-group, group:port[@flavor].suffix)
+rm-group		= $(lastword $(subst :, ,$1))
 
-# $(call transform-port-string, group@port.suffix)
+# $(call transform-port-string, group:port.suffix)
 transform-port-string	= $(subst ., ,					\
-			    $(firstword $(call rm-at,			\
+			    $(firstword $(subst :, ,			\
 			      $1))$(AT)$(call get-category,		\
 			        $(call rm-group,$1))$(SLASH)$(call rm-group,$1))
 
@@ -450,6 +450,12 @@ normalize-instance-variant = $(or $(strip $1),$(instance-default-variant))
 # for future explicitly selected variants.
 instance-key		= $(strip $1)_$(strip $2)$(if $(filter-out $(instance-default-variant),$(call normalize-instance-variant,$3)),_$(call normalize-instance-variant,$3))
 
+# $(call generate-instance-flavor-record, instance-key, environment)
+define generate-instance-flavor-record
+  instance_$(strip $1)_project_flavor := $(patsubst FLAVOR=%,%,	       \
+    $(lastword $(filter FLAVOR=%,$2)))
+endef
+
 # $(call generate-instance-record, group@category/port)
 define generate-instance-record
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_group := $(call get-group,$1)
@@ -459,6 +465,9 @@ define generate-instance-record
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_origin := $(port_$(call get-port,$1)_origin)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_root := $(port_$(call get-port,$1)_root)
   instance_$(call instance-key,$(call get-group,$1),$(call get-port,$1),$(instance-default-variant))_env := $(port_$(call get-group,$1)_$(call get-port,$1)_env)
+$(call generate-instance-flavor-record,				       \
+  $(call instance-key,$(call get-group,$1),$(call get-port,$1)),       \
+  $(port_$(call get-group,$1)_$(call get-port,$1)_env))
 endef
 
 $(foreach p,$(ports_all_group),					\
@@ -468,16 +477,32 @@ $(foreach p,$(ports_all_group),					\
 # $(call instance-field, instance-key, field)
 instance-field		= $(instance_$(strip $1)_$(strip $2))
 
-# $(call target-instance-key, group@port.suffix)
-target-instance-key	= $(call instance-key,				\
-			    $(strip $(firstword $(call rm-at,$1))),	\
-			    $(strip $(call extract-port,		\
-			      $(call rm-group,$1))))
+# $(call target-base-instance-key, group:port[@flavor].suffix)
+# The dependency Flavor module later resolves nondefault node keys.
+target-base-instance-key	= $(call instance-key,		       \
+			    $(strip $(firstword $(subst :, ,$1))),	\
+			    $(firstword $(subst @, ,		       \
+			      $(call extract-port,$(call rm-group,$1)))))
+target-instance-key	= $(call target-base-instance-key,$1)
 
-# $(call target-instance-field, group@port.suffix, field)
-target-instance-field	= $(call instance-field,			\
-			    $(strip $(call target-instance-key,$1)),	\
-			    $(strip $2))
+# A validated wrapper selection uses one scoped base record. Nondefault
+# instances are registered separately after Flavor helpers load.
+ifneq ($(strip $(_UPORTS_FLAVOR_TARGET)),)
+flavor-bridge-key	:= $(call target-base-instance-key,                \
+	$(_UPORTS_FLAVOR_TARGET))
+instance_$(flavor-bridge-key)_env := $(strip				\
+	$(filter-out FLAVOR=%,						\
+	  $(call instance-field,$(flavor-bridge-key),env)))
+instance_$(flavor-bridge-key)_project_flavor :=
+endif
+
+# $(call target-instance-field, group:port[@flavor].suffix, field)
+define target-instance-field
+$(strip $(if $(filter undefined,				       \
+  $(origin instance_$(strip $(call target-instance-key,$1))_$(strip $2))), \
+  $(call instance-field,$(call target-base-instance-key,$1),$2),       \
+  $(call instance-field,$(call target-instance-key,$1),$2)))
+endef
 
 # $(call target-alias-port, port.suffix)
 target-alias-port	= $(call extract-port,$(call rm-group,$1))
@@ -488,15 +513,18 @@ target-alias-instance	= $(firstword $(filter				\
 			    $(ports_all_group_extra)))
 
 # $(call target-alias-canonical, port.suffix)
-target-alias-canonical	= $(call get-group,$(call target-alias-instance,$1))$(AT)$(call target-alias-port,$1)$(suffix $1)
+define target-alias-canonical
+$(call get-group,						       \
+  $(call target-alias-instance,$1)):$(call target-alias-port,$1)$(suffix $1)
+endef
 
 #
-# generate group@port.suffix target...
+# generate group:port.suffix target...
 #
 
 ports_target_all	:= $(foreach g,$(groups_all),			\
 			    $(foreach s,$(suffix_all_lists),		\
-			      $(foreach p,$(groups_$g),$g$(AT)$p.$s)))
+			      $(foreach p,$(groups_$g),$g:$p.$s)))
 ports_alias_target_all	:= $(foreach p,$(ports_all_group_extra),		\
 			    $(foreach s,$(suffix_all_lists),		\
 			      $(call get-port,$p).$s))
@@ -510,11 +538,13 @@ ports_aggregate_target_all := $(ports_category_target_all)		\
 			      $(ports_global_target_all)
 ports_aggregate_target_unique := $(sort $(ports_aggregate_target_all))
 
-# $(call resolve-port-target, [group@]port.suffix)
-resolve-port-target	= $(strip					\
+# $(call resolve-unflavored-port-target, [group:]port.suffix)
+resolve-unflavored-port-target = $(strip			       \
 			    $(if $(filter $1,$(ports_target_all)),$1,	\
 			      $(if $(filter $1,$(ports_alias_target_all)),	\
 			        $(call target-alias-canonical,$1))))
+# Tools/flavor.mk extends this after dependency declarations have loaded.
+resolve-port-target	= $(call resolve-unflavored-port-target,$1)
 resolved-port-target	= $(call resolve-port-target,$@)
 
 # $(call aggregate-target-name, aggregate.suffix)
@@ -542,7 +572,7 @@ aggregate-group-prerequisites = $(if				\
 			    $(filter $(call aggregate-target-name,$1),	\
 			      $(groups_all)),				\
 			    $(addprefix					\
-			      $(call aggregate-target-name,$1)$(AT),	\
+			      $(call aggregate-target-name,$1):,	       \
 			      $(addsuffix					\
 			        .$(call aggregate-target-suffix,$1),	\
 			        $(groups_$(call aggregate-target-name,$1)))))
@@ -566,6 +596,8 @@ aggregate-prerequisites = $(strip					\
 get-envs		= $(call target-instance-field,$1,env)
 
 include $(portdir)/Tools/dependency.mk
+include $(portdir)/Tools/flavor.mk
+include $(portdir)/Tools/dependency-flavor.mk
 
 dependency-provider-execution = $(filter yes,$(UPORTS_DEPENDENCY_PROVIDER_EXECUTION))
 dependency-target-label = $(call target-instance-field,$(resolved-port-target),group)$(AT)$(call target-instance-field,$(resolved-port-target),origin)
@@ -609,7 +641,13 @@ uports-force:
 # Validate pattern-matched lifecycle targets before dispatch. Shared patterns
 # must not turn unknown canonical or short aliases into accepted targets.
 validate-port-target	= $(if $(resolved-port-target),,		\
-			    $(error Unknown uports lifecycle target: $@))
+			    $(error Unknown uports lifecycle target: $@)) \
+			  $(if $(strip $(FLAVOR)),		       \
+			    $(error Use port@flavor.phase,	       \
+			      not global FLAVOR))		       \
+			  $(if $(flavor-mixed-goals),		       \
+			    $(error Do not mix qualified and unqualified \
+			      requests for the same port/phase))
 
 .SECONDEXPANSION:
 
@@ -689,15 +727,15 @@ $(foreach s,$(suffix_special_all),					\
     $(call generate-port-special-pattern,$s)))
 
 transform_category	= $(foreach p,$(categories_$1),			\
-			    $(foreach g,$($p_groups),$g$(AT)$p))
+			    $(foreach g,$($p_groups),$g:$p))
 
 transform_root_category = $(foreach p,$(categories_$1),		\
 			    $(foreach g,$($p_groups),			\
 			      $(if $(filter $g$(AT)%/$p,		\
-			        $(ports_root_group)),$g$(AT)$p)))
+			        $(ports_root_group)),$g:$p)))
 
 transform_all_group	= $(foreach p,$1,				\
-			    $(call get-group,$p)@$(call get-port,$p))
+			    $(call get-group,$p):$(call get-port,$p))
 
 #
 # finally, ports target...
@@ -920,34 +958,51 @@ info.ports.sep:
 	printf "%21s" "";						\
 	printf "%*s\n" "$$((cols - 21))" "" | tr ' ' '-'
 
-info_ports_status = $(strip						\
-  $(if $(wildcard $1/install._done.*),I,				\
-    $(if $(wildcard $1/package._done.*),K,			\
-      $(if $(wildcard $1/stage._done.*),S,			\
-        $(if $(wildcard $1/build._done.*),B,			\
-          $(if $(wildcard $1/configure._done.*),C,		\
-            $(if $(wildcard $1/patch._done.*),P,		\
-              $(if $(wildcard $1/extract._done.*),E,))))))))
-
 info_ports_instance_key = $(call instance-key,$(call get-group,$1),	\
 			    $(call get-port,$1))
 info_ports_work = $(call instance-field,$(call info_ports_instance_key,$1),root)/$(call instance-field,$(call info_ports_instance_key,$1),origin)/work$($(call get-group,$1)_SUFFIX)
 
-info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\n'		\
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),group)' \
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),origin)' \
-  '$(call instance-field,$(call instance-key,$(call get-group,$1),$(call get-port,$1)),root)' \
-  '$(call info_ports_status,$(call info_ports_work,$1))'		\
-  '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )' \
-  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])';
+# $(call info_ports_field, group@category/port, field)
+info_ports_field = $(call instance-field,			       \
+	$(call info_ports_instance_key,$1),$2)
+
+# $(call info_ports_record, group@category/port)
+info_ports_record = printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n'      \
+  '$(call info_ports_field,$1,group)'				       \
+  '$(call info_ports_field,$1,origin)'				       \
+  '$(call info_ports_field,$1,root)' ''				       \
+  '$(if $(filter $(call get-group,$1),$(PORTS_GROUP_DEFAULT)),*, )'    \
+  '$(if $(filter $1,$(ports_all_group_extra)),, [$(call get-group,$1)$(AT)])' \
+  '$(call info_ports_work,$1)'					       \
+  '$(call info_ports_field,$1,project_flavor)'			       \
+  '$(call info_ports_field,$1,env) $(call info_ports_global_env,$1)';
+
+# $(call info_ports_global_env, group@category/port)
+# Explicit per-instance assignments take priority, as in lifecycle dispatch.
+define info_ports_global_env
+$(strip $(foreach v,WRKDIR TYPE_SUFFIX				       \
+  EXTRACT_COOKIE PATCH_COOKIE CONFIGURE_COOKIE BUILD_COOKIE	       \
+  STAGE_COOKIE PACKAGE_COOKIE INSTALL_COOKIE,			       \
+  $(if $(filter command line override environment,$(origin $v)),       \
+    $(if $(filter $v=%,$(call info_ports_field,$1,env)),,$v=$($v)))))
+endef
 
 info.ports.ports:
-	@{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } | \
-	  awk -F '	' -v mode=info-ports -v portdir="$(portdir)"	\
-	    -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"	\
-	    -f "$(port_info_awk)"
+	@set -e; status_dir=$$(mktemp -d			       \
+	  "$${TMPDIR:-/tmp}/uports-info-ports.XXXXXX");		       \
+	trap 'rm -rf -- "$$status_dir"' EXIT HUP INT TERM;	       \
+	{ $(foreach p,$(ports_all_group),$(call info_ports_record,$p)) } \
+	  > "$$status_dir/input";				       \
+	awk -F '\t' -v mode=info-candidates -v portdir="$(portdir)"    \
+	  -v opsys="$(info_ports_opsys)" -v arch="$(info_ports_arch)"  \
+	  -f "$(port_info_awk)" "$$status_dir/input"		       \
+	  > "$$status_dir/candidates";				       \
+	$(SHELL) "$(portdir)/Tools/port-status.sh" "$(MAKE)" "$(portdir)" \
+	  < "$$status_dir/candidates" > "$$status_dir/rows";	       \
+	awk -F '|' -v mode=info-ports -f "$(port_info_awk)"	       \
+	  "$$status_dir/rows"
 
-depends_exclude_targets	+= $(addsuffix .ports,i info)
+depends_exclude_targets	+= info.ports.ports $(addsuffix .ports,i info)
 $(addsuffix .ports,i info): $(pecho) $(addprefix info.ports.,groups-header groups-lists sep ports)
 
 #

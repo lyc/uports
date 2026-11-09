@@ -47,6 +47,8 @@ __tr_template = $(__tr_head)$$(1)$(__tr_tail)
 $(eval toupper = $(call __tr_template,$(chars_lower),$(chars_upper)))
 $(eval tolower = $(call __tr_template,$(chars_upper),$(chars_lower)))
 
+include $(PORTSDIR)/Mk/linux.flavor.mk
+
 merge_dirs		= $(shell echo $1 | sed -e 's/ /:/g')
 
 # $(call setup_uses, use, use:args)
@@ -226,7 +228,7 @@ _SUF2			= ,$(PORTEPOCH)
 endif
 
 PKGVERSION		?= $(call portversion-tr2,$(PORTVERSION))$(_SUF1)$(_SUF2)
-PKGNAME			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)-$(PKGVERSION)
+PKGNAME			?= $(flavor-package-base)-$(PKGVERSION)
 DISTVERSIONFULL		?= $(DISTVERSIONPREFIX)$(call distversion-tr2,$(DISTVERSION))$(DISTVERSIONSUFFIX)
 DISTNAME		?= $(PORTNAME)-$(DISTVERSIONFULL)
 
@@ -360,7 +362,7 @@ $(foreach d,DISTDIR PACKAGES SCMDIR,					\
     $(if $(filter yes,$(USE_GLOBALBASE)),$(if $($d_SITE),		\
       $(abspath $($d_SITE))))),$($d)))
 
-WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/work$(TYPE_SUFFIX)
+WRKDIR			?= $(WRKDIRPREFIX)$(MASTERDIR)/$(flavor-work-name)
 
 include $(PORTSDIR)/Mk/linux.source.mk
 include $(PORTSDIR)/Mk/linux.github.mk
@@ -377,10 +379,11 @@ endif
 
 source			:= $(word $(words $(subst /, ,$(WRKSRC))),$(subst /, ,$(WRKSRC)))
 ifeq ($(WRKDIR)/$(source),$(WRKSRC))
-ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(source)
+ALTERNATIVE_WRKSRC	= $(flavor-alternative-root)/$(source)
 else
 ALTERNATIVE_PREFIX	= $(patsubst $(WRKDIR)/%/$(source),%,$(WRKSRC))
-ALTERNATIVE_WRKSRC	= $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX)/$(source)
+alternative-parent	= $(flavor-alternative-root)/$(ALTERNATIVE_PREFIX)
+ALTERNATIVE_WRKSRC	= $(alternative-parent)/$(source)
 endif
 
 ifeq ($(FORCE_ALTERNATIVE),yes)
@@ -403,8 +406,26 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+# Port declarations are complete; avoid repeated shell version conversions.
+ARCH			:= $(ARCH)
+OPSYS			:= $(OPSYS)
+PORTVERSION		:= $(PORTVERSION)
+DISTVERSIONFULL		:= $(DISTVERSIONFULL)
+PKGVERSION		:= $(PKGVERSION)
+PKGNAME			:= $(PKGNAME)
+endif
+ifneq ($(flavor-declared),)
+BUILD_DEPENDS		+= $($(flavor-selected)_BUILD_DEPENDS)
+LIB_DEPENDS		+= $($(flavor-selected)_LIB_DEPENDS)
+RUN_DEPENDS		+= $($(flavor-selected)_RUN_DEPENDS)
+endif
+
+source-identity-required	= $(strip			       \
+			    $(or $(filter yes,$(_SOURCE_MODE_EXPLICIT)), \
+			      $(flavor-active)))
 source-cookie-suffix	:= $(strip \
-	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),.$(source-identity-key)))
+	$(if $(source-identity-required),.$(source-identity-key)))
 source-cookie-name	= $(PKGNAME)$(source-cookie-suffix)
 EXTRACT_COOKIE		?= $(WRKDIR)/extract._done.$(source-cookie-name)
 PATCH_COOKIE		?= $(WRKDIR)/patch._done.$(source-cookie-name)
@@ -412,6 +433,8 @@ CONFIGURE_COOKIE	?= $(WRKDIR)/configure._done.$(source-cookie-name)
 BUILD_COOKIE		?= $(WRKDIR)/build._done.$(source-cookie-name)
 STAGE_COOKIE		?= $(WRKDIR)/stage._done.$(source-cookie-name)
 INSTALL_COOKIE		?= $(WRKDIR)/install._done.$(source-cookie-name)
+installed-package-plists = $(wildcard				       \
+	$(DESTDIR)/var/db/$(PKGNAME)-pkg-plist.*)
 PACKAGE_COOKIE		?= $(WRKDIR)/package._done.$(source-cookie-name)
 
 source-state-cookies	= $(EXTRACT_COOKIE) $(PATCH_COOKIE) \
@@ -431,7 +454,8 @@ source-state-environment = \
 	SOURCE_STATE_ROOT='$(_SOURCE_ROOT_IDENTITY)' \
 	SOURCE_STATE_PATH='$(WRKSRC)' \
 	SOURCE_STATE_ARCHIVES='$(strip $(DISTFILES) $(PATCHFILES))' \
-	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'
+	SOURCE_STATE_LAYOUT='$(strip $(_GH_RECORDS))'		       \
+	SOURCE_STATE_FLAVOR='$(flavor-active)'
 
 .PHONY: uports-source-state-check uports-source-state-save
 uports-source-state-check:
@@ -451,6 +475,7 @@ dependency-state-file-override := $(strip $(DEPENDENCY_STATE_FILE))
 DEPENDENCY_STATE_FILE	?= $(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).state
 dependency-state-file-for = $(if $(dependency-state-file-override),\
 	$(dependency-state-file-override),$(WRKDIR)/dependency.$1.state)
+dependency-build-state-file = $(call dependency-state-file-for,configure)
 dependency-state-cookies = $(if $(filter configure,$(DEPENDENCY_STATE_CLASS)),\
 	$(CONFIGURE_COOKIE) $(BUILD_COOKIE) $(STAGE_COOKIE) $(PACKAGE_COOKIE) \
 	$(INSTALL_COOKIE),$(STAGE_COOKIE) $(PACKAGE_COOKIE) $(INSTALL_COOKIE))
@@ -472,6 +497,7 @@ uports-dependency-state-invalidate:
 	  DEPENDENCY_STATE_FILE="$(DEPENDENCY_STATE_FILE)" \
 	  DEPENDENCY_STATE_COOKIES="$(dependency-state-cookies)" \
 	  DEPENDENCY_STATE_BUILD_COOKIES="$(CONFIGURE_COOKIE) $(BUILD_COOKIE)" \
+	  DEPENDENCY_STATE_BUILD_FILE="$(dependency-build-state-file)" \
 	  DEPENDENCY_STATE_BUILD_MARKER="$(WRKDIR)/dependency.configure.changed" \
 	  DEPENDENCY_STATE_REBUILD_MARKER="$(WRKDIR)/dependency.$(DEPENDENCY_STATE_CLASS).changed" \
 	  DEPENDENCY_STATE_ARTIFACTS="$(dependency-state-artifacts)" \
@@ -502,6 +528,10 @@ uports-dependency-dispatch:
 	  exit 1; \
 	fi; \
 	cookie='$(dependency-target-cookie)'; \
+	if test "$(DEPENDENCY_TARGET_SUFFIX)" = install &&	       \
+	    test -z "$(installed-package-plists)"; then		       \
+	  cookie=;						       \
+	fi;							       \
 	if test -n "$$cookie" && test -f "$$cookie"; then \
 	  if test "$(PORTS_VERBOSE)" = 1; then \
 	    echo "  REUSE   $(DEPENDENCY_TARGET_LABEL) $(DEPENDENCY_TARGET_SUFFIX)"; \
@@ -1033,7 +1063,8 @@ endif
 # stuff for install/deinstall/uninstall ...
 
 DESCR			?= $(PKGDIR)/pkg-descr
-PLIST			?= $(call config.lookup,$(PLIST_NAME))
+PLIST			?= $(strip $(call flavor-value,PLIST,	       \
+			    $(call config.lookup,$(PLIST_NAME))))
 PKGINSTALL		?= $(PKGDIR)/pkg-install
 PKGDEINSTALL		?= $(PKGDIR)/pkg-deinstall
 PKGREQ			?= $(PKGDIR)/pkg-req
@@ -1042,21 +1073,40 @@ PKGMESSAGE		?= $(PKGDIR)/pkg-message
 # $(warning PLIST=$(PLIST))
 
 TMPPLIST		?= $(WRKDIR)/.PLIST.mktmp
+PLIST_SUB		?=
+package-plist		= $(WRKDIR)/.PLIST.resolved
+
+# Resolve into the selected work directory; preserve the read-only input plist.
+define resolve-package-plist
+$(MKDIR) "$(WRKDIR)";						       \
+temporary=$$(mktemp "$(package-plist).XXXXXX");			       \
+if awk -f "$(SCRIPTSDIR)/plist-resolve.awk"			       \
+    $(PLIST_SUB) "$(PLIST)" > "$$temporary"; then		       \
+  mv -f "$$temporary" "$(package-plist)";			       \
+else								       \
+  rm -f "$$temporary"; exit 1;					       \
+fi
+endef
 
 # stuff for package ...
 
 # $(call config.ext,$(WRKDIR),$(PLIST))
 config.ext		= $(patsubst					\
 			    $(patsubst					\
-			      %/work$(TYPE_SUFFIX),%,$1)/pkg-plist%,%,$2)
+			      %/$(flavor-work-name),%,$1)/pkg-plist%,%,$2)
 ext			= $(call config.ext,$(WRKDIR),$(PLIST))
+ifneq ($(flavor-declared),)
+ifneq ($(origin $(flavor-selected)_PLIST),undefined)
+ext			= .$(OPSYS)
+endif
+endif
 # $(warning ext=$(ext))
 
 # $(call get-port-origin,$(MASTERDIR))
 get-port-origin		= $(shell echo $1 | sed -e 's/^.*\/\(.*\/.*$$\)/\1/g')
 
 source-package-provenance = $(WRKDIR)/package.source-provenance
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 package-provenance-file = $(source-package-provenance)
 package-source-state	= $(SOURCE_STATE_FILE)
 package-source-key	= $(source-identity-key)
@@ -1075,7 +1125,7 @@ PKG_ENV			+=						\
 	INDEX=$(CATEGORIES)						\
 	COMPRESS=XZ							\
 	EXT=$(if $(ext),$(patsubst .%,%,$(ext)),$(OPSYS))		\
-	PLIST=$(PLIST)							\
+	PLIST=$(package-plist)					       \
 	PROVENANCE=$(package-provenance-file)				\
 	PACKAGE_BUILD_ID=$(PACKAGE_BUILD_ID)				\
 	WRKDIR_PKGFILE=$(WRKDIR_PKGFILE)
@@ -1138,9 +1188,11 @@ PKGFILE			?= $(CURDIR)/$(PKGNAME)$(PKG_SUFX)
 endif
 WRKDIR_PKGFILE		= $(WRKDIR)/pkg/$(PKGNAME)$(PKG_SUFX)
 
+include $(PORTSDIR)/Mk/linux.flavor.mk
+
 # Invalidate an earlier selection before make inspects its existing cookies.
 # Diagnostic and fetch-only requests must not invalidate build artifacts.
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 ifeq ($(findstring n,$(firstword -$(MAKEFLAGS))),)
 ifneq ($(filter all extract patch configure build stage package install \
   reinstall rebuild restage,$(MAKECMDGOALS)),)
@@ -1163,6 +1215,8 @@ package-dependency-provenance :=
 else
 package-dependency-provenance := $(UPORTS_DEPENDENCY_PROVENANCE_FILE)
 endif
+# Display-only metadata needs paths/cookies, not archive compatibility checks.
+ifneq ($(MAKECMDGOALS),uports-port-status-metadata)
 package-provenance-required := $(strip $(package-dependency-provenance) \
 	$(package-source-state) $(PACKAGE_BUILD_ID))
 dependency-package-mismatch := $(if $(package-provenance-required),\
@@ -1182,6 +1236,10 @@ dependency-package-rebuild := $(or $(dependency-package-mismatch),\
 
 # Local state markers describe a build tree, not a compatible cached package.
 # Validate each candidate independently; prefer a compatible shared archive.
+# Internal metadata/state probes may not carry the install's provider report.
+# Report rejected candidates only when an install actually selects an archive.
+package-reuse-diagnostic := $(filter install reinstall install-package \
+	check-already-installed,$(MAKECMDGOALS) $(DEPENDENCY_TARGET_SUFFIX))
 package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 	for archive in "$(PKGFILE)" "$(WRKDIR_PKGFILE)"; do \
 	  test -f "$$archive" || continue; \
@@ -1190,18 +1248,20 @@ package-reuse-file := $(if $(filter yes,$(FORCE_REBUILD)),,$(shell \
 	      "$(package-source-state)" "$(package-source-key)" \
 	      "$(PACKAGE_BUILD_ID)"; then \
 	    printf '%s' "$$archive"; break; \
-	  elif test "$(PORTS_VERBOSE)" = 1; then \
+	  elif test "$(PORTS_VERBOSE)" = 1 &&			       \
+	      test -n "$(package-reuse-diagnostic)"; then	       \
 	    printf '  PKG REJECT %s (prefix/provider/source/build identity mismatch)\n' \
 	      "$$archive" >&2; \
 	  fi; \
 	done))
 #REPO_PKGFILE		?= $(PKGREPOSITORY)/$(PKGNAME)$(PKG_SUFX)
+endif
 
 # $(warning _HAVE_PACKAGES=$(_HAVE_PACKAGES))
 
 # The "latest version" link -- $(PKGNAME) minus everthing after the last '-'
 PKGLATESTREPOSITORY	?= $(PACKAGES)/Latest$(REPO_SUFX)
-PKGBASE			?= $(PKGNAMEPREFIX)$(PORTNAME)$(PKGNAMESUFFIX)
+PKGBASE			?= $(flavor-package-base)
 PKGLATESTFILE		= $(PKGLATESTREPOSITORY)/$(PKGBASE)$(PKG_SUFX)
 #PKGOLDLATESTFILE	= $(PKGLATESTREPOSITORY)/$(PKGBASE).$(PKG_COMPRESSION_FORMAT)
 # Temporary workaround to be deleted once every supported version of FreeBSD
@@ -1286,7 +1346,8 @@ quiet_cmd_chk-unzip	?=
 ifeq ($(USE_ALTERNATIVE),yes)
 quiet_cmd_wrkdir-alt	?=
       cmd_wrkdir-alt	?= set -e;					\
-	[ -d $(ALTERNATIVE_WRKDIR) ] || mkdir -p $(ALTERNATIVE_WRKDIR)
+	[ -d $(flavor-alternative-root) ] ||			       \
+	    mkdir -p $(flavor-alternative-root)
 
 quiet_cmd_chk-unzip-alt	?=
       cmd_chk-unzip-alt	?= set -e;					\
@@ -1327,7 +1388,11 @@ ifeq ($(USE_ALTERNATIVE),yes)
 #        for example: sbl-elf-2.7.6
 quiet_cmd_extract-only-alt	?=
       cmd_extract-only-alt	?= set -e;				\
-	(cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi)
+	(cd $(flavor-alternative-root) &&			       \
+	    if [ -f $(_DISTDIR)/$@ ]; then			       \
+	        $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS)		       \
+	            $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS);	       \
+	    fi)
 endif
 
 ifeq ($(USE_STICKY),yes)
@@ -1337,7 +1402,11 @@ quiet_cmd_extract-only-sticky	?=
 	    case $(extract_cmd_name) in 				\
 	        unzip) mkdir -p $(ALTERNATIVE_WRKSRC);; 		\
 	    esac; 							\
-	    (cd $(ALTERNATIVE_WRKDIR) && if [ -f $(_DISTDIR)/$@ ]; then $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS) $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS); fi); \
+	    (cd $(flavor-alternative-root) &&			       \
+	        if [ -f $(_DISTDIR)/$@ ]; then			       \
+	            $(EXTRACT_CMD) $(EXTRACT_BEFORE_ARGS)	       \
+	                $(_DISTDIR)/$@ $(EXTRACT_AFTER_ARGS);	       \
+	        fi);						       \
 	fi
 endif
 
@@ -1413,14 +1482,15 @@ post-extract-alternative:
 else
 quiet_cmd_post-extract-alt	?=
       cmd_post-extract-alt	?= set -e;				\
-	if [ -d $(ALTERNATIVE_WRKDIR) ]; then				\
+	if [ -d $(flavor-alternative-root) ]; then		       \
 	    if [ -d $(WRKSRC) ]; then					\
 	        if [ -e "$(ALTERNATIVE_WRKSRC)/.git" ]; then          \
 	            printf '%s\n' 'Existing Git destination is preserved' >&2; \
 	            exit 1;                                               \
 	        fi;                                                       \
 	        rm -fr $(ALTERNATIVE_WRKSRC);				\
-	        mkdir -p $(ALTERNATIVE_WRKDIR)/$(ALTERNATIVE_PREFIX);	\
+	        mkdir -p					       \
+	            $(flavor-alternative-root)/$(ALTERNATIVE_PREFIX);  \
 	        mv $(WRKSRC) $(ALTERNATIVE_WRKSRC);			\
 	    fi;								\
 	    ln -s $(ALTERNATIVE_WRKSRC) $(WRKSRC);			\
@@ -1697,6 +1767,9 @@ endif
 
 ifeq ($(filter $(override_targets),check-plist),)
 check-plist: generate-plist
+	@set -e; $(resolve-package-plist);			       \
+	  $(SH) "$(SCRIPTSDIR)/pkg.sh" check-plist		       \
+	    "$(STAGEDIR)$(PREFIX)" "$(package-plist)" "$(PREFIX)"
 endif
 
 ifeq ($(filter $(override_targets),stage-qa),)
@@ -1801,9 +1874,10 @@ endif
 # from here this will become a loop for subpackages
 quiet_cmd_wrkdir-package?=
       cmd_wrkdir-package?= set -e;					\
+	$(resolve-package-plist);				       \
 	$(if $(filter git,$(_SOURCE_MODE)),                              \
 	  $(scm-environment) $(SH) $(SCRIPTSDIR)/do-scm.sh package-check;) \
-	$(if $(filter yes,$(_SOURCE_MODE_EXPLICIT)),\
+	$(if $(source-identity-required),			       \
 	  $(source-state-environment)                                    \
 	    $(SH) $(SCRIPTSDIR)/source-state.sh save;                     \
 	  $(SH) $(SCRIPTSDIR)/package-provenance-merge.sh \
@@ -1822,7 +1896,7 @@ dependency-package-force:
 $(WRKDIR_PKGFILE): dependency-package-force
 endif
 
-ifeq ($(_SOURCE_MODE_EXPLICIT),yes)
+ifneq ($(source-identity-required),)
 .PHONY: source-package-force
 source-package-force:
 $(WRKDIR_PKGFILE): source-package-force
@@ -2131,13 +2205,22 @@ _TARGET_TARGETS		= extract patch configure build stage install package
 #$(warning _INSTALL_REAL_SEQ=$(call get-real-seqs,INSTALL))
 #$(warning _PACKAGE_REAL_SEQ=$(call get-real-seqs,PACKAGE))
 
+# An absent installed manifest invalidates only the installation cookie.
+# $(call cookie-must-refresh, phase)
+define cookie-must-refresh
+$(strip $(or							       \
+  $(and $(filter yes,$(dependency-package-reconfigure)),	       \
+    $(filter configure build stage package install,$1)),	       \
+  $(and $(filter install,$1),$(if $(installed-package-plists),,yes))))
+endef
+
 # $(call generate-cookie-targets, target, TARGET)
 define generate-cookie-targets
 _PHONY_TARGETS	+= $1
 ifeq ($(filter $(override_targets),$1),)
 $1: $($2_COOKIE)
 endif
-ifeq ($(if $(and $(filter yes,$(dependency-package-reconfigure)),$(filter configure build stage package install,$1)),,$(wildcard $($2_COOKIE))),)
+ifeq ($(if $(call cookie-must-refresh,$1),,$(wildcard $($2_COOKIE))),)
 ifeq ($(filter $(firstword $(call get-real-seqs,$2)),$(MAKECMDGOALS)),)
 $$(firstword $$(call get-real-seqs,$2)): | $$(_$2_DEP)
 endif
@@ -2408,11 +2491,67 @@ endif
 # requested for its next build. Never guess between multiple install markers.
 dependency-install-cookies = $(wildcard $(WRKDIR)/install._done.$(PKGNAME) \
 	$(WRKDIR)/install._done.$(PKGNAME).*)
-dependency-installed-cookie = $(strip $(or $(wildcard $(INSTALL_COOKIE)), \
-	$(if $(filter 1,$(words $(dependency-install-cookies))),         \
-	  $(dependency-install-cookies)),$(INSTALL_COOKIE)))
+define dependency-installed-cookie
+$(strip $(if $(installed-package-plists),			       \
+  $(or $(wildcard $(INSTALL_COOKIE)),				       \
+    $(if $(filter 1,$(words $(dependency-install-cookies))),	       \
+      $(dependency-install-cookies)),$(INSTALL_COOKIE))))
+endef
 .PHONY: uports-dependency-metadata
+.PHONY: uports-flavor-metadata
+.PHONY: uports-port-status-metadata
+uports-port-status-metadata:
+	@printf '%s\n'						       \
+	  'flavors|$(flavor-declared)'				       \
+	  'default|$(or $(flavor-default),default)'		       \
+	  'path|work|$(WRKDIR)'					       \
+	  'display|version|$(DISTVERSIONFULL)'			       \
+	  'display|license|$(LICENSE)'				       \
+	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
+	  'cookie|patch|$(PATCH_COOKIE)'			       \
+	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \
+	  'cookie|build|$(BUILD_COOKIE)'			       \
+	  'cookie|stage|$(STAGE_COOKIE)'			       \
+	  'cookie|package|$(PACKAGE_COOKIE)'			       \
+	  'cookie|install|$(INSTALL_COOKIE)'
+
+uports-flavor-metadata:
+	@printf '%s\n'							\
+	  'flavor-schema|1'						\
+	  'flavors|$(flavor-declared)'					\
+	  'default|$(or $(flavor-default),default)'			\
+	  'selected|$(flavor-selected)'					\
+	  'execution|$(flavor-execution)'			       \
+	  'path|work|$(WRKDIR)'					       \
+	  'path|source|$(WRKSRC)'				       \
+	  'path|stage|$(STAGEDIR)'				       \
+	  'path|plist|$(PLIST)'					       \
+	  'path|generated-plist|$(TMPPLIST)'			       \
+	  'path|resolved-plist|$(package-plist)'		       \
+	  'path|source-state|$(SOURCE_STATE_FILE)'		       \
+	  'path|configure-state|$(call dependency-state-file-for,configure)' \
+	  'path|stage-state|$(call dependency-state-file-for,stage)'   \
+	  'package|name|$(PKGNAME)'				       \
+	  'package|base|$(PKGBASE)'				       \
+	  'package|cache|$(PKGFILE)'				       \
+	  'package|work|$(WRKDIR_PKGFILE)'			       \
+	  'source|request-key|$(source-identity-key)'		       \
+	  'source|flavor|$(flavor-active)'				       \
+	  'cookie|extract|$(EXTRACT_COOKIE)'			       \
+	  'cookie|patch|$(PATCH_COOKIE)'			       \
+	  'cookie|configure|$(CONFIGURE_COOKIE)'		       \
+	  'cookie|build|$(BUILD_COOKIE)'			       \
+	  'cookie|stage|$(STAGE_COOKIE)'			       \
+	  'cookie|package|$(PACKAGE_COOKIE)'			       \
+	  'cookie|install|$(INSTALL_COOKIE)'
+	@$(if $(filter yes,$(USE_ALTERNATIVE)),printf '%s\n'	       \
+	  'path|alternative-source|$(ALTERNATIVE_WRKSRC)';,:)
+
 uports-dependency-metadata:
+	@printf '%s\n' 'context|$(OPSYS)|$(ARCH)'
+	@printf '%s\n' 'flavor-default|$(or $(flavor-default),default)' \
+	  'flavor-selected|$(flavor-selected)'
+	@$(foreach f,$(flavor-declared),printf '%s\n' 'flavor-choice|$f';)
 	@$(foreach p,$(PORT_PROVIDES),printf '%s\n' 'provides|$(p)';)
 	@$(foreach d,$(BUILD_DEPENDS),printf '%s\n' 'build|$(d)';)
 	@$(foreach d,$(LIB_DEPENDS),printf '%s\n' 'lib|$(d)';)

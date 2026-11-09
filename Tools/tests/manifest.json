@@ -52,6 +52,60 @@
         "Staged Scheme arithmetic, regexp and UNIX extension loading",
         "Source provenance and repeat preservation"
       ]
+    },
+    {
+      "id": "w06b",
+      "feature": "Bounded plist directives and standalone package management",
+      "implementation_commits": [
+        "54bba9d1eb19af5b1ccb9f335e273f236aa10d17"
+      ],
+      "script": "w06b/check-pkg-standalone-live.sh",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Real staged gforth 0.7.9_20260610 default/libffcall instances, Bash and standard package tools",
+      "coverage": [
+        "Copy only pkg.sh outside the framework",
+        "Real gforth inventories with comment, directory and legacy cleanup directives",
+        "Reject unsupported directives, traversal and out-of-prefix cleanup",
+        "Preserve archive checksums on validation failure",
+        "Isolated installation, query, deletion preview and removal",
+        "Preserve nonempty directories and unrelated user files"
+      ]
+    },
+    {
+      "id": "w06c",
+      "feature": "Standalone installation ownership and conflict preflight",
+      "implementation_commits": [
+        "eaaef2685ba4d9e6b669fc5cffcd395fe6e9090e"
+      ],
+      "script": "w06c/check-pkg-conflicts-live.py",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Python 3, standard package tools and real cached gforth/default/libffcall/bootstrap archives",
+      "coverage": [
+        "Copy-only standalone package manager",
+        "Exact reinstall and shared directories with bootstrap",
+        "Reject opposite-Flavors in both orders without modifying destination",
+        "Reject unmanaged files, directory type conflicts and symlink parents",
+        "Serialize concurrent installs through destination aliases",
+        "Preserve original cache archive hashes"
+      ]
+    },
+    {
+      "id": "w06d",
+      "feature": "Standalone ownership-aware removal and mutation coordination",
+      "implementation_commits": [
+        "8382479ac9431f324754e87d6b44f1385becb529"
+      ],
+      "script": "w06d/check-pkg-removal-live.py",
+      "platform": "Linux x86_64; native macOS/ARM64 untested",
+      "requires": "Python 3, Git history containing 54bba9d, standard package tools and real cached gforth/default/libffcall/bootstrap archives",
+      "coverage": [
+        "Legacy overlap set up using earlier production installer and real archives",
+        "Preserve other Flavor payload, bootstrap and shared empty directories",
+        "Exact selection, previews and last-owner bulk removal",
+        "Reject malformed/missing manifests before partial deletion",
+        "Coordinate concurrent removals and add/delete through aliases",
+        "Preserve user files and original cached archives"
+      ]
     }
   ]
 }
