@@ -157,6 +157,7 @@ elif test "$$selected" != "$$default"; then			       \
   esac;								       \
 else								       \
   $(MAKE) --no-print-directory					       \
+    _UPORTS_FLAVOR_LABEL="$$selected"				       \
     _UPORTS_FLAVOR_TARGET='$(call flavor-base-target,$1)'	       \
     '$(call flavor-base-target,$1)';				       \
 fi
@@ -205,11 +206,14 @@ flavor-mixed-goals	= $(strip				       \
 depends_exclude_targets	+= $(flavor-qualified-goals)		       \
 			   $(flavor-dispatch-goals) $(flavor-dispatch-targets)
 
+ifneq ($(filter yes,						       \
+  $(UPORTS_DEPENDENCY_INVOCATION) $(_UPORTS_GROUP_DIRECT)),)
 $(foreach t,$(flavor-dispatch-targets),				       \
   $(eval $(call generate-flavor-target,$t)))
 $(foreach t,$(flavor-dispatch-goals),				       \
   $(if $(filter-out $(call resolve-port-target,$t),$t),		       \
     $(eval $(call generate-flavor-alias,$t,$(call resolve-port-target,$t)))))
+endif
 
 # $(call flavor-request-instance, [group:]port)
 flavor-request-instance	= $(call target-base-instance-key,	       \

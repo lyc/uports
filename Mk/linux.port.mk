@@ -139,7 +139,12 @@ ifeq ($(ARCH),)
 ifneq ($(CROSS_COMPILE),)
 ARCH			?= $(call triplet.cpu,$(CROSS_COMPILE))
 else
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+# Expand only the framework's host default once; preserve recipe assignments.
+$(eval ARCH ?= $(shell uname -m))
+else
 ARCH			?= $(shell uname -m)
+endif
 endif
 ARCH			?= $(shell $(UNAME) -m)
 endif
@@ -150,7 +155,11 @@ ifneq ($(CROSS_COMPILE),)
 OPSYS			?= $(call triplet.kernel,$(CROSS_COMPILE))
 OPSYS_SUFX		?= $(call triplet.system,$(CROSS_COMPILE))
 else
+ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
+$(eval OPSYS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]'))
+else
 OPSYS			?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
+endif
 ifeq ($(OPSYS),darwin)
 ifeq ($(ARCH),arm64)
 ARCH			:= aarch64
@@ -406,14 +415,18 @@ $(foreach u,$(_USES_POST),						\
     $(call setup_uses,$(word 1,$(subst :, ,$(u))),$(u))))
 
 # Name of cookies used to skip already completed stages
-ifeq ($(MAKECMDGOALS),uports-port-status-metadata)
-# Port declarations are complete; avoid repeated shell version conversions.
+ifneq ($(filter uports-port-status-metadata uports-dependency-metadata \
+  uports-flavor-metadata,$(MAKECMDGOALS)),)
+ifeq ($(words $(MAKECMDGOALS)),1)
+# Port declarations are complete. Metadata expands paths and cookies repeatedly;
+# evaluate host facts and shell version conversions once for this probe.
 ARCH			:= $(ARCH)
 OPSYS			:= $(OPSYS)
 PORTVERSION		:= $(PORTVERSION)
 DISTVERSIONFULL		:= $(DISTVERSIONFULL)
 PKGVERSION		:= $(PKGVERSION)
 PKGNAME			:= $(PKGNAME)
+endif
 endif
 ifneq ($(flavor-declared),)
 BUILD_DEPENDS		+= $($(flavor-selected)_BUILD_DEPENDS)
@@ -1091,9 +1104,8 @@ endef
 # stuff for package ...
 
 # $(call config.ext,$(WRKDIR),$(PLIST))
-config.ext		= $(patsubst					\
-			    $(patsubst					\
-			      %/$(flavor-work-name),%,$1)/pkg-plist%,%,$2)
+# The manifest name does not depend on where this build's work tree lives.
+config.ext		= $(patsubst pkg-plist%,%,$(notdir $2))
 ext			= $(call config.ext,$(WRKDIR),$(PLIST))
 ifneq ($(flavor-declared),)
 ifneq ($(origin $(flavor-selected)_PLIST),undefined)

@@ -6,6 +6,11 @@ installation, manifest parsing and installed ownership behavior.
 
 ## Cached Package Installation And DESTDIR
 
+The package header's manifest extension is derived from the plist filename,
+independently of WRKDIR. A custom work directory must not turn that extension
+into an absolute plist path, which is invalid as an installed package identity.
+Explicit Flavor plist selections retain their existing platform extension rule.
+
 `install` first considers compatible shared-cache and work-directory packages,
 unless `FORCE_REBUILD=yes`. `FORCE_DEVELOPMENT_INSTALL` defaults to `yes`: a
 compatible candidate retains fetch/extract/patch for development review, then

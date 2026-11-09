@@ -26,24 +26,37 @@ probe() {
         PORTSDIR="$portdir" $clean_environment \
         --eval="$selection" uports-port-status-metadata \
         > "$metadata_file"
+    read_metadata
 }
 
-# port_path path: resolve relative artifacts against the actual port directory.
-port_path() {
-    case "$1" in
-        /*) printf '%s' "$1" ;;
-        *) printf '%s/%s/%s' "$base" "$port" "$1" ;;
-    esac
-}
-
-# metadata_status: use the selected configuration's exact cookie paths.
-metadata_status() {
+# read_metadata: collect display fields and exact cookie status in one pass.
+read_metadata() {
+    metadata_choices=
+    metadata_default=
     state=
-    while IFS='|' read -r kind phase value
+    version=
+    license=
+    while IFS='|' read -r kind field value
     do
-        [ "$kind" = cookie ] || continue
-        [ -f "$(port_path "$value")" ] || continue
-        case "$phase" in
+        case "$kind" in
+            flavors) metadata_choices=$field; continue ;;
+            default) metadata_default=$field; continue ;;
+            display)
+                case "$field" in
+                    version) version=$value ;;
+                    license) license=$value ;;
+                esac
+                continue
+                ;;
+            cookie) ;;
+            *) continue ;;
+        esac
+        case "$value" in
+            /*) cookie_path=$value ;;
+            *) cookie_path="$base/$port/$value" ;;
+        esac
+        [ -f "$cookie_path" ] || continue
+        case "$field" in
             extract) state=E ;;
             patch) state=P ;;
             configure) state=C ;;
@@ -53,21 +66,17 @@ metadata_status() {
             install) state=I ;;
         esac
     done < "$metadata_file"
-    printf '%s' "$state"
 }
 
 # emit flavor: descriptive columns use actual selected port metadata.
 emit() {
-    state=$(metadata_status)
-    version=$(sed -n 's/^display|version|//p' "$metadata_file")
-    license=$(sed -n 's/^display|license|//p' "$metadata_file")
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
         "$group" "$port" "$base" "$state" "$flag" "$suffix" \
         "$1" "$version" "$license"
 }
 
-# process_row: collect one instance and its Flavors in private worker storage.
-process_row() {
+# prepare_row: apply instance overrides before choosing the collection path.
+prepare_row() {
     clean_environment=
     for entry in $environment
     do
@@ -90,6 +99,10 @@ process_row() {
             *) clean_environment="$clean_environment $entry" ;;
         esac
     done
+}
+
+# process_row: collect one instance and its Flavors in private worker storage.
+process_row() {
     if [ "$mode" = fast ] && [ -z "$selected" ]; then
         status=
         for phase in extract patch configure build stage package install
@@ -115,8 +128,8 @@ process_row() {
         return
     fi
     probe ''
-    choices=$(sed -n 's/^flavors|//p' "$metadata_file")
-    default=$(sed -n 's/^default|//p' "$metadata_file")
+    choices=$metadata_choices
+    default=$metadata_default
     if [ -n "$choices" ]; then
         emit "$default"
     else
@@ -162,6 +175,16 @@ while IFS='|' read -r group port base status flag suffix hint selected \
 do
     rows=$((rows + 1))
     metadata_file="$temporary/$rows.metadata"
+    prepare_row
+    if [ "$mode" = fast ] && [ -z "$selected" ]; then
+        if process_row > "$temporary/$rows.rows" \
+            2> "$temporary/$rows.errors"; then
+            continue
+        else
+            failed=1
+            break
+        fi
+    fi
     process_row > "$temporary/$rows.rows" 2> "$temporary/$rows.errors" &
     pids="$pids $!"
     active=$((active + 1))
@@ -174,12 +197,18 @@ wait_workers
 
 # Workers never write shared output; emit rows/errors in original input order.
 row=1
+set --
 while [ "$row" -le "$rows" ]
 do
-    cat "$temporary/$row.errors" >&2
+    if [ -s "$temporary/$row.errors" ]; then
+        cat "$temporary/$row.errors" >&2
+    fi
     if [ "$failed" -eq 0 ]; then
-        cat "$temporary/$row.rows"
+        set -- "$@" "$temporary/$row.rows"
     fi
     row=$((row + 1))
 done
+if [ "$failed" -eq 0 ] && [ "$#" -gt 0 ]; then
+    cat "$@"
+fi
 exit "$failed"
