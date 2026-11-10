@@ -29,8 +29,10 @@ make V=1 cmake.install FORCE_DEVELOPMENT_INSTALL=no
 ```
 
 Package provenance comparisons normalize instance-local `PORTSDIR` and
-`DESTDIR`, and omit cache-site settings. Prefix, provider identities, build
-options and available source identity remain compared. Other dependency paths
+`DESTDIR`, and omit `ALTERNATIVE_WRKDIR` and cache-site settings. The alternative
+source location is build bookkeeping; source identity remains checked separately.
+Prefix, provider identities, build options and available source identity remain
+compared. Other dependency paths
 are not broadly rewritten: a genuine provider difference may still require
 rebuilding. This is compatibility checking, not proof every port's binaries
 are relocatable. Ports remain responsible for excluding staging paths from
