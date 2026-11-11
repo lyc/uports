@@ -61,7 +61,7 @@ $(foreach t,$(call remove-comma,$(cmake_ARGS)),				\
   $(eval								\
     $(call check-if-valid,$t)))
 
-BUILD_DEPENDS		+= $(CMAKE_BIN):devel/cmake
+BUILD_DEPENDS		+= cmake:devel/cmake
 
 ifneq ($(DESTDIR),)
 ifeq ($(filter $(DESTDIR)$(PREFIX)/bin,$(subst :, ,$(PATH))),)
@@ -71,7 +71,7 @@ endif
 CMAKE_BIN		= $(or $(UPORTS_NATIVE_CMAKE_BIN),$(shell which cmake))
 
 ifneq ($(call find-uses-arg,run,$(cmake_ARGS)),)
-RUN_DEPENDS		+= ${CMAKE_BIN}:devel/cmake
+RUN_DEPENDS		+= cmake:devel/cmake
 endif
 
 ifdef WITH_DEBUG

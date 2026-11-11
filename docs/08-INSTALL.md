@@ -38,6 +38,15 @@ rebuilding. This is compatibility checking, not proof every port's binaries
 are relocatable. Ports remain responsible for excluding staging paths from
 their runtime configuration and for maintaining package revisions.
 
+CMake dependencies use the stable requirement `cmake:devel/cmake`; executable
+discovery selects the command separately. For existing archives, compatibility
+comparison maps historical empty or absolute `cmake` executable requirements
+to `cmake` only for uports build/run dependencies on `devel/cmake`. Provider
+identity and other requirements remain compared, including version constraints.
+Historical `group@port[:flavor].phase` dependency targets compare as the
+equivalent `group:port[@flavor].phase` spelling, including nested build state.
+Changes to group, port, Flavor or lifecycle phase remain significant.
+
 `PACKAGE_BUILD_ID` optionally adds a port-defined compatibility record to
 PVER 2 packages. Changing it rejects packages without the matching record;
 it is not an automatically computed recipe hash. CMake now uses runtime
